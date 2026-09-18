@@ -1,0 +1,84 @@
+# Minimal development-oriented Docker foundation (docs/ROADMAP.md Phase
+# 1.1), mirroring saas-os's own root docker-compose.yml shape. All secrets
+# come from a local, gitignored `.env` file (copy `.env.example` to `.env`
+# and fill in local-only values) -- none are hardcoded or defaulted here.
+#
+# Two distinct PostgreSQL roles (docs/REPOSITORY-STRATEGY.md, mirroring
+# saas-os's own two-role convention -- PostgreSQL RLS, where used, is
+# never applied to a superuser or a BYPASSRLS role, no override exists):
+#   - POSTGRES_USER: the image's own bootstrap/superuser role. Used only
+#     for migrations (MIGRATIONS_DATABASE_URL) -- never by the running
+#     application.
+#   - APP_DB_USER: a restricted, NOSUPERUSER/NOBYPASSRLS role created by
+#     deploy/db-init/01-create-app-role.sh (the official postgres image's
+#     own /docker-entrypoint-initdb.d mechanism, run once on first boot of
+#     an empty data volume). This is what DATABASE_URL points at.
+#
+# No `worker` service yet -- no background job is defined anywhere in
+# this product (docs/ROADMAP.md Phase 1 scope), so there is nothing for a
+# worker process to run. Added in the phase that actually registers one.
+#
+# Unlike saas-os's own `backend` service (which publishes no host port,
+# behind its own Caddy ingress -- out of scope for this product's Phase
+# 1), `backend` here publishes 8000 directly: this frontend's browser-side
+# code calls the backend directly (NEXT_PUBLIC_API_URL, the OIDC redirect
+# and /auth/me fetch both happen from the browser, not server-side), and
+# no reverse proxy exists yet in this repository.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./deploy/db-init/01-create-app-role.sh:/docker-entrypoint-initdb.d/01-create-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  db-data:

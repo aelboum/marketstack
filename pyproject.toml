@@ -1,0 +1,131 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Neutral technical identifier -- never this product's own temporary
+# working name. See docs/ADR/0001-naming-and-identifier-neutrality.md and
+# README.md for what that name is and why it is kept out of this file.
+name = "product"
+version = "0.0.1"
+description = "Agency-oriented SaaS platform, built on the saas-os platform foundation. See README.md and docs/."
+requires-python = ">=3.13"
+readme = "README.md"
+license = { text = "UNLICENSED" }
+
+# Pinned Git/VCS dependency, exact commit SHA (never a mutable tag/branch) --
+# docs/REPOSITORY-STRATEGY.md, mirroring saas-os's own ADR-0015 rules 6-8.
+dependencies = [
+    "saas-os @ git+https://github.com/aelboum/saas-os@2a299a3b5fa62e810d87e3ff2d8e844763e6a38b",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "pyright>=1.1",
+    "import-linter>=2.0",
+]
+# Security tooling (docs/ROADMAP.md Phase 1.5): dev-only, not part of the
+# runtime image (Dockerfile installs only [project] dependencies).
+# detect-secrets is pinned to an EXACT version, mirroring saas-os's own
+# pyproject.toml -- an unbounded `>=` is a determinism hazard specific to
+# this one package: a later release changing a plugin's heuristics can
+# make the same repository content scan differently, silently invalidating
+# .secrets.baseline's own recorded findings without any code change.
+security = [
+    "pip-audit>=2.7",
+    "detect-secrets==1.5.0",
+]
+
+[tool.setuptools]
+packages = [
+    "product",
+    "product.foundation",
+    "product.agency",
+    "product.crm",
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+    "product.api",
+]
+
+# product/migrations/ is deliberately NOT in `packages` above -- like
+# saas-os's own infra/db/migrations/, an Alembic script directory is a
+# plain-file directory (env.py, script.py.mako, versions/*.py), not an
+# import target, even though it happens to also carry an __init__.py here
+# for docstring/ownership purposes. It never needs to be shipped as
+# installable package data in this repository (unlike saas-os's own
+# migrations, which must ship *inside* the wheel for a consumer to run --
+# this product's own migrations already live in this same repository, run
+# directly from the working tree via alembic.ini, never installed
+# elsewhere).
+
+# --- Ruff (lint + format) --------------------------------------------------
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["product", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"product/api/**/*.py" = ["B008"]
+
+# --- Pyright (type checking) -----------------------------------------------
+[tool.pyright]
+include = ["product", "scripts", "tests", "conftest.py"]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+
+# --- pytest ------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+# --- import-linter: enforces docs/ARCHITECTURE.md section 2.2's rule --
+# "Every product/<module> MUST NOT depend on any other product/<module>
+# directly" -- product.foundation and product.api are deliberately
+# excluded from the independence set below: foundation is the one shared
+# dependency every module may use, api is the composition root that
+# legitimately imports every module's router. See docs/ROADMAP.md Phase
+# 1.4 for the non-vacuousness proof this contract is checked against.
+[tool.importlinter]
+root_packages = ["product"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Product modules do not depend on each other directly"
+type = "independence"
+modules = [
+    "product.agency",
+    "product.crm",
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+]

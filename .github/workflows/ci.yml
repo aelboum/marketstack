@@ -1,0 +1,125 @@
+# Product CI (docs/ROADMAP.md Phase 1.5). Runs the exact same commands a
+# developer runs locally (scripts/check-*.sh, README.md) so there is one
+# semantic validation process, not a separate one for CI. Mirrors
+# saas-os's own .github/workflows/ci.yml shape, scoped to what exists in
+# this repository after Phase 1 -- no `packaging`/`security-integration`
+# job (this product ships no package of its own for anyone to consume the
+# way saas-os does, and has no integration-marked test suite yet).
+#
+# Requires no production secrets and touches no production infrastructure:
+# no external secret store, no deployment step. The `docker` job needs *a*
+# .env for `docker compose config` to validate -- it uses .env.example
+# (placeholders only). The `migrations` job is the one exception to "no
+# database service containers": a disposable `postgres:16-alpine` GitHub
+# Actions service container, torn down automatically at the end of the
+# job, using obviously-fake, CI-only credentials.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create venv and install
+        run: |
+          python -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Backend checks (ruff, ruff format, pyright, pytest, import-linter)
+        run: bash scripts/check-backend.sh
+
+  frontend:
+    name: frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend checks (typecheck, eslint, next build)
+        run: bash scripts/check-frontend.sh
+
+  security:
+    name: security checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create venv and install security tooling (pip-audit, detect-secrets)
+        run: |
+          python -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ".[security]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Security checks (pip-audit, npm audit, detect-secrets)
+        run: bash scripts/check-security.sh
+
+  docker:
+    name: docker build + runtime validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker checks (build backend + frontend, runtime smoke test, compose config)
+        run: bash scripts/check-docker.sh
+
+  migrations:
+    name: migration bootstrap gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create venv and install
+        run: |
+          python -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Migration bootstrap gate (starts its own disposable postgres container)
+        run: bash scripts/check-migrations.sh

@@ -1,0 +1,43 @@
+# --- Secrets (mirrors saas-os docs/ADR/0012-secrets-management.md) --------
+# .env is gitignored from the commit that introduces it. Never remove these
+# lines to commit a real .env -- use .env.example for documented placeholders.
+.env
+.env.*
+!.env.example
+!frontend/.env.example
+
+# --- Python ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.import_linter_cache/
+
+# --- Node / frontend -----------------------------------------------------
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/*.tsbuildinfo
+node_modules/
+
+# --- Docker / local data ---------------------------------------------------
+*.pid
+
+# --- Editors / OS ----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# --- Local tooling state (not part of this repository's content) ----------
+.claude/

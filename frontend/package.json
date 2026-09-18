@@ -1,0 +1,30 @@
+{
+  "name": "frontend",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Product frontend. See ../docs/ADR/0001-naming-and-identifier-neutrality.md -- 'frontend' is the package identifier, never this product's own working name. Toolchain versions mirror saas-os/frontend's own (Next.js + React + TypeScript).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.1.0",
+    "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "postcss": "^8.5.23"
+  }
+}
