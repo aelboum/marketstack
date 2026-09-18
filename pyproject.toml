@@ -93,9 +93,17 @@ venvPath = "."
 venv = ".venv"
 
 # --- pytest ------------------------------------------------------------
+# `integration` tests need a real disposable PostgreSQL/Redis instance and
+# are excluded from the default run (mirrors saas-os's own pyproject.toml
+# convention exactly) -- scripts/check-backend.sh must not depend on an
+# external database/broker. Run them explicitly via
+# scripts/check-integration.sh (`pytest -m integration`).
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -m \"not integration\""
+markers = [
+    "integration: requires a real disposable PostgreSQL and/or Redis instance; excluded by default, see scripts/check-integration.sh",
+]
 
 # --- import-linter: enforces docs/ARCHITECTURE.md section 2.2's rule --
 # "Every product/<module> MUST NOT depend on any other product/<module>
@@ -128,4 +136,36 @@ modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+]
+
+# Phase 1's independence contract above only forbids sibling
+# product.<module> packages from importing each other -- it does not
+# separately enforce docs/ARCHITECTURE.md section 2.2's own explicit
+# rule that "foundation itself must never import any other
+# product/<module>" (foundation is deliberately excluded from the
+# independence contract's module list, since it is the one always-
+# allowed dependency *target*, not a checked sibling). Added in Phase 2
+# now that product/foundation/ carries real code for the first time.
+[[tool.importlinter.contracts]]
+name = "Foundation does not depend on any other product module"
+type = "forbidden"
+source_modules = ["product.foundation"]
+forbidden_modules = [
+    "product.agency",
+    "product.crm",
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+    "product.api",
 ]

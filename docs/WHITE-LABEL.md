@@ -52,36 +52,73 @@ branding — absence means "inherit from parent"):
 
 ## 3. Custom Domain Resolution
 
-An agency (or a client, if the agency permits it) points a domain
-(`app.theiragency.com`) at this product. Resolution needs to happen **before**
-`core.identity.get_tenant_context()` can do its job (which resolves by
-subdomain/header today) — so this product's own ingress adds a thin
-domain-to-tenant-id lookup middleware in front of it:
+**Corrected 2026-09-19, post-Phase-2 implementation.** This section
+previously claimed SaaS-OS's ingress "resolves tenant by subdomain/header
+today" and described this product's domain-resolution middleware as
+sitting "in front of" that mechanism. Direct inspection of the pinned
+`saas-os` commit (`2a299a3b5fa62e810d87e3ff2d8e844763e6a38b`) shows that
+claim was wrong: SaaS-OS has no subdomain- or header-based tenant
+resolution anywhere. The actual chokepoint is
+`api.dependencies.get_tenant_context(tenant_id: uuid.UUID, actor_id =
+Depends(get_current_actor)) -> RequestContext` — `tenant_id` is bound as
+an ordinary FastAPI **path parameter** and validated against a real
+session membership (`get_membership(tenant_id, actor_id)`); it is never
+read from `Host` or any other header. This is the same function
+`docs/MULTI-TENANCY.md` section 8 already documents; the "subdomain/
+header" framing here was this document's own error, not a description of
+anything that ever existed in SaaS-OS.
+
+What this product actually built in Phase 2, given that correction: an
+agency (or a client, if the agency permits it) points a domain
+(`app.theiragency.com`) at this product. `white_label.tenant_domains`
+(domain → tenant_id, TLS cert state) is this product's own table.
+`product/white_label/domains.py`'s `DomainResolutionMiddleware` runs
+ahead of routing and does exactly this, no more:
 
 ```
 Incoming request (Host: app.theiragency.com)
         │
         ▼
-product's own domain-resolution middleware
-   (white_label.tenant_domains: domain → tenant_id, TLS cert state)
+product's own DomainResolutionMiddleware
+   - Host == PUBLIC_DOMAIN or a subdomain of it -> passthrough, untouched
+   - otherwise: resolve_tenant_for_domain(host) against
+     white_label.tenant_domains
+       - found -> request.state.resolved_tenant_id = tenant_id, passthrough
+       - not found -> non-enumerating 404 (fail-closed; never falls
+         through to any tenant, including the platform's own)
         │
         ▼
-core.identity.get_tenant_context()   ← unchanged, SaaS-OS-owned
-        │
-        ▼
-core.rbac / rest of the ingress chain  ← unchanged, SaaS-OS-owned
+ordinary routing / api.dependencies.get_tenant_context()  ← unchanged,
+   SaaS-OS-owned, and NOT fed by this middleware -- it still resolves
+   tenant_id from the URL path parameter exactly as it always has.
+   request.state.resolved_tenant_id is set but has no consumer yet.
 ```
 
-This is the specific mechanism flagged as Category B (interim C) in
-`docs/RESPONSIBILITY-MATRIX.md`: generic enough that SaaS-OS could plausibly
-want this for any multi-tenant product with custom domains, but not built
-there today, and not worth proposing upstream from a single data point.
+**Open question, deliberately not resolved here or in Phase 2**: how a
+later phase's product routes actually turn a domain-resolved
+`request.state.resolved_tenant_id` into the `tenant_id` path parameter
+`get_tenant_context()` requires (a redirect/URL-rewrite to a
+tenant-scoped path, a frontend bootstrap endpoint that returns the
+resolved `tenant_id` for the frontend to embed in its own subsequent
+calls, or some other scheme) is explicit future API/application-design
+work — see `docs/RISKS-AND-OPEN-QUESTIONS.md`. Building that mechanism
+prematurely, before any product route exists to need it, is exactly the
+kind of speculative work this roadmap's own discipline (`docs/ROADMAP.md`
+Phase 0's "evidence before infrastructure") argues against.
+
+This is still the specific capability flagged as Category B (interim C)
+in `docs/RESPONSIBILITY-MATRIX.md`: generic enough that SaaS-OS could
+plausibly want a domain→tenant resolution primitive for any multi-tenant
+product with custom domains, but not built there today, and not worth
+proposing upstream from a single data point.
 
 TLS certificate provisioning for a custom domain is itself an external
 integration concern (D) — e.g. automated via the deployment proxy's ACME
 support (`saas-os`'s own Caddy-based proxy already does ACME for its own
 domain; this product's own proxy layer extends that per-tenant, an
-operational detail decided at Phase 2 implementation time, not here).
+operational detail decided at implementation time, not here). Not built
+in Phase 2 — `tls_status` is a stored column with no automation behind it
+yet.
 
 ## 4. `BrandingProvider` Interface
 
@@ -115,13 +152,20 @@ upstreamed (Category B path, per `docs/RESPONSIBILITY-MATRIX.md`).
 ## 6. Security Considerations
 
 - Custom domain → tenant resolution must fail closed: an unrecognized domain
-  never falls through to a default tenant. Mirrors `core.identity
+  never falls through to a default tenant. Mirrors `api.dependencies
   .get_tenant_context()`'s own documented behavior (a non-enumerating 404 for
-  an inaccessible tenant, `saas-os` `docs/MULTI-TENANCY.md` §6).
-- Branding assets (logos, etc.) are tenant-owned data — stored through the
-  object-storage abstraction in `docs/ARCHITECTURE.md` §5/`docs/RESPONSIBILITY
-  -MATRIX.md` ("Object/file storage" row), tenant-namespaced, never a shared
-  bucket path.
+  an inaccessible tenant, `saas-os` `docs/MULTI-TENANCY.md` §6) — corrected
+  module path, 2026-09-19; this was previously mis-cited as
+  `core.identity.get_tenant_context()`, which does not exist.
+- Branding assets (logos, etc.) are tenant-owned data — once a real
+  object-storage mechanism exists (no `docs/ARCHITECTURE.md` section covers
+  this today; tracked only as the "Object/file storage" row in
+  `docs/RESPONSIBILITY-MATRIX.md`, not yet built — corrected 2026-09-19, this
+  previously cited a nonexistent `docs/ARCHITECTURE.md` §5, which is the
+  Workflow/Automation Execution Substrate section, unrelated), it must be
+  tenant-namespaced, never a shared bucket path. Phase 2 ships
+  `logo_asset_ref`/`favicon_asset_ref` as bare string references only, no
+  upload/storage mechanism yet (`docs/ROADMAP.md` Phase 2.3).
 - An agency's branding must never leak into another agency's rendered UI —
   this is an ordinary tenant-isolation bug class if the fallback-chain
   resolution logic has an off-by-one in the ancestor walk; test this

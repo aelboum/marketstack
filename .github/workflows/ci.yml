@@ -1,18 +1,24 @@
-# Product CI (docs/ROADMAP.md Phase 1.5). Runs the exact same commands a
-# developer runs locally (scripts/check-*.sh, README.md) so there is one
-# semantic validation process, not a separate one for CI. Mirrors
-# saas-os's own .github/workflows/ci.yml shape, scoped to what exists in
-# this repository after Phase 1 -- no `packaging`/`security-integration`
-# job (this product ships no package of its own for anyone to consume the
-# way saas-os does, and has no integration-marked test suite yet).
+# Product CI (docs/ROADMAP.md Phase 1.5, extended by Phase 2's own
+# `integration` job). Runs the exact same commands a developer runs
+# locally (scripts/check-*.sh, README.md) so there is one semantic
+# validation process, not a separate one for CI. Mirrors saas-os's own
+# .github/workflows/ci.yml shape, scoped to what exists in this
+# repository -- no `packaging`/`security-integration` job (this product
+# ships no package of its own for anyone to consume the way saas-os
+# does).
 #
 # Requires no production secrets and touches no production infrastructure:
 # no external secret store, no deployment step. The `docker` job needs *a*
 # .env for `docker compose config` to validate -- it uses .env.example
-# (placeholders only). The `migrations` job is the one exception to "no
-# database service containers": a disposable `postgres:16-alpine` GitHub
-# Actions service container, torn down automatically at the end of the
-# job, using obviously-fake, CI-only credentials.
+# (placeholders only). The `migrations` and `integration` jobs are the
+# exception to "no database service containers": each starts its own
+# disposable `postgres:16-alpine` (and, for `integration`, `redis:7-
+# alpine` too) directly via the Docker CLI already available on
+# ubuntu-latest runners -- not a GitHub Actions `services:` container,
+# the same way scripts/check-migrations.sh/check-integration.sh already
+# do it locally, so there is one startup mechanism, not two. Torn down
+# automatically at the end of the job either way, using obviously-fake,
+# CI-only credentials.
 
 name: CI
 
@@ -123,3 +129,23 @@ jobs:
 
       - name: Migration bootstrap gate (starts its own disposable postgres container)
         run: bash scripts/check-migrations.sh
+
+  integration:
+    name: integration test gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create venv and install
+        run: |
+          python -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Integration tests (starts its own disposable postgres + redis containers)
+        run: bash scripts/check-integration.sh

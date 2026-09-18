@@ -104,6 +104,24 @@ to this product's own planning:
   exactly as `saas-os` `docs/SECURITY.md` §11 defers its own compliance
   target the same way.
 
+## Open Questions Surfaced During Phase 2 (Added 2026-09-19)
+
+- **How a later phase's product routes consume `request.state
+  .resolved_tenant_id`.** Phase 2.4 shipped `DomainResolutionMiddleware`
+  (`product/white_label/domains.py`), which resolves a custom domain to a
+  `tenant_id` and stores it on `request.state` — but nothing consumes it
+  yet, because no product route exists yet, and because SaaS-OS's real
+  tenant-resolution chokepoint (`api.dependencies.get_tenant_context()`)
+  takes `tenant_id` from the URL path, not `request.state` (see
+  `docs/WHITE-LABEL.md` §3 for the corrected data-flow description — an
+  earlier version of that document incorrectly assumed a subdomain/header
+  resolution mechanism in SaaS-OS that does not exist). The actual
+  consumption mechanism — a redirect/URL-rewrite to a tenant-scoped path,
+  a frontend bootstrap endpoint, or something else — is an explicit
+  future API/application-design decision, deliberately not made in Phase
+  2 and not yours to answer until a real product route needs it (likely
+  Phase 3 or later, whenever the first tenant-scoped route ships).
+
 ## What Happens Next
 
 Per `docs/ROADMAP.md` Phase 0's checkpoint: this repository stays

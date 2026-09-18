@@ -4,10 +4,11 @@
 # check-backend.sh, check-frontend.sh, check-security.sh -- this script
 # adds no checks of its own. Mirrors saas-os's own scripts/check-all.sh.
 #
-# Deliberately does NOT run check-docker.sh or check-migrations.sh: both
-# need a running Docker daemon and take tens of seconds to minutes, unlike
-# everything else here. Run them separately (also run by CI's `docker` /
-# `migrations` jobs).
+# Deliberately does NOT run check-docker.sh, check-migrations.sh, or
+# check-integration.sh: all three need a running Docker daemon and take
+# tens of seconds to minutes, unlike everything else here. Run them
+# separately (also run by CI's `docker` / `migrations` / `integration`
+# jobs).
 set -euo pipefail
 DIR="$(dirname "$0")"
 

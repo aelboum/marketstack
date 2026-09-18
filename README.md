@@ -46,11 +46,15 @@ never as a fork or a merge into that repository.
 
 ## Development
 
-**Status: Phase 1 (Repository Foundation) only.** This repository has a
-working application composition root, its own independent migration
-environment, and a full local/CI check suite -- but no product
-functionality yet (no CRM, no product API routes, no product database
-tables). See `docs/ROADMAP.md` for what each later phase adds.
+**Status: Phase 1 (Repository Foundation) + Phase 2 (Product Foundation)
+only.** This repository has a working application composition root, its
+own independent migration environment, a full local/CI check suite, and
+this product's own shared foundation (`Money`/phone-number value
+objects, tenant-scoped settings, the product event dispatcher, white-
+label branding resolution, custom-domain resolution) -- but no
+business-domain product functionality yet (no CRM, no product API
+routes beyond `/auth/*` and `/healthz`). See `docs/ROADMAP.md` for what
+each later phase adds.
 
 ```bash
 # Backend
@@ -69,6 +73,7 @@ bash scripts/check-backend.sh       # ruff, ruff format, pyright, pytest, import
 bash scripts/check-frontend.sh      # typecheck, eslint, next build
 bash scripts/check-security.sh      # pip-audit, npm audit, detect-secrets (needs the `security` extra)
 bash scripts/check-migrations.sh    # disposable-Postgres migration bootstrap proof (needs Docker)
+bash scripts/check-integration.sh   # tests/**/test_*_integration.py against disposable Postgres + Redis (needs Docker)
 bash scripts/check-docker.sh        # docker build + runtime smoke test (needs Docker)
 bash scripts/check-all.sh           # backend + frontend + security (fast checks only)
 ```

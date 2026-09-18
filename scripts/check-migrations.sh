@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Migration bootstrap gate (docs/ROADMAP.md Phase 1.2/1.5): proves a clean,
+# Migration bootstrap gate (docs/ROADMAP.md Phase 1.2/1.5, extended by
+# Phase 2.1/2.3/2.4's own migrations): proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -86,22 +87,27 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # this product's own alembic_version table exists (created by our own
-    # Alembic environment) even though it is empty -- there is no product
-    # migration yet to stamp it with (docs/ROADMAP.md Phase 1.2: "no
-    # product tables yet"). Its mere existence proves this product's own,
-    # separate Alembic environment ran successfully.
-    conn.execute(text("SELECT version_num FROM alembic_version"))
+    # This product's own alembic_version table -- since Phase 2.1/2.3/2.4
+    # (docs/ROADMAP.md), it is no longer empty: three real migrations now
+    # exist (foundation.tenant_settings, white_label.tenant_branding,
+    # white_label.tenant_domains), head is 0003_white_label_tenant_domains.
+    product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    assert product_version == "0003_white_label_tenant_domains", (
+        f"expected product migrations at head 0003_white_label_tenant_domains, got {product_version!r}"
+    )
 
     schema_rows = conn.execute(
         text("SELECT nspname FROM pg_namespace WHERE nspname = ANY(:names)"),
-        {"names": ["core", "control_plane", "self_learning"]},
+        {"names": ["core", "control_plane", "self_learning", "foundation", "white_label"]},
     ).all()
 schemas_present = {row[0] for row in schema_rows}
-expected = {"core", "control_plane", "self_learning"}
+expected = {"core", "control_plane", "self_learning", "foundation", "white_label"}
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 
-print(f"OK: saas-os core migrations at {saas_os_version}; schemas present: {sorted(schemas_present)}")
+print(
+    f"OK: saas-os core migrations at {saas_os_version}; "
+    f"product migrations at {product_version}; schemas present: {sorted(schemas_present)}"
+)
 PYEOF
 
 echo "== migration bootstrap gate: PASS =="

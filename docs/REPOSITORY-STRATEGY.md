@@ -95,11 +95,37 @@ This product's one physical Postgres database
   never left as two commands a deploy pipeline must remember separately
   (`saas-os`'s own investigation §16 flags exactly this as the one real
   operational risk in this model).
-- **No autogenerate against a shared metadata object** — `saas-os`'s own
-  migrations are hand-written for this exact reason (`infra/db` cannot
-  import `core`). This product's own migrations may use autogenerate against
-  its own models freely; the two histories never need to resolve against
-  each other's metadata.
+- **Hand-written migrations, `target_metadata = None`, for this product's own
+  history too** — corrected 2026-09-19, post-Phase-2 implementation. This
+  bullet previously claimed "this product's own migrations may use
+  autogenerate against its own models freely," on the theory that the two
+  histories never need to resolve against each other's metadata. That
+  theory doesn't hold: `infra.db.Base` is one *shared* SQLAlchemy declarative
+  base across `saas-os` core and every consuming product's own models
+  (confirmed directly — `core/tenancy/models.py`'s own docstring: "Uses
+  `infra.db.orm`'s shared declarative base and mixins"; `examples/reference-
+  consumer/reference_consumer/models.py` declares its own table on that
+  identical `Base`). Pointing Alembic's `target_metadata` at `Base.metadata`
+  for an autogenerate diff would therefore see every SaaS-OS-owned table
+  too, and this product's own Alembic environment only tracks its own
+  `alembic_version` history against SaaS-OS's separately-tracked
+  `alembic_version_saas_os` — autogenerate has no way to know those
+  already-existing, already-migrated SaaS-OS tables aren't drift it should
+  propose dropping. `saas-os`'s own migrations are hand-written for the
+  narrower, different reason stated in ADR-0016 (`infra/db` cannot import
+  `core`, so `infra/db/migrations/env.py` never had a metadata object to
+  autogenerate against in the first place) — the shared-`Base` problem
+  above is this product's own, additional reason, not the same one.
+  The proven, actually-used pattern (`examples/reference-consumer`, and
+  this product's own `product/migrations/` since Phase 1) is hand-written
+  migrations with `target_metadata = None`, for every migration, including
+  this product's own tables. This is not a claim that Alembic autogenerate
+  is unsafe in general, or forbidden as a matter of policy — a scoped/
+  filtered metadata object restricted to only this product's own tables
+  (e.g. by schema name or a naming convention) could in principle make
+  autogenerate safe against the shared `Base`. No such mechanism has been
+  built or proven here; until one is, hand-written migrations are the
+  supported approach for this product's own history too.
 - **CI**: this product's own CI mirrors `saas-os`'s own `migrations` job — a
   disposable Postgres container, run `saas-os`'s core migrations, then this
   product's own, assert both succeed.
