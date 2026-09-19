@@ -59,6 +59,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - saas_os_pat
     env_file:
       - .env
     ports:
@@ -82,3 +84,11 @@ services:
 
 volumes:
   db-data:
+
+secrets:
+  # A token with read access to the private aelboum/saas-os repo, sourced
+  # from the SAAS_OS_PAT environment variable (already required in a
+  # local .env, same as every other value below) -- pip's internal git
+  # clone of the pinned saas-os commit needs it during `backend`'s build.
+  saas_os_pat:
+    environment: SAAS_OS_PAT

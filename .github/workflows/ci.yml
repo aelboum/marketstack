@@ -8,7 +8,12 @@
 # does).
 #
 # Requires no production secrets and touches no production infrastructure:
-# no external secret store, no deployment step. The `docker` job needs *a*
+# no external secret store, no deployment step. One exception: `saas-os`
+# (pyproject.toml's pinned git dependency) is a private repository, so
+# every job that installs or builds it needs the repo secret SAAS_OS_PAT
+# -- a token with read-only access to aelboum/saas-os -- to authenticate
+# pip's/Docker's internal git clone; it is never a production credential
+# and grants nothing beyond that one repo. The `docker` job needs *a*
 # .env for `docker compose config` to validate -- it uses .env.example
 # (placeholders only). The `migrations` and `integration` jobs are the
 # exception to "no database service containers": each starts its own
@@ -41,6 +46,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Configure git access to private saas-os dependency
+        run: git config --global url."https://x-access-token:${{ secrets.SAAS_OS_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - name: Create venv and install
         run: |
@@ -81,6 +89,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Configure git access to private saas-os dependency
+        run: git config --global url."https://x-access-token:${{ secrets.SAAS_OS_PAT }}@github.com/".insteadOf "https://github.com/"
+
       - name: Create venv and install security tooling (pip-audit, detect-secrets)
         run: |
           python -m venv .venv
@@ -108,6 +119,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Docker checks (build backend + frontend, runtime smoke test, compose config)
+        env:
+          SAAS_OS_PAT: ${{ secrets.SAAS_OS_PAT }}
         run: bash scripts/check-docker.sh
 
   migrations:
@@ -119,6 +132,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Configure git access to private saas-os dependency
+        run: git config --global url."https://x-access-token:${{ secrets.SAAS_OS_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - name: Create venv and install
         run: |
@@ -139,6 +155,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Configure git access to private saas-os dependency
+        run: git config --global url."https://x-access-token:${{ secrets.SAAS_OS_PAT }}@github.com/".insteadOf "https://github.com/"
 
       - name: Create venv and install
         run: |

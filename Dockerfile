@@ -37,7 +37,17 @@ COPY product ./product
 # intentionally not installed into this image. uvicorn is not a second,
 # separate direct dependency here -- it resolves transitively via the
 # saas-os package's own `uvicorn>=0.30` runtime dependency.
-RUN pip install --no-cache-dir -e .
+#
+# saas-os is a private repository, so pip's internal git clone needs a
+# credential. Supplied as a BuildKit secret (--secret id=saas_os_pat, see
+# scripts/check-docker.sh), never as an ARG/ENV: those are cached and
+# readable in image history, a mounted secret is not. The credential
+# helper is unset again inside this same RUN so no trace of it survives
+# into the layer's committed .gitconfig.
+RUN --mount=type=secret,id=saas_os_pat \
+    git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=$(cat /run/secrets/saas_os_pat)"; }; f' \
+    && pip install --no-cache-dir -e . \
+    && git config --global --unset credential.helper
 
 # Run as a non-root user (least privilege, applied to the container
 # itself). Ownership is granted after all root-only build steps

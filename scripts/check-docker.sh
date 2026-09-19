@@ -14,11 +14,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+: "${SAAS_OS_PAT:?SAAS_OS_PAT must be set (a token with read access to the private aelboum/saas-os repo) -- the backend image clones it during pip install}"
+
 BACKEND_TAG="product-backend:check"
 FRONTEND_TAG="product-frontend:check"
 
 echo "== docker build: backend =="
-docker build -t "$BACKEND_TAG" .
+docker build --secret id=saas_os_pat,env=SAAS_OS_PAT -t "$BACKEND_TAG" .
 
 echo "== docker build: frontend =="
 docker build -t "$FRONTEND_TAG" ./frontend
