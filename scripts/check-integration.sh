@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Integration test gate (docs/ROADMAP.md Phase 2): runs every test marked
-# `integration` (tests/foundation/test_settings_integration.py,
-# tests/foundation/test_events_durable_integration.py,
-# tests/white_label/test_branding_integration.py,
-# tests/white_label/test_domains_integration.py) against real, disposable
-# PostgreSQL and Redis instances -- never the developer's own persistent
-# `db`/`redis` containers, never production.
+# Integration test gate (docs/ROADMAP.md Phase 2, extended by Phase 3):
+# runs every test marked `integration` (tests/foundation/, tests/white_label/,
+# and, since Phase 3, tests/agency/ -- agency/client provisioning,
+# cross-agency/cross-client isolation, delegation/deny, support access,
+# and HTTP-layer routes) against real, disposable PostgreSQL and Redis
+# instances -- never the developer's own persistent `db`/`redis`
+# containers, never production. Phase 3 adds no new migration (see
+# docs/ADR/0003-agency-client-tenancy-mapping.md), so this script's own
+# bootstrap step below is unchanged.
 #
 # Shares scripts/check-migrations.sh's exact disposable-Postgres startup
 # pattern (including its `pwd -W` Windows volume-mount fix) so there is

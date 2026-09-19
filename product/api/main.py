@@ -9,20 +9,21 @@ middleware/purge participants on top. It never imports api.main:app as
 its own application (the ADR-0017-rejected pattern of a consumer
 treating SaaS-OS's own dev entrypoint as its production app).
 
-No product *router* is mounted yet (docs/ROADMAP.md Phase 2 ships no
-product API endpoints -- Phase 4/CRM is the first). Two things this
-phase does add, now that Phase 2.1/2.3 ship this product's first real
+Two things Phase 2 added, once it shipped this product's first real
 tenant-owned tables:
 
 - `DomainResolutionMiddleware` (docs/ROADMAP.md Phase 2.4) -- see
   product/white_label/domains.py's own docstring for exactly what it
   does and does not do yet.
 - Tenant-purge participant registration (RA-12-2 discipline, mirrored
-  from the reference consumer) for every table this product now owns --
+  from the reference consumer) for every table this product owns --
   `foundation.tenant_settings`, `white_label.tenant_branding`,
-  `white_label.tenant_domains`. Deferred no longer, unlike Phase 1 (whose
-  own version of this docstring correctly said there was nothing yet to
-  purge).
+  `white_label.tenant_domains`.
+
+Phase 3 (docs/ROADMAP.md) adds this product's first product router --
+`product/agency/routes.py`, mounted at `/v1/agency` -- and no new
+tenant-owned table (docs/ADR/0003-agency-client-tenancy-mapping.md), so
+no new purge participant either.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from __future__ import annotations
 from api.platform import build_platform_app
 from fastapi import FastAPI
 
+from product.agency.routes import router as agency_router
 from product.foundation.purge import register as register_foundation_purge_participants
 from product.white_label.domains import DomainResolutionMiddleware
 from product.white_label.purge import register as register_white_label_purge_participants
@@ -38,6 +40,7 @@ from product.white_label.purge import register as register_white_label_purge_par
 def create_app() -> FastAPI:
     app = build_platform_app(title="Product", version="0.0.1")
     app.add_middleware(DomainResolutionMiddleware)
+    app.include_router(agency_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     return app

@@ -16,7 +16,7 @@ license = { text = "UNLICENSED" }
 # Pinned Git/VCS dependency, exact commit SHA (never a mutable tag/branch) --
 # docs/REPOSITORY-STRATEGY.md, mirroring saas-os's own ADR-0015 rules 6-8.
 dependencies = [
-    "saas-os @ git+https://github.com/aelboum/saas-os@2a299a3b5fa62e810d87e3ff2d8e844763e6a38b",
+    "saas-os @ git+https://github.com/aelboum/saas-os@1d6fd07a0c3ce2dd8a12c09dac86b019781ee6c6",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +83,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "product/api/**/*.py" = ["B008"]
+# FastAPI's own dependency idiom (`Depends(...)` as an argument default) --
+# mirrors saas-os's own examples/reference-consumer/reference_consumer/routes.py,
+# which ignores the identical rule for the identical reason.
+"product/agency/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
