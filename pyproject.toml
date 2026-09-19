@@ -88,6 +88,7 @@ select = ["E", "F", "I", "UP", "B"]
 # which ignores the identical rule for the identical reason.
 "product/agency/routes.py" = ["B008"]
 "product/crm/routes.py" = ["B008"]
+"product/conversations/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]

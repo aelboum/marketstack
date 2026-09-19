@@ -37,6 +37,14 @@ imports this module with no `DATABASE_URL` set). Every CRM permission is
 registered lazily, on first actual grant, by `product/crm/permissions.py
 ::grant_to_role()` -- the same idempotent-registration discipline
 `product/agency/roles.py` already uses.
+
+Phase 5 adds `product/conversations/routes.py` (`/v1/conversations`),
+three more tenant-owned tables (`conversations.*`), one consolidated
+purge participant, and a second `agency.role_provisioned` subscriber
+(`product/conversations/event_handlers.py`) -- the identical pattern
+Phase 4 established for `product.crm`, repeated here since
+`product.conversations` and `product.agency`/`product.crm` must never
+import each other directly either.
 """
 
 from __future__ import annotations
@@ -45,11 +53,15 @@ from api.platform import build_platform_app
 from fastapi import FastAPI
 
 from product.agency.routes import router as agency_router
+from product.conversations import event_handlers as _conversations_event_handlers  # noqa: F401
+from product.conversations.purge import register as register_conversations_purge_participant
+from product.conversations.routes import router as conversations_router
 from product.crm import event_handlers as _crm_event_handlers  # noqa: F401 -- import for its
 
 # module-level subscribe() side effect (see product/crm/event_handlers.py's own docstring),
 # registered before create_app() runs any request-serving code. Pure in-process registration,
-# touches no database.
+# touches no database. The same applies to
+# product.conversations.event_handlers above.
 from product.crm.purge import register as register_crm_purge_participant
 from product.crm.routes import router as crm_router
 from product.foundation.purge import register as register_foundation_purge_participants
@@ -62,9 +74,11 @@ def create_app() -> FastAPI:
     app.add_middleware(DomainResolutionMiddleware)
     app.include_router(agency_router)
     app.include_router(crm_router)
+    app.include_router(conversations_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
+    register_conversations_purge_participant()
     return app
 
 
