@@ -209,6 +209,101 @@ def update_contact(
     return _to_view(row)
 
 
+def create_or_update_contact_from_trusted_source(
+    tenant_id: uuid.UUID,
+    *,
+    email: str,
+    first_name: str,
+    last_name: str,
+    phone: str | None = None,
+    source: str,
+) -> ContactView:
+    """Find-or-create a contact by exact `email` match within `tenant_id`,
+    with **no `actor_user_id` parameter and no `product.crm.permissions
+    .require()` call** -- deliberately, mirroring the exact "trusts its
+    caller" precedent category `saas-os` itself already establishes
+    repeatedly (`core.tenancy.create_tenant()`, `core.identity
+    .add_tenant_membership()`, `core.rbac.create_support_access_request()`
+    -- each ungated because there is no pre-existing authority to check
+    yet, each narrowly named/documented so no ordinary caller reaches for
+    it by accident).
+
+    Reserved exclusively for `product/marketing/forms.py`'s public,
+    unauthenticated form-submission handler (docs/ROADMAP.md Phase 6.3)
+    -- the one legitimately anonymous write path in this entire product.
+    Never call this from any authenticated route or service function that
+    already has a real `actor_user_id` available; use `create_contact()`/
+    `update_contact()` there instead, which correctly enforce
+    authorization. This function is never exposed directly over HTTP by
+    `product/crm/routes.py` itself.
+
+    `source` is a short, bounded, non-PII string recorded only via
+    `core.audit_log` metadata (e.g. `"form:<form_id>"`) so a contact's
+    origin is traceable without itself being personal data.
+
+    An existing contact's `first_name`/`last_name`/`phone` are updated
+    only when the incoming value is non-empty -- a blank field on a
+    resubmitted form must never blank out data already on file.
+    `company_id` is never touched here (forms do not collect a company;
+    out of scope for this function).
+
+    `email` has no unique constraint/index on `crm.contacts` today (see
+    migration `0019_add_crm_contacts_email_index` -- an index was added
+    specifically because this function's lookup-by-email is now a real,
+    repeated query path, not just an occasional one; there is still no
+    uniqueness constraint on `email` itself, since a tenant may
+    legitimately hold more than one contact sharing an email address
+    (e.g. shared household/team inboxes) -- this function updates the
+    *first* match by `created_at`, deterministically, rather than
+    picking arbitrarily among duplicates)."""
+    with tenant_session_scope(tenant_id) as session:
+        existing = (
+            session.execute(
+                select(Contact)
+                .where(Contact.tenant_id == tenant_id, Contact.email == email)
+                .order_by(Contact.created_at.asc())
+                .limit(1)
+            )
+            .scalars()
+            .one_or_none()
+        )
+        if existing is not None:
+            if first_name:
+                existing.first_name = first_name
+            if last_name:
+                existing.last_name = last_name
+            if phone:
+                existing.phone = _normalized_phone(phone)
+            session.flush()
+            session.refresh(existing)
+            session.expunge(existing)
+            row = existing
+            action = "crm.contact.update_from_trusted_source"
+        else:
+            row = Contact(
+                tenant_id=tenant_id,
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                phone=_normalized_phone(phone),
+            )
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            session.expunge(row)
+            action = "crm.contact.create_from_trusted_source"
+    record(
+        tenant_id=tenant_id,
+        actor_type=ActorType.SYSTEM,
+        action=action,
+        resource_type="crm.contact",
+        resource_id=str(row.id),
+        outcome=AuditOutcome.SUCCESS,
+        metadata={"source": source},
+    )
+    return _to_view(row)
+
+
 def delete_contact(actor_user_id: uuid.UUID, tenant_id: uuid.UUID, contact_id: uuid.UUID) -> None:
     require(actor_user_id, tenant_id, resource=CONTACT_RESOURCE, action="delete")
     with tenant_session_scope(tenant_id) as session:

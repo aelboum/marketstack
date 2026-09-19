@@ -89,6 +89,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/agency/routes.py" = ["B008"]
 "product/crm/routes.py" = ["B008"]
 "product/conversations/routes.py" = ["B008"]
+"product/marketing/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
@@ -128,7 +129,6 @@ type = "independence"
 modules = [
     "product.agency",
     "product.crm",
-    "product.marketing",
     "product.conversations",
     "product.telephony",
     "product.ai",
@@ -142,6 +142,43 @@ modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+]
+
+# Phase 6: product.marketing is deliberately NOT in the independence list
+# above -- it has its own, more precise pair of contracts below instead
+# (docs/ADR/0005-marketing-depends-on-crm.md): independent from every
+# module except product.crm, and a one-directional layers contract
+# permitting product.marketing -> product.crm, never the reverse. This is
+# a narrow, CRM-specific exception, not a loosening of the blanket rule
+# above for any other module.
+[[tool.importlinter.contracts]]
+name = "Marketing does not depend on any product module except CRM"
+type = "forbidden"
+source_modules = ["product.marketing"]
+forbidden_modules = [
+    "product.agency",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Marketing may depend on CRM, never CRM on Marketing"
+type = "layers"
+layers = [
+    "product.marketing",
+    "product.crm",
 ]
 
 # Phase 1's independence contract above only forbids sibling

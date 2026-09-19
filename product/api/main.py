@@ -45,6 +45,17 @@ purge participant, and a second `agency.role_provisioned` subscriber
 Phase 4 established for `product.crm`, repeated here since
 `product.conversations` and `product.agency`/`product.crm` must never
 import each other directly either.
+
+Phase 6 adds `product/marketing/routes.py` (`/v1/marketing`), three more
+tenant-owned tables (`marketing.*`), one consolidated purge participant,
+and a third `agency.role_provisioned` subscriber
+(`product/marketing/event_handlers.py`). `product.marketing` is the one
+module permitted to import a sibling module's service functions
+(`product.crm.contacts`, for audience segmentation --
+`docs/ADR/0005-marketing-depends-on-crm.md`) -- that exception is
+enforced by import-linter, not by anything special about how it is
+mounted here, so this file's own wiring is otherwise identical to Phase
+4/5's.
 """
 
 from __future__ import annotations
@@ -65,6 +76,9 @@ from product.crm import event_handlers as _crm_event_handlers  # noqa: F401 -- i
 from product.crm.purge import register as register_crm_purge_participant
 from product.crm.routes import router as crm_router
 from product.foundation.purge import register as register_foundation_purge_participants
+from product.marketing import event_handlers as _marketing_event_handlers  # noqa: F401
+from product.marketing.purge import register as register_marketing_purge_participant
+from product.marketing.routes import router as marketing_router
 from product.white_label.domains import DomainResolutionMiddleware
 from product.white_label.purge import register as register_white_label_purge_participants
 
@@ -75,10 +89,12 @@ def create_app() -> FastAPI:
     app.include_router(agency_router)
     app.include_router(crm_router)
     app.include_router(conversations_router)
+    app.include_router(marketing_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
     register_conversations_purge_participant()
+    register_marketing_purge_participant()
     return app
 
 
