@@ -38,6 +38,19 @@ trap _runtime_cleanup EXIT
 
 $COMPOSE_RUNTIME up -d db redis
 $COMPOSE_RUNTIME build backend
+
+# The freshly created `db` container has no schema -- the same two-step
+# bootstrap (saas-os core migrations, then this product's own) that
+# scripts/check-migrations.sh/check-integration.sh run against their own
+# disposable postgres must also run here, or every DB-backed route
+# (including /readyz, via product.white_label's own domain-resolution
+# middleware) 500s on startup. scripts/ is intentionally excluded from
+# the backend image itself (.dockerignore) -- not runtime code -- so it
+# is bind-mounted into a one-off container from the already-built image
+# instead of baking it in.
+echo "-- migration bootstrap (against the runtime db, before the app starts) --"
+$COMPOSE_RUNTIME run --rm -v "$(pwd -W 2>/dev/null || pwd)/scripts:/app/scripts:ro" backend python scripts/bootstrap-db.py
+
 $COMPOSE_RUNTIME up -d backend
 BACKEND_CID=$($COMPOSE_RUNTIME ps -q backend)
 

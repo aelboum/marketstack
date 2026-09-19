@@ -51,7 +51,11 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
-docker logs "$PG_CONTAINER_NAME" 2>&1 | grep -q "database system is ready to accept connections" || {
+# See scripts/check-migrations.sh's identical check for why this reuses
+# $ready_count instead of re-running `grep -q` under `set -o pipefail`
+# (SIGPIPE from `-q`'s early exit was being misreported as this check's
+# own failure).
+[ "$ready_count" -ge 2 ] || {
   echo "postgres never became ready" >&2
   docker logs "$PG_CONTAINER_NAME" >&2
   exit 1
