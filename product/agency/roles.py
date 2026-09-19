@@ -28,11 +28,23 @@ is one of two kinds, and the distinction matters:
    it. See `product/agency/provisioning.py::provision_client()` and
    `docs/ADR/0002-...` for the full reasoning.
 
-`CLIENT_MEMBER_ROLE_NAME`'s permission set is deliberately empty in
-Phase 3 -- there is no business-domain permission to grant yet (Phase 4
-onward is the first module with any). It exists now so Phase 4+ has an
-existing role to grant its own permissions to, rather than every future
-module reinventing "the client's baseline role."
+`CLIENT_MEMBER_ROLE_NAME`'s permission set was deliberately empty through
+Phase 3 -- there was no business-domain permission to grant yet. Phase 4
+is exactly the trigger Phase 3's own docstring anticipated -- but this
+module does NOT import `product.crm` to grant its permissions directly
+(that would violate `docs/ARCHITECTURE.md` section 2.2's "no
+product/<module> imports another product/<module> directly" rule,
+enforced by this repository's own import-linter contract: `product.crm`
+and `product.agency` are both listed as independent siblings). Instead,
+`provision_agency()` and `product/agency/onboarding.py
+::assign_starting_client_role()` each publish an `agency.role_provisioned`
+domain event (`product.foundation.events`, the one dependency every
+module may use) after creating/assigning a role; `product/crm
+/event_handlers.py` subscribes to it and grants its own permission set
+reactively -- the exact "module needing another module's capability"
+pattern `docs/ARCHITECTURE.md` section 2.2 itself prescribes (promote to
+`foundation`, or react via the event dispatcher; this is the second
+path). This module has no idea CRM exists.
 """
 
 from __future__ import annotations
@@ -48,8 +60,30 @@ from core.rbac import (
     register_permission,
 )
 
+from product.foundation.events import Event, publish
+
 AGENCY_OWNER_ROLE_NAME = "owner"
 CLIENT_MEMBER_ROLE_NAME = "member"
+
+# Published after either role below is created/looked-up, so any other
+# module (product.crm, and any future module with its own tenant-scoped
+# permissions) can react and grant its own permission set to it -- see
+# module docstring. version=1: payload is {"role_id": str, "role_name":
+# "owner"|"member"} -- a later, incompatible payload change bumps this.
+ROLE_PROVISIONED_EVENT_TYPE = "agency.role_provisioned"
+ROLE_PROVISIONED_EVENT_VERSION = 1
+
+
+def _publish_role_provisioned(tenant_id: uuid.UUID, role: Role, role_name: str) -> None:
+    publish(
+        Event(
+            type=ROLE_PROVISIONED_EVENT_TYPE,
+            version=ROLE_PROVISIONED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={"role_id": str(role.id), "role_name": role_name},
+        )
+    )
+
 
 # The exact Core-owned (resource, action) pairs the agency owner role
 # needs, one pair per Core capability this product's Phase 3 wraps.
@@ -101,13 +135,18 @@ def ensure_agency_owner_role(tenant_id: uuid.UUID) -> Role:
         # grant-and-catch.
         if get_role_permission(tenant_id, role.id, permission.id) is None:
             grant_permission(tenant_id, role.id, permission.id)
+    _publish_role_provisioned(tenant_id, role, AGENCY_OWNER_ROLE_NAME)
     return role
 
 
 def ensure_client_member_role(tenant_id: uuid.UUID) -> Role:
-    """Create (idempotently) `tenant_id`'s own `"member"` role -- no
-    permissions granted yet in Phase 3 (module docstring)."""
-    return _get_or_create_role(tenant_id, CLIENT_MEMBER_ROLE_NAME)
+    """Create (idempotently) `tenant_id`'s own `"member"` role. Grants no
+    Core-owned permission itself (module docstring) -- publishes
+    `agency.role_provisioned` so `product.crm` (and any future module)
+    can grant its own baseline permission set reactively."""
+    role = _get_or_create_role(tenant_id, CLIENT_MEMBER_ROLE_NAME)
+    _publish_role_provisioned(tenant_id, role, CLIENT_MEMBER_ROLE_NAME)
+    return role
 
 
 def get_owner_role(tenant_id: uuid.UUID) -> Role | None:

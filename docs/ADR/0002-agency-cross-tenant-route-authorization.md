@@ -189,15 +189,83 @@ disposable Postgres, plus wrong-tenant, expired, revoked, already-
 accepted, and concurrent-acceptance cases, all failing closed as
 expected.
 
+## Addendum (Phase 4): CRM routes also require the `get_current_actor` pattern, not `get_tenant_context()`
+
+The "Decision" section above states: "Phase 4+ business-domain routes
+(CRM, etc.), where the acting user is expected to be a direct member of
+the tenant whose data they're touching, should continue to use
+`get_tenant_context()`/`require_permission()`... not the pattern this ADR
+describes." **This is corrected here — it does not hold, and Phase 4's
+implementation does not follow it.**
+
+That line was written speculatively in Phase 3, before Phase 4 was
+designed, on the unexamined assumption that CRM's own actors would always
+be direct tenant members. `docs/ROADMAP.md` Phase 4's own isolation
+requirement — "Parent agency access follows the existing approved
+SUBTREE model where applicable" — means an agency owner, who by Phase
+3.1's own design holds no direct `TenantMembership` at any client (only
+inherited `SUBTREE` reach from the agency tenant), must be able to
+read/manage a client's CRM data. `get_tenant_context()` would 404 that
+agency owner on any CRM route gated by it, for the identical reason this
+ADR's original "Decision" section already documented for the agency
+module itself — this is not a new finding about SaaS-OS, it is a
+correction of this document's own earlier, untested extrapolation.
+
+**Corrected decision**: `product/crm/routes.py` uses
+`api.dependencies.get_current_actor`, exactly like
+`product/agency/routes.py`. Unlike the agency module's own operations
+(which call self-authorizing `core.rbac`/`core.identity` functions
+directly), CRM tables are entirely product-owned — Core has no built-in
+authorization for `crm.*` at all — so **every CRM service function
+performs its own `core.rbac.can()` check** with a product-defined
+permission (`product/crm/permissions.py`) before touching any `crm.*`
+row. This is not optional: without it, any authenticated user supplying
+a real `tenant_id` in the URL could read or write any tenant's CRM data,
+since nothing else would gate it (the same class of gap
+`provision_client()`'s own `agency.client` permission check closes for
+`core.tenancy.create_tenant()`, applied here to a product-owned table
+instead of a Core-owned one).
+
+**Generalized consequence, superseding the narrower claim above**: every
+current and future product module where an agency needs `SUBTREE`-level
+access to a client's own data — not just CRM, but Marketing,
+Conversations, Appointments, Accounting, and any other Phase 5+ module
+with the identical agency/client shape — needs this same pattern:
+`get_current_actor` at the ingress layer, and the module's own service
+functions performing their own `core.rbac.can()` checks against their
+own product-defined permissions before touching their own tables.
+`get_tenant_context()`/`require_permission()` remain correct only for a
+route where direct tenant membership is actually guaranteed for every
+legitimate caller — which, given this product's own agency/client model,
+is a narrower case than "any business-domain route" the original
+"Decision" section assumed. There is currently no route anywhere in this
+product that actually uses `get_tenant_context()`/`require_permission()`
+for product-owned data; that pattern remains available for a future case
+that genuinely has no cross-tenant agency-access requirement, but none
+has been built yet.
+
 ## Consequences
 
-- Every current and future Phase 3 route that operates cross-tenant (an
-  agency acting on one of its clients) must use `get_current_actor`, not
-  `get_tenant_context()`/`require_permission()`. A future contributor
-  reaching for `require_permission()` on such a route will find it 404s
-  for a real, `SUBTREE`-authorized agency actor — this ADR is the record
-  of why, and where the correct pattern lives.
+- Every current and future product route that operates on agency/client
+  tenant data — not only the original Phase 3 agency-management routes,
+  but also Phase 4's CRM routes and any later module with the same
+  shape — must use `get_current_actor`, not `get_tenant_context()`/
+  `require_permission()`. A future contributor reaching for
+  `require_permission()` on such a route will find it 404s for a real,
+  `SUBTREE`-authorized agency actor — this ADR is the record of why, and
+  where the correct pattern lives.
+- Every module built this way must perform its own `core.rbac.can()`
+  authorization check(s) in its own service layer — there is no ingress-
+  level substitute once `get_tenant_context()` is not used, and Core
+  provides none for a product-owned table.
 - This product has not asked `saas-os`'s maintainers to add SUBTREE-aware
   ingress resolution. If this pattern needs to generalize later (a second
   real use case, not just Phase 3's), that is the trigger to revisit this
-  decision, not a schedule.
+  decision, not a schedule. Phase 4 is now that second real use case, and
+  the decision was to repeat the proven pattern rather than build a
+  shared dependency — see "Rejected Alternative" above, whose reasoning
+  still applies: two real use cases now exist, but neither has yet needed
+  anything `get_current_actor` + service-layer `can()` doesn't already
+  provide (e.g. neither needs `RequestContext.membership_id` or
+  tenant-scoped rate limiting), so building a shared abstraction remains
+  premature, not overdue.

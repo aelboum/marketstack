@@ -87,6 +87,7 @@ select = ["E", "F", "I", "UP", "B"]
 # mirrors saas-os's own examples/reference-consumer/reference_consumer/routes.py,
 # which ignores the identical rule for the identical reason.
 "product/agency/routes.py" = ["B008"]
+"product/crm/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]

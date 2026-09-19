@@ -87,26 +87,43 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # This product's own alembic_version table -- since Phase 2.1/2.3/2.4
-    # (docs/ROADMAP.md), it is no longer empty: three real migrations now
-    # exist (foundation.tenant_settings, white_label.tenant_branding,
-    # white_label.tenant_domains), head is 0003_white_label_tenant_domains.
+    # This product's own alembic_version table -- since Phase 4
+    # (docs/ROADMAP.md), head is 0009_crm_tasks_and_notes (nine real
+    # migrations: foundation.tenant_settings, white_label.tenant_branding,
+    # white_label.tenant_domains, and six crm.* tables).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0003_white_label_tenant_domains", (
-        f"expected product migrations at head 0003_white_label_tenant_domains, got {product_version!r}"
+    assert product_version == "0009_crm_tasks_and_notes", (
+        f"expected product migrations at head 0009_crm_tasks_and_notes, got {product_version!r}"
     )
 
     schema_rows = conn.execute(
         text("SELECT nspname FROM pg_namespace WHERE nspname = ANY(:names)"),
-        {"names": ["core", "control_plane", "self_learning", "foundation", "white_label"]},
+        {"names": ["core", "control_plane", "self_learning", "foundation", "white_label", "crm"]},
+    ).all()
+    table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'crm' ORDER BY tablename")
     ).all()
 schemas_present = {row[0] for row in schema_rows}
-expected = {"core", "control_plane", "self_learning", "foundation", "white_label"}
+expected = {"core", "control_plane", "self_learning", "foundation", "white_label", "crm"}
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
+crm_tables_present = {row[0] for row in table_rows}
+expected_crm_tables = {
+    "companies",
+    "contacts",
+    "pipelines",
+    "pipeline_stages",
+    "opportunities",
+    "tasks",
+    "notes",
+}
+assert crm_tables_present == expected_crm_tables, (
+    f"expected crm tables {expected_crm_tables}, got {crm_tables_present}"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
-    f"product migrations at {product_version}; schemas present: {sorted(schemas_present)}"
+    f"product migrations at {product_version}; schemas present: {sorted(schemas_present)}; "
+    f"crm tables present: {sorted(crm_tables_present)}"
 )
 PYEOF
 
