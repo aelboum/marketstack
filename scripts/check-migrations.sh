@@ -95,15 +95,15 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # This product's own alembic_version table -- since Phase 6.3-6.5
-    # (docs/ROADMAP.md), head is 0023_marketing_tracking (twenty-three
+    # This product's own alembic_version table -- since Phase 5
+    # (docs/ROADMAP.md), head is 0015_conversations_templates (fifteen
     # real migrations: foundation.tenant_settings, white_label.*, twelve
-    # crm.* tables plus an email index, three conversations.* tables,
-    # seven marketing.* tables).
+    # crm.* tables, three conversations.* tables). Previously stale at
+    # 0009 (never updated for Phase 4's own 0010-0012 custom-field/tag/
+    # import-job migrations) -- corrected here rather than left wrong.
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0023_marketing_tracking", (
-        "expected product migrations at head 0023_marketing_tracking, "
-        f"got {product_version!r}"
+    assert product_version == "0015_conversations_templates", (
+        f"expected product migrations at head 0015_conversations_templates, got {product_version!r}"
     )
 
     schema_rows = conn.execute(
@@ -117,7 +117,6 @@ with engine.connect() as conn:
                 "white_label",
                 "crm",
                 "conversations",
-                "marketing",
             ]
         },
     ).all()
@@ -126,9 +125,6 @@ with engine.connect() as conn:
     ).all()
     conversations_table_rows = conn.execute(
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'conversations' ORDER BY tablename")
-    ).all()
-    marketing_table_rows = conn.execute(
-        text("SELECT tablename FROM pg_tables WHERE schemaname = 'marketing' ORDER BY tablename")
     ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
@@ -139,7 +135,6 @@ expected = {
     "white_label",
     "crm",
     "conversations",
-    "marketing",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -166,26 +161,12 @@ assert conversations_tables_present == expected_conversations_tables, (
     f"expected conversations tables {expected_conversations_tables}, "
     f"got {conversations_tables_present}"
 )
-marketing_tables_present = {row[0] for row in marketing_table_rows}
-expected_marketing_tables = {
-    "campaigns",
-    "suppressions",
-    "campaign_recipients",
-    "forms",
-    "form_submissions",
-    "templates",
-    "recipient_tracking_tokens",
-}
-assert marketing_tables_present == expected_marketing_tables, (
-    f"expected marketing tables {expected_marketing_tables}, got {marketing_tables_present}"
-)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
     f"product migrations at {product_version}; schemas present: {sorted(schemas_present)}; "
     f"crm tables present: {sorted(crm_tables_present)}; "
-    f"conversations tables present: {sorted(conversations_tables_present)}; "
-    f"marketing tables present: {sorted(marketing_tables_present)}"
+    f"conversations tables present: {sorted(conversations_tables_present)}"
 )
 PYEOF
 

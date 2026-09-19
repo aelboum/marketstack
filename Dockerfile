@@ -64,8 +64,16 @@ EXPOSE 8000
 # `/readyz` (readiness -- a container whose process is alive but whose
 # required dependencies, e.g. PostgreSQL/Redis, are unreachable should be
 # reported unhealthy), not `/healthz` (liveness only).
+#
+# Must dial `localhost`, never the loopback IP literal `127.0.0.1`:
+# product.white_label.domains.DomainResolutionMiddleware treats any Host
+# header other than PUBLIC_DOMAIN (or a subdomain of it) as a claimed
+# custom domain and 404s it once white_label.tenant_domains exists but
+# has no matching row -- ".env.example"/deploy configuration sets
+# PUBLIC_DOMAIN=localhost, which "127.0.0.1" (a different string) never
+# matches.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
-    CMD ["python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+    CMD ["python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/readyz', timeout=3)"]
 
 # Phase 1 has no equivalent of saas-os's own configurable api/server.py
 # (host/port sourced from core.config.Settings) -- this product has no

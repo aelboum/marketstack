@@ -70,13 +70,18 @@ if [ -z "$HEALTHY" ]; then
     exit 1
 fi
 
+# Dial `localhost`, not the loopback IP literal `127.0.0.1` -- see the
+# Dockerfile HEALTHCHECK's own comment: product.white_label's domain-
+# resolution middleware only passes through requests whose Host matches
+# PUBLIC_DOMAIN (`localhost`, per .env.example); "127.0.0.1" is a
+# different string and gets treated as an unmapped custom domain (404).
 echo "-- liveness (200) --"
 docker exec "$BACKEND_CID" python -c \
-    "import urllib.request as u; r = u.urlopen('http://127.0.0.1:8000/healthz', timeout=3); assert r.status == 200, r.status"
+    "import urllib.request as u; r = u.urlopen('http://localhost:8000/healthz', timeout=3); assert r.status == 200, r.status"
 
 echo "-- readiness (200, db+redis reachable) --"
 docker exec "$BACKEND_CID" python -c \
-    "import urllib.request as u; r = u.urlopen('http://127.0.0.1:8000/readyz', timeout=3); assert r.status == 200, r.status"
+    "import urllib.request as u; r = u.urlopen('http://localhost:8000/readyz', timeout=3); assert r.status == 200, r.status"
 
 _runtime_cleanup
 trap - EXIT
