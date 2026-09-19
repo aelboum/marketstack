@@ -168,6 +168,29 @@ See `docs/ACCOUNTING-SCOPE.md` for the full breakdown. Summary categories:
 | Bank data aggregation provider | D | PSD2 AIS provider (e.g. a Netherlands-focused aggregator), adapter-isolated, never assumed at initial launch |
 | VAT/tax calculation and reporting rules | C | Jurisdiction-specific business logic; see Dutch-market considerations in `docs/ACCOUNTING-SCOPE.md` |
 
+## Prospecting & Lead Intelligence (Phase 19–20, design-only at this revision)
+
+| Capability | Category | Reasoning |
+|---|---|---|
+| Prospecting domain model (`Prospect`, `ProspectCandidate`, `ProspectSearch`, `ProspectSource`, `ProspectSignal`, `ProspectEnrichment`, `ProspectAudit`, `ProspectQualification`, `ProspectAssignment`) | C | Product-specific, country-agnostic domain model — no equivalent concept exists in SaaS-OS. `docs/ROADMAP.md` Phase 19.2 |
+| Discovery / enrichment / registry / audit providers (external business-data, directory, registry, and audit-intelligence sources) | D | External providers, adapter-isolated behind `DiscoveryProvider`/`EnrichmentProvider`/`RegistryProvider`/`AuditProvider` Protocols, per `docs/INTEGRATIONS.md`'s existing pattern — no vendor is fixed by this roadmap update. `docs/ROADMAP.md` Phase 19.1, 19.3 |
+| Business identity resolution / deduplication across sources | C | Product-specific matching logic over CRM (C) and provider (D) data; not a generic SaaS-OS capability, and not proposed as one — no second product yet demonstrates the need. `docs/ROADMAP.md` Phase 19.5 |
+| External-data provenance/licensing metadata (source, `observed_at`, confidence, license classification) | C | Product-specific schema design, reusing `core.crypto` (A) for any sensitive field, exactly as Accounting already does. `docs/ROADMAP.md` Phase 19.6 |
+| Business/marketing audit capability (website, SEO, listings, reviews, technical signals) | C | Product-specific, reusable across prospects and existing CRM entities; no SaaS-OS equivalent. `docs/ROADMAP.md` Phase 19.8 |
+| CRM handoff (external candidate → Prospect → Company/Contact → Opportunity → Pipeline) | A (mechanism, reused) + C (handoff logic) | Reuses Phase 4's existing `crm.*` entities, services, and `core.rbac.can()` authorization (per ADR-0002's `get_current_actor` pattern) unchanged — **no second CRM, no duplicate Company/Contact/Opportunity model**. `docs/ROADMAP.md` Phase 19.9 |
+| Prospecting domain events (`prospect.discovered`, `.enriched`, `.qualified`, `.audit_completed`, `.converted`) | B (interim C) | Rides the existing product event dispatcher (`docs/ARCHITECTURE.md` §4, already Category B interim) — no new event mechanism. `docs/ROADMAP.md` Phase 19.10 |
+| Prospecting automation triggers/actions (scheduled search, recurring discovery, enrichment, qualification, audit, CRM handoff, assignment) | C, built on A+B | Consumes Phase 10's existing trigger/condition/action framework (A substrate via `infra.jobs`, B-interim durable engine once built) — **no second automation engine**. `docs/ROADMAP.md` Phase 20.1 |
+| Prospecting budget/quota/rate controls | A (mechanism, reused) | Maps onto `core.usage`/`core.billing` (already A) and `core.idempotency` (already A) for duplicate-request prevention — **no second usage/entitlement/billing system**. `docs/ROADMAP.md` Phase 20.2 |
+| AI-assisted prospecting agents (research assistance, qualification interpretation) | C, built on A | `control_plane` tool registrations at autonomy tier 0/1 only, per the existing Phase 9.1 pattern; gated by Data Authorization (ADR-0013) before any content reaches an external LLM. `docs/ROADMAP.md` Phase 20.3 |
+| Prospecting provider credentials | A (mechanism, reused) | `infra.secrets`'s `SecretsProvider`, per `docs/INTEGRATIONS.md`'s existing credential-handling rule — never stored in a CRM record, never a second secrets mechanism |
+
+**Architecture boundary (explicit)**: `Product Prospecting → SaaS Core →
+Infrastructure`, and `AI Prospecting/Agents → Product Prospecting → SaaS
+Core → Infrastructure`. Never the reverse — SaaS Core never depends on
+Product Prospecting. No prospecting-specific code belongs in `saas-os`, per
+`docs/ARCHITECTURE.md` §1's binding layer rule, applied here exactly as it
+already applies to every other module in this table. See ADR-0004.
+
 ## Integrations (Cross-Cutting)
 
 Every external provider this product touches — email is the one exception

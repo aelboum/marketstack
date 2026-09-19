@@ -1439,6 +1439,469 @@ scattered per-module adapters.
 
 ---
 
+## Phase 19 — Prospecting & Lead Intelligence
+
+Status: PROPOSED, roadmap/design only — no subphase below is implemented.
+This phase and Phase 20 are appended after Phase 18, not inserted before it:
+Phase 18 remains the production/compliance gate for everything in Phases
+1–18 (CRM, Conversations, Marketing, Accounting, ...), and that gate is not
+reopened or diluted by adding more roadmap scope after it. Prospecting is a
+new, later capability that itself depends on CRM (4), the AI Control Plane
+tool-registration pattern (9), and the Automation engine (10) already
+existing, and carries its own data-governance/legal review gate (19.1, and
+Phase 20's cost/consent controls) analogous to, but distinct from, Phase
+18's Dutch/accounting-specific one. Existing phase numbers are unchanged;
+nothing here is renumbered.
+
+External prospect discovery and lead intelligence, functionally comparable
+in scope to modern "find and qualify local businesses" prospecting tooling,
+designed from the outset as **provider-agnostic and country-agnostic** —
+Netherlands, Belgium, Morocco, and France are the initial target countries,
+with the architecture required to support additional countries later without
+a redesign. Per `docs/RESPONSIBILITY-MATRIX.md`'s categorization discipline:
+the prospecting domain model and orchestration are Category C
+(product-specific); every external data source is Category D, isolated
+behind a provider adapter, never hardcoded; the CRM (Phase 4) remains the
+one system of record for Company/Contact/Opportunity — Phase 19 never
+creates a second CRM.
+
+### 19.1 Provider & Data-Licensing Spike
+
+- **Objective**: before any production provider integration, investigate
+  and document, per candidate provider: country/geographic coverage,
+  API capabilities, pricing/cost model, rate limits, data freshness,
+  commercial-use rights, retention/storage restrictions, attribution
+  requirements, redistribution restrictions, personal-data implications,
+  GDPR/privacy implications, provider-specific acceptable-use restrictions,
+  business-data vs. contact-data coverage, registry-data availability, and
+  enrichment capabilities. Candidate categories: (1) global/local business
+  discovery (e.g. Google Places/Maps Platform, DataForSEO, Outscraper),
+  (2) business directory providers, (3) licensed B2B/company-data providers
+  (e.g. Apollo, Cognism, People Data Labs), (4) contact enrichment
+  providers, (5) official/registry data providers (e.g. Dutch KVK, Moroccan
+  OMPIC/ICE/RC ecosystem, Belgian/French equivalents), (6) customer-owned
+  imports, (7) audit/website-intelligence providers. These are candidates
+  to evaluate, **not approved dependencies** — no vendor is selected by this
+  spike; vendor selection is a later, phase-level decision per
+  `docs/INTEGRATIONS.md`'s closing statement, made against each provider's
+  *current* terms at that time, not the terms found during this spike.
+- **Dependencies**: Phase 18 (this product is production-hardened and
+  compliance-reviewed before a new externally-sourced-data capability is
+  designed on top of it); Phase 4 (CRM, the eventual handoff target).
+- **Scope**: research and a written findings document per provider category
+  (per-country coverage matrix, licensing/compliance matrix). No code, no
+  provider account/credential is provisioned, no adapter is written.
+- **Tests**: n/a (a research/documentation subphase, mirroring Phase 10.1's
+  and Phase 0's own "spike + decision record, no code" shape).
+- **Security considerations**: none yet (no integration exists); the
+  findings document is itself the input to 19.3's provider-abstraction
+  design and to the compliance requirements in this phase's own "Compliance
+  and data governance" scope below.
+- **Acceptance criteria**: a findings document exists covering every
+  category and country above, explicitly flags which providers have
+  acceptable-use terms incompatible with this product's intended use (e.g.
+  no-storage, no-redistribution, no-commercial-enrichment clauses), and is
+  reviewed with you before 19.2–19.10 are treated as more than a paper
+  design.
+- **Rollback**: n/a — no system exists yet from this subphase.
+- **Outcome**: not started.
+- **Checkpoint**: **STOP HERE.** Provider terms must be re-verified as
+  current, not assumed from this spike's findings, at the point any
+  provider adapter is actually implemented (a later, not-yet-scheduled
+  phase) — terms and pricing drift over time, and this spike's findings are
+  a snapshot, not a standing guarantee.
+
+### 19.2 Prospecting Domain
+
+- **Objective**: define, in writing, the domain concepts this capability
+  will eventually need — `Prospect`, `ProspectCandidate`, `ProspectSearch`,
+  `ProspectSource`, `ProspectSignal`, `ProspectEnrichment`, `ProspectAudit`,
+  `ProspectQualification`, `ProspectAssignment` — and the distinction
+  between an **external candidate** (raw, unverified, provider-sourced),
+  a **normalized prospect** (deduplicated, provider-agnostic, this
+  product's own representation), an **existing CRM company/contact**
+  (Phase 4.1's system of record), and an **opportunity** (Phase 4.2). The
+  CRM remains the system of record for CRM entities; this phase does not
+  create a second CRM, a second contact model, or a second company model.
+- **Dependencies**: 19.1 (informs what a `ProspectSource`/`ProspectSignal`
+  actually needs to represent, given real provider shapes found there);
+  Phase 4.1–4.2 (the CRM entities this domain hands off into).
+- **Scope**: a domain-model design document (`product/prospecting/`'s
+  future module boundary, per `docs/ARCHITECTURE.md` §2.1's pattern) — no
+  SQLAlchemy models, no migration, no schema.
+- **Tests**: n/a (design document).
+- **Security considerations**: the design must state, per concept, whether
+  it can hold personal data (a `ProspectCandidate`'s contact fields, most
+  plausibly) — flagged here for 19.6's provenance/retention design, not
+  resolved here.
+- **Acceptance criteria**: every concept above has a one-paragraph
+  definition and an explicit statement of what it is not (e.g. "a
+  `Prospect` is not a `crm.contacts` row and never bypasses 19.9's handoff
+  step to become one").
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: review the external-candidate/normalized-prospect/CRM-
+  entity boundary specifically before 19.3 assumes it.
+
+### 19.3 Provider Abstraction
+
+- **Objective**: define a provider-agnostic architecture distinguishing
+  `DiscoveryProvider`, `EnrichmentProvider`, `RegistryProvider`, and
+  `AuditProvider` capabilities, following the exact Protocol + adapter
+  pattern already established by `docs/INTEGRATIONS.md` and demonstrated
+  in `saas-os` for `core.billing`/`core.email`. No single provider is
+  required to implement every capability — a discovery-only provider and a
+  registry-only provider can both be plugged in independently.
+- **Dependencies**: 19.1 (real provider capability shapes), 19.2 (the
+  domain concepts each Protocol operates on).
+- **Scope**: `product/integrations/prospecting/` design (Protocol
+  definitions, one design doc per capability), per
+  `docs/INTEGRATIONS.md`'s existing `provider.py` / `<name>_provider.py` /
+  `errors.py` layout — design only, no implementation.
+- **Tests**: n/a at design time; the design must state that a substitution
+  test (a fake adapter satisfying the same Protocol) will be required for
+  every future concrete adapter, per `docs/INTEGRATIONS.md`'s standing
+  rule.
+- **Security considerations**: adapters must isolate provider API
+  contracts, authentication, rate limits, provider-specific fields,
+  provider-specific retention rules, provider-specific licensing
+  restrictions, and provider-specific errors — the domain/application layer
+  must not depend directly on a specific vendor's types, exactly as
+  `docs/INTEGRATIONS.md` already requires for every other Category D
+  integration.
+- **Acceptance criteria**: each of the four Protocols is defined with a
+  minimal method signature set and an explicit statement of what a
+  provider-specific adapter owns vs. what the domain layer owns.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: review that no capability design silently assumes a
+  single vendor's field shape (e.g. assuming every provider returns a KVK
+  number) — this is the specific failure mode 19.4 exists to prevent.
+
+### 19.4 International / Country-Aware Prospecting
+
+- **Objective**: ensure the architecture supports multiple countries from
+  the beginning, with no Netherlands-specific assumption baked in anywhere
+  in 19.2–19.3's design. Define normalized concepts: country, region, city,
+  postal code, geographic coordinates, radius, language, local business
+  categories, local identifiers, registry identifiers — and allow
+  country-specific provider capability (e.g. Netherlands: KVK and
+  licensed/compliant business-data sources; Morocco: ICE, RC, the OMPIC
+  ecosystem, local business directories, plus globally-available discovery
+  sources like Google).
+- **Dependencies**: 19.1 (per-country provider coverage findings), 19.3
+  (the `RegistryProvider`/`DiscoveryProvider` shape this country-awareness
+  plugs into).
+- **Scope**: a country-capability matrix design document; no country-specific
+  code, no per-country adapter.
+- **Tests**: n/a (design document); the design must state the test this
+  will eventually require — a search for the same business category in two
+  different countries returns results shaped by that country's actual
+  available identifiers, not a Netherlands-shaped result forced onto
+  Morocco's data.
+- **Security considerations**: none beyond what 19.1/19.6 already flag for
+  personal-data handling per jurisdiction (GDPR for NL/BE/FR; Morocco's own
+  Loi 09-08 data-protection regime is a distinct, separately-verified
+  requirement, not assumed equivalent to GDPR).
+- **Acceptance criteria**: the design explicitly states, for each of the
+  four initial countries, which identifiers are and are not assumed to
+  exist (a country is never assumed to have the same identifier set as
+  another).
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond confirming no country-specific assumption
+  leaked into 19.2/19.3's supposedly-generic design.
+
+### 19.5 Business Identity & Entity Resolution
+
+- **Objective**: design deduplication across multiple sources using
+  provider-specific IDs, domain, phone, country-specific registry
+  identifiers (KVK, ICE, RC), VAT/tax identifiers where legally usable, and
+  normalized business name/address — distinguishing **source identity**
+  (what one provider returned) from **canonical business identity** (this
+  product's own resolved entity). A company found through multiple
+  providers must be resolvable to one CRM company where evidence supports
+  that conclusion; destructive automatic merging without sufficient
+  confidence is explicitly out of scope for the design.
+- **Dependencies**: 19.2 (the `Prospect`/`ProspectCandidate` distinction
+  this resolution operates between), 19.4 (country-specific identifiers
+  feeding the match).
+- **Scope**: a matching-strategy design document (candidate signals, a
+  confidence-tiering approach, a human-review path for low-confidence
+  matches) — no matching algorithm implementation.
+- **Tests**: n/a (design document); the design must state the adversarial
+  test this will eventually require — two genuinely different businesses
+  sharing a weak signal (e.g. same building address, different companies)
+  must not auto-merge.
+- **Security considerations**: none beyond what 19.6 flags for the
+  provenance metadata this resolution logic reads.
+- **Acceptance criteria**: the design states a confidence threshold concept
+  and states explicitly that below-threshold matches surface for human
+  review rather than auto-merging.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: review the "no destructive auto-merge without sufficient
+  confidence" guarantee specifically — this is the one design choice most
+  likely to corrupt real CRM data if under-specified.
+
+### 19.6 Enrichment
+
+- **Objective**: design provider-agnostic enrichment for company
+  information, contact information, website information, business/category
+  information, registry information, and public business signals. Every
+  externally sourced datum is designed to retain provenance metadata
+  (source, `observed_at`, confidence, and a data/license classification
+  where required) — reusing `core.crypto` (Category A) for any
+  field-level-sensitive value, the same pattern already used for accounting
+  PII (`docs/RESPONSIBILITY-MATRIX.md` "Mini Accounting"). PII is not placed
+  into audit events beyond what `core.audit_log`'s existing
+  redaction/summarization discipline already permits for any other
+  product-owned data. No unsupported legal-retention-period claim is made
+  here — Dutch/EU retention specifics remain subject to a future
+  Phase-18-style legal/compliance gate, not decided by this design.
+- **Dependencies**: 19.3 (the `EnrichmentProvider` Protocol this design
+  fills in), 19.5 (provenance feeds the confidence signal entity
+  resolution consumes).
+- **Scope**: a provenance-metadata schema design (field names/types, not a
+  migration); no enrichment logic implementation.
+- **Tests**: n/a (design document).
+- **Security considerations**: this design explicitly names which fields
+  are expected to carry personal data (a contact's name/email/phone from
+  an enrichment provider) so 19.1's per-provider personal-data findings and
+  a future GDPR/Loi-09-08 legal review have a concrete field list to
+  evaluate against, rather than an abstract capability.
+- **Acceptance criteria**: the provenance schema design covers every
+  enrichment category above with source/`observed_at`/confidence/license
+  fields.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond confirming the provenance schema is complete
+  enough that 19.9's CRM handoff can carry it forward without loss.
+
+### 19.7 Prospect Qualification
+
+- **Objective**: design deterministic qualification first — industry
+  match, geographic match, employee range, company characteristics,
+  website presence, contact availability, and other configured business
+  signals — with qualification retaining explainable reasons/signals. An
+  opaque AI score is explicitly not the foundational mechanism; AI may
+  later assist with interpretation or prioritization on top of the
+  deterministic result, not replace it.
+- **Dependencies**: 19.2, 19.6 (qualification reads enriched, provenance-
+  tagged data).
+- **Scope**: a qualification-rule design document (rule shape, how a
+  tenant configures its own criteria) — no implementation.
+- **Tests**: n/a (design document); the design must state the eventual
+  test — a qualification decision is always traceable to the specific
+  signals that produced it.
+- **Security considerations**: none beyond inherited tenant-isolation
+  (qualification criteria are tenant-configured data, isolated exactly like
+  any other tenant-owned configuration, per `docs/ARCHITECTURE.md` §2.3).
+- **Acceptance criteria**: the design shows, for a worked example, which
+  signals produce which qualification outcome and why.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond confirming the "explainable, not opaque"
+  requirement is met by the design as written.
+
+### 19.8 Business / Marketing Audit
+
+- **Objective**: design a reusable audit capability — website, SEO, online
+  presence, business listings, reviews/reputation, local visibility,
+  technical website signals — operable independently of prospect discovery,
+  and reusable for prospects, existing CRM contacts/companies, sales
+  workflows, reporting, AI, and automation. Findings are represented as
+  structured evidence (a future `AuditFinding` concept: category, severity,
+  evidence, source, `observed_at`) rather than only one opaque score.
+- **Dependencies**: 19.3 (the `AuditProvider` Protocol), 19.1 (audit/
+  website-intelligence provider category findings).
+- **Scope**: a design document for `AuditFinding`'s shape and the audit
+  capability's intended reuse surface. **Not implemented in this roadmap
+  update** — this subphase is explicitly design-only, per the brief.
+- **Tests**: n/a.
+- **Security considerations**: none beyond what 19.1's provider findings
+  already flag for the specific audit providers evaluated.
+- **Acceptance criteria**: the `AuditFinding` shape is defined and the
+  design explicitly lists every reuse surface named above.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: none — this subphase produces a design document only, by
+  explicit instruction.
+
+### 19.9 CRM Handoff
+
+- **Objective**: explicitly define the integration with Phase 4's CRM:
+  external candidate → Prospect → Company/Contact → Opportunity → Pipeline.
+  This reuses Phase 4's existing `crm.contacts`/`crm.companies`/
+  opportunity/pipeline entities and services unchanged — **no duplicate
+  Company/Contact/Opportunity model is created**. CRM tenancy,
+  authorization (per ADR-0002's `get_current_actor` +
+  service-layer-`core.rbac.can()` pattern, which this handoff inherits
+  exactly since it writes into `crm.*`), audit, and existing security
+  boundaries remain authoritative and unmodified.
+- **Dependencies**: 19.2 (the entity distinction this handoff crosses),
+  Phase 4.1–4.2 (the CRM entities being written into).
+- **Scope**: a handoff-flow design document (what triggers a
+  Prospect→Company/Contact conversion, what data carries over, what
+  provenance metadata from 19.6 is preserved on the resulting CRM record) —
+  no implementation.
+- **Tests**: n/a (design document); the design must state the eventual
+  test — a converted prospect's resulting CRM company/contact passes the
+  same tenant-isolation and cross-tenant-leakage test suite Phase 4.1
+  already established, with no separate isolation mechanism invented for
+  prospecting-originated CRM records.
+- **Security considerations**: the design must state explicitly that a
+  handoff never bypasses `crm.*`'s existing `core.rbac.can()` checks — a
+  prospecting-originated write is not a privileged path into CRM.
+- **Acceptance criteria**: the handoff flow above is fully specified,
+  entity by entity, with no ambiguity about which system (Prospecting vs.
+  CRM) owns the resulting record once handoff completes (CRM does, always).
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: review this handoff boundary specifically before any
+  future implementation phase — this is the one place a bug could produce
+  a second, competing CRM.
+
+### 19.10 Prospecting Events
+
+- **Objective**: define future domain events useful to Automation/AI —
+  `prospect.discovered`, `prospect.enriched`, `prospect.qualified`,
+  `prospect.audit_completed`, `prospect.converted` — following the existing
+  product event dispatcher conventions (`docs/ARCHITECTURE.md` §4: every
+  event carries `tenant_id`, schemas are versioned from their first
+  definition). Event payloads do not carry unnecessary PII or business-
+  content payloads — an event signals that something happened and carries
+  an identifier a subscriber can look up, not the underlying sensitive data
+  itself.
+- **Dependencies**: 19.2 (the lifecycle these events describe), Phase 2.2
+  (the event dispatcher mechanism itself).
+- **Scope**: an event-schema design document (name, version, minimal
+  payload shape per event) — no publisher/subscriber implementation.
+- **Tests**: n/a (design document).
+- **Security considerations**: each event's payload is reviewed against
+  the "no unnecessary PII" rule as part of this design, not deferred to
+  implementation time.
+- **Acceptance criteria**: all five events are defined with a minimal
+  payload shape.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond the payload-minimalism review above.
+
+---
+
+## Phase 20 — Prospecting Automation & AI Agents
+
+Status: PROPOSED, roadmap/design only — no subphase below is implemented.
+The automation layer on top of Phase 19. This phase explicitly does not
+duplicate the generic automation engine built in Phase 10 — it *consumes*
+Phase 10's trigger/condition/action framework (and, once built, its
+durable multi-step engine) the same way Phase 12 (Reputation) and Phase
+10.4 (invoicing/AI triggers) already do, per `docs/ROADMAP.md` Phase 10's
+existing design. No second workflow engine, no second scheduler, no second
+job runner is introduced.
+
+Example future user intent this phase is designed against: "Every Monday
+find 50 dentists in Casablanca within 50 km that match these criteria,
+enrich them, audit their online presence, and place qualified prospects
+into my CRM pipeline." Architecturally: Schedule → Discovery →
+Deduplication → Enrichment → Audit → Qualification → CRM → Phase 10
+Automation.
+
+### 20.1 Prospecting trigger/action registrations on Phase 10
+
+- **Objective**: register prospecting-specific triggers and actions
+  (scheduled prospect search, recurring discovery, automatic enrichment,
+  qualification, audit execution, CRM handoff, prospect assignment) into
+  Phase 10's existing trigger/condition/action framework — design only, no
+  new engine.
+- **Dependencies**: Phase 19 (the domain/provider design this automation
+  operates over), Phase 10.2–10.3 (the framework being extended, exactly
+  as Phase 10.4 already extends it for invoicing/AI triggers).
+- **Scope**: a design document listing each new trigger/action and which
+  Phase 19 capability it invokes — no implementation, no new trigger
+  engine, no new job runner.
+- **Tests**: n/a (design document); the design must state the eventual
+  test — each new action executes with no more privilege than the tenant
+  user who configured it, mirroring Phase 10.2's existing adversarial
+  privilege-escalation test requirement, applied to prospecting actions
+  specifically (a scheduled search must not be usable to reach data or
+  providers the configuring user's own tenant isn't entitled to).
+- **Security considerations**: prospecting provider credentials are
+  designed to flow through `infra.secrets`'s `SecretsProvider`, per
+  `docs/INTEGRATIONS.md`'s existing credential-handling rule — never stored
+  in a CRM record, never a second secrets mechanism.
+- **Acceptance criteria**: every trigger/action above is specified with its
+  Phase 10 integration point named explicitly.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond confirming no new engine is implied by this
+  design.
+
+### 20.2 Provider selection, budget, and rate controls
+
+- **Objective**: design provider fallback/selection logic, budget/rate
+  controls (provider cost visibility, per-tenant usage, quotas, rate
+  limits, maximum search size, enrichment limits, audit limits, provider
+  budgets, retry controls, duplicate-request prevention), and human
+  approval gates where appropriate — consuming `core.usage`/`core.billing`
+  (Category A) for entitlement/usage tracking rather than building a second
+  usage system, per `docs/RESPONSIBILITY-MATRIX.md`'s existing "Usage
+  metering, quota checks" row.
+- **Dependencies**: 20.1; `core.usage`/`core.billing` (already available,
+  Category A).
+- **Scope**: a design document for how a per-tenant prospecting budget maps
+  onto existing usage/entitlement primitives, and where a human-approval
+  gate sits in the Schedule → Discovery → ... → CRM flow (e.g. before a
+  large-cost enrichment batch runs). No implementation.
+- **Tests**: n/a (design document); the design must state the eventual
+  test — a tenant's configured budget/quota is enforced before a
+  cost-incurring provider call is made, not only logged after the fact.
+- **Security considerations**: idempotency (`core.idempotency`, Category A)
+  is the design's stated mechanism for duplicate-request prevention against
+  cost-incurring provider calls, reused rather than reinvented, per
+  `docs/INTEGRATIONS.md`'s webhook-idempotency precedent applied to
+  outbound provider calls here.
+- **Acceptance criteria**: the design states, per cost-incurring operation
+  (search, enrichment call, audit run), which existing SaaS-OS primitive
+  enforces its budget/rate ceiling.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: review that no second usage/entitlement/billing system is
+  implied anywhere in this design — reuse `core.usage`/`core.billing`
+  throughout, per the compliance/architecture requirements this roadmap
+  update carries.
+
+### 20.3 AI-assisted prospecting agents
+
+- **Objective**: design AI-assisted prospect research and prospecting
+  agents (configurable prospecting campaigns, AI-assisted qualification
+  interpretation per 19.7's "AI may later assist" note) as `control_plane`
+  tool registrations, per `saas-os` `docs/AI-CONTROL-PLANE.md` §3 and this
+  product's own Phase 9.1 pattern — never a second agent runtime.
+- **Dependencies**: 20.1, 20.2, Phase 9.1 (the tool-registration pattern
+  this reuses).
+- **Scope**: a design document naming the prospecting-specific tools this
+  phase would eventually register (e.g. "summarize prospect audit
+  findings," "suggest next prospecting action") and their autonomy tier
+  (tier 0/1 only, per Phase 9.1's existing constraint — never tier 2/3
+  without a separate, later, evidence-based decision) — no implementation.
+- **Tests**: n/a (design document); the design must state the eventual
+  test — mirrors Phase 9.1's tool-invocation test shape (invokes correctly
+  under permission, denied without it, every invocation audit-logged) and
+  Phase 9.1's Data Authorization gate (every tool touching tenant data
+  passes through Data Authorization, ADR-0013, before any content reaches
+  an external LLM provider).
+- **Security considerations**: mirrors Phase 9.1 exactly — no exception for
+  prospecting data.
+- **Acceptance criteria**: every named tool has a stated autonomy tier and
+  a stated Data Authorization touchpoint.
+- **Rollback**: n/a.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond Phase 9.1's standing review, extended to
+  these tools once actually registered in a future implementation phase.
+
+---
+
 ## Notes on Sequencing Flexibility
 
 Exactly like `saas-os`'s own roadmap states: phases within the same group
@@ -1448,4 +1911,8 @@ Conversations (5) if email-only campaigns are the priority; Appointments (7)
 and Telephony (8) have no dependency on each other and could swap. What must
 not move: Phase 1 (repository foundation) first, Phase 2 (foundation) before
 anything that needs branding/events, Phase 3 (agency/client tenancy) before
-any tenant-scoped product module, and Phase 18 (hardening/compliance) last.
+any tenant-scoped product module, and Phase 18 (hardening/compliance) last
+**among Phases 1–18**. Phase 19 (Prospecting & Lead Intelligence) and Phase
+20 (Prospecting Automation & AI Agents) are a later, separately-gated
+extension appended after Phase 18, not part of the 1–18 sequence Phase 18
+closes out — see Phase 19's own opening note for why.
