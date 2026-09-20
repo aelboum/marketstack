@@ -133,7 +133,6 @@ modules = [
     "product.crm",
     "product.conversations",
     "product.telephony",
-    "product.ai",
     "product.automation",
     "product.reputation",
     "product.websites",
@@ -198,6 +197,66 @@ type = "layers"
 layers = [
     "product.appointments",
     "product.crm",
+]
+
+# Phase 9: product.ai (docs/ADR/0006-ai-depends-on-crm-conversations-telephony.md)
+# needs a wider, but still narrow and one-directional, set of edges than
+# Marketing/Appointments' single CRM exception -- every registered
+# control_plane tool wraps exactly one bounded, already-RBAC-gated read
+# against the product module it assists (crm.contacts/crm.opportunities
+# for lead qualification/suggested next actions, conversations.messages
+# for summarization/suggested replies, telephony.calls for the AI
+# receptionist's advisory read) -- never a second, competing read path
+# into any of their own tables. A separate forbidden contract (not folded
+# into the Marketing/Appointments one above, which is explicitly
+# CRM-only) plus three separate layers contracts -- one per dependency
+# edge, never a single multi-layer contract, for the identical reason
+# Marketing/Appointments' own comment already gives: a shared layer would
+# also permit product.crm <-> product.conversations <-> product.telephony
+# through product.ai as an intermediary, which is not part of this
+# decision.
+[[tool.importlinter.contracts]]
+name = "AI does not depend on any product module except CRM, Conversations, or Telephony"
+type = "forbidden"
+source_modules = ["product.ai"]
+forbidden_modules = [
+    "product.agency",
+    "product.marketing",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "AI may depend on CRM, never CRM on AI"
+type = "layers"
+layers = [
+    "product.ai",
+    "product.crm",
+]
+
+[[tool.importlinter.contracts]]
+name = "AI may depend on Conversations, never Conversations on AI"
+type = "layers"
+layers = [
+    "product.ai",
+    "product.conversations",
+]
+
+[[tool.importlinter.contracts]]
+name = "AI may depend on Telephony, never Telephony on AI"
+type = "layers"
+layers = [
+    "product.ai",
+    "product.telephony",
 ]
 
 # Phase 1's independence contract above only forbids sibling
