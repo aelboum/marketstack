@@ -14,9 +14,30 @@
 #     own /docker-entrypoint-initdb.d mechanism, run once on first boot of
 #     an empty data volume). This is what DATABASE_URL points at.
 #
-# No `worker` service yet -- no background job is defined anywhere in
-# this product (docs/ROADMAP.md Phase 1 scope), so there is nothing for a
-# worker process to run. Added in the phase that actually registers one.
+# No ARQ/`infra.jobs` worker service yet -- no such background job is
+# defined anywhere in this product (docs/ROADMAP.md Phase 1 scope), so
+# there is nothing for one to run; unaffected by anything below (this
+# phase's own required outcome 8). Added in the phase that actually
+# registers one.
+#
+# `temporal`/`temporal-worker` (docs/ROADMAP.md Phase 10.3's own
+# infrastructure spike, docs/ADR/0007-automation-execution-substrate.md):
+# the durable-execution engine and this product's own dedicated worker
+# process for it -- a Product-owned infrastructure dependency, external
+# to SaaS-OS (`product/automation/durable/__init__.py`'s own docstring).
+# `temporal` reuses this same `db` Postgres server (per this phase's own
+# instructions: "prefer that over introducing another database engine")
+# via `temporalio/auto-setup`'s own bootstrap, which creates its own
+# `temporal`/`temporal_visibility` databases inside it on first boot --
+# structurally separate from this product's own `POSTGRES_DB` database
+# and never touched by `scripts/bootstrap-db.py`/Alembic (this phase's
+# own instructions: "do NOT make the Product Alembic migration system
+# manage Temporal's internal schema"). `temporal-worker` is a second,
+# independent process built from this same image (`command:` override
+# only) -- this phase's own required outcome 7 ("Product API and worker
+# remain separate processes"); `backend` never depends on either service
+# and `product/api/main.py` never imports the durable adapter at all, so
+# neither existing (this phase's own required outcome 7/14).
 #
 # Unlike saas-os's own `backend` service (which publishes no host port,
 # behind its own Caddy ingress -- out of scope for this product's Phase
@@ -81,6 +102,39 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+
+  # Phase 10.3 infrastructure spike only (module comment above) -- not
+  # depended on by `backend` or `frontend`, and not required for this
+  # product to build, start, or serve any existing route.
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD}
+      POSTGRES_SEEDS: db
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  temporal-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - saas_os_pat
+    command: ["python", "-m", "product.automation.durable.worker"]
+    env_file:
+      - .env
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on:
+      - temporal
+    restart: on-failure
 
 volumes:
   db-data:

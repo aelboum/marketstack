@@ -15,8 +15,26 @@ license = { text = "UNLICENSED" }
 
 # Pinned Git/VCS dependency, exact commit SHA (never a mutable tag/branch) --
 # docs/REPOSITORY-STRATEGY.md, mirroring saas-os's own ADR-0015 rules 6-8.
+#
+# `temporalio` (docs/ROADMAP.md Phase 10.3 durability spike,
+# docs/ADR/0007-automation-execution-substrate.md): the durable
+# workflow-execution engine's own Python SDK -- a Product-owned
+# infrastructure dependency, external to SaaS-OS (never added to
+# saas-os's own pyproject.toml, never imported by anything under `core`/
+# `infra`/`api` -- see product/automation/durable/__init__.py's own
+# docstring for the enforced boundary). Pinned to an exact version, not
+# `>=`, mirroring the `[security]` extra's own exact-pinned `detect-
+# secrets` dependency below: an unpinned durable-engine SDK is a
+# determinism hazard for exactly the same reason -- a later release
+# changing wire/serialization behavior could silently change how an
+# in-flight workflow replays. Verified against PyPI at pin time:
+# 1.33.0 declares `requires_python >= 3.10` and ships a prebuilt
+# `cp310-abi3` wheel for win_amd64/linux/macos (no C toolchain needed to
+# install on this repository's `python:3.13-slim` image or this Windows
+# dev machine).
 dependencies = [
     "saas-os @ git+https://github.com/aelboum/saas-os@1d6fd07a0c3ce2dd8a12c09dac86b019781ee6c6",
+    "temporalio==1.33.0",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +68,7 @@ packages = [
     "product.ai",
     "product.appointments",
     "product.automation",
+    "product.automation.durable",
     "product.reputation",
     "product.websites",
     "product.billing",
@@ -110,9 +129,10 @@ venv = ".venv"
 # scripts/check-integration.sh (`pytest -m integration`).
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -m \"not integration\""
+addopts = "-ra -m \"not integration and not temporal\""
 markers = [
     "integration: requires a real disposable PostgreSQL and/or Redis instance; excluded by default, see scripts/check-integration.sh",
+    "temporal: requires outbound network access (first run only, to download the Temporal CLI dev-server binary used by temporalio.testing.WorkflowEnvironment) and spins a real ephemeral Temporal server; excluded by default, see docs/ADR/0007-automation-execution-substrate.md's Phase 10.3 spike section for how to run these manually.",
 ]
 
 # --- import-linter: enforces docs/ARCHITECTURE.md section 2.2's rule --

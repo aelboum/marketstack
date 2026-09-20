@@ -1,12 +1,17 @@
-# ADR-0007: Automation Execution Substrate (Phase 10.1 Spike)
+# ADR-0007: Automation Execution Substrate (Phase 10.1 Spike + Phase 10.3 Infrastructure Spike)
 
-Status: PROPOSED — requires your review before Phase 10.3 begins, per
-`docs/ROADMAP.md` Phase 10.1's own Checkpoint ("review the engine decision
-with you before committing — this is a significant new infrastructure
-dependency"). This ADR is the spike's output, not yet a decision you have
-signed off on.
+Status: **ACCEPTED** — finalized 2026-09-20 by the Phase 10.3
+infrastructure spike below, which built and ran a real, minimal
+integration proving this ADR's own 10.1 conclusions (Context/Decision/
+Consequences below, unedited) and its 10.3 recommendation (a dedicated
+durable engine, adopted only once a concrete need was scheduled) both
+hold. The architecture-review pass that preceded this spike (a separate,
+read-only pass; its own full report is not reproduced here) approved:
+Temporal (or equivalent), external to SaaS-OS, Product-owned. This spike
+made the concrete selection (Temporal) and validated it empirically --
+"Phase 10.3 Infrastructure Spike" section below.
 
-Date: 2026-09-20
+Date: 2026-09-20 (10.1 spike); 2026-09-20 (10.3 infrastructure spike)
 
 ## Context
 
@@ -121,3 +126,266 @@ Hand-rolling delay/branching/wait-for-event state tracking on top of
 polled by a sweep) was considered and rejected — this is precisely the
 pattern `docs/ARCHITECTURE.md` §5 names and forbids by name ("never
 hand-rolled as ad hoc state tracking on top of it").
+
+---
+
+## Phase 10.3 Infrastructure Spike (2026-09-20)
+
+**Scope discipline, stated up front**: this spike proves infrastructure
+viability only. It does NOT implement the production multi-step Workflow
+Builder, branching workflow graphs, delayed business workflows,
+wait-for-event business workflows, workflow-versioning UI, the 10.3
+workflow domain, or 10.4. `product/automation/durable/` is 6 small files
+(~450 lines total); the existing 10.2 engine
+(`product/automation/{dispatcher,actions,workflows,scheduled,models,...}.py`)
+is unmodified in behavior — verified both by test
+(`tests/automation/durable/test_disabled_and_failure_unit.py
+::test_existing_phase_10_2_automation_package_does_not_import_durable`)
+and by the full existing `tests/automation/` suite passing unchanged.
+
+### Engine selected: Temporal
+
+Concrete selection, not left at "Temporal or equivalent." SDK
+compatibility verified directly against PyPI before adding the
+dependency: `temporalio` 1.33.0 declares `requires_python >= 3.10` and
+lists Python 3.13 in its own classifiers (matching this repository's
+`requires-python = ">=3.13"` exactly), and ships a prebuilt
+`cp310-abi3` wheel for win_amd64/linux/macos — no C toolchain needed on
+either this Windows dev machine or the `python:3.13-slim` Docker image.
+No blocking compatibility issue found. Pinned as an exact version in
+`pyproject.toml` (`temporalio==1.33.0`), mirroring `detect-secrets`'s own
+exact-pin discipline in the same file, for the same determinism reason.
+
+### Dependency boundary
+
+```
+product.automation (domain: Workflow, WorkflowRun, actions, conditions)
+    |
+    v
+product.automation.durable   (new adapter -- client.py, worker.py,
+    |                          workflows.py, activities.py, config.py)
+    v
+temporalio SDK                 (external, Product-owned dependency)
+    |
+    v
+Temporal server / persistence  (external infrastructure; docker-compose.yml)
+```
+
+`temporalio` is imported only from inside `product/automation/durable/`.
+Nothing under SaaS-OS (`core`/`infra`/`api`/`control_plane`) imports this
+package or `temporalio` — structurally impossible, not merely
+undesired: SaaS-OS is a pinned upstream dependency of this product, never
+the reverse, so no SaaS-OS code path can import a Product-side package at
+all. This repository's own `[tool.importlinter] root_packages =
+["product"]` cannot express a "core does not import product" contract
+(SaaS-OS's source is outside that root) — the boundary is enforced by the
+one-way dependency pin itself. Verified empirically for this spike: no
+`import product` exists anywhere in the installed `saas-os` source at the
+pinned commit.
+
+The existing `[[tool.importlinter.contracts]] name = "Automation does not
+depend on any product module except CRM"` (`source_modules =
+["product.automation"]`) already covers `product.automation.durable` as
+a subpackage — re-ran `lint-imports` after adding the new package (172
+files analyzed, up from 163) and all 11 contracts remain KEPT, with no
+new contract added: three of this spike's four requested boundaries
+("automation may depend on the durable adapter," "durable adapter may
+depend on the external SDK," "no reverse dependency from durable
+infrastructure into Product") were already true/enforced with zero new
+lines, and the fourth ("SaaS Core remains unaware of Temporal") cannot be
+expressed by this repository's own import-linter config at all (previous
+paragraph) — adding a contract that cannot fire would be dead
+configuration, not enforcement.
+
+`product/api/main.py` deliberately never imports
+`product.automation.durable` — verified both by a dedicated test
+(`test_product_api_main_never_imports_the_durable_adapter`) and by
+direct inspection. This is what makes "Product remains usable if
+Temporal is not configured/started" and "the engine can be disabled
+without affecting existing 10.2 single-step automation" true by
+construction, not by discipline alone.
+
+### Worker architecture
+
+A dedicated entrypoint, `product/automation/durable/worker.py`
+(`python -m product.automation.durable.worker`), run as its own Docker
+Compose service (`temporal-worker`) — never merged into FastAPI startup,
+never merged into a (nonexistent, confirmed by inspection) ARQ worker,
+never merged into the API process. `Client.connect()` is allowed to raise
+on an unreachable endpoint rather than being wrapped in a bespoke retry
+loop — Temporal's own client/worker handles ordinary reconnection once
+started; a container orchestrator's restart policy
+(`docker-compose.yml`'s `temporal-worker: restart: on-failure`) is the
+intended layer for "the process exited, start it again."
+
+### Persistence architecture
+
+Temporal server, backed by PostgreSQL. `docker-compose.yml`'s `temporal`
+service reuses the existing `db` Postgres server
+(`temporalio/auto-setup:1.29.7`, `POSTGRES_SEEDS: db`) rather than
+introducing a second database engine — its own bootstrap creates
+`temporal`/`temporal_visibility` databases inside that same server,
+structurally separate from this product's own `POSTGRES_DB` database and
+never touched by `scripts/bootstrap-db.py` or this product's own Alembic
+migration history. This product's Alembic migration system does not, and
+must not, manage Temporal's internal schema.
+
+### Determinism boundary
+
+Enforced by construction in `product/automation/durable/workflows.py`:
+`ProbeWorkflow.run()` contains exactly an activity call, a durable
+`asyncio.sleep()` (the SDK's own sanctioned durable timer), and a second
+activity call — no SQL, no network call, no filesystem access, no random
+number generation, no uncontrolled wall-clock read, no `core.rbac` call,
+no `core.audit_log` write. The Python SDK's own sandboxed workflow
+execution environment enforces part of this automatically (restricted
+imports, no thread/process spawning); this codebase does not rely on the
+sandbox alone. **Rule for every future production activity**: it must
+re-enter the existing Product action/RBAC boundary — call
+`product.automation.actions.execute_action()` (or an equivalent
+already-RBAC-gated Product function) — at the exact moment it executes,
+never caching a permission decision from workflow-submission time. This
+holds because `core.rbac.can()` (`core/rbac/authorization.py`) is
+evaluated live, under a tenant-lifecycle row lock, on every call — never
+cached — so "re-check at every step" is a real, load-bearing guarantee,
+not a hope, confirmed by reading `can()`'s own implementation directly.
+
+### Privacy / history findings
+
+Determined by reading the SDK's actual behavior, not assumed: Temporal's
+server persists a workflow's complete event history — the workflow's own
+start input, every activity's own scheduled input and completed result —
+as the literal mechanism it uses to replay and recover execution (the
+property this whole spike exists to validate). Concretely, for this
+spike's own `ProbeWorkflow`/`probe_activity`: `tenant_id` and
+`resource_id` (echoed back unchanged) are written into Temporal's history
+by the default, unencrypted `DataConverter`. **Every test and every
+manual run in this spike used synthetic identifiers only** (e.g.
+`"spike-tenant-1"`, `"restart-proof-tenant"` — never a real
+`core.tenants` row) — no real customer data was put into Temporal history
+by this spike, anywhere. A future production integration that passes
+real ids as workflow/activity input (ids only, never full row content —
+mirroring `product/automation/dispatcher.py`'s own "tenant identity is
+never trusted from event payloads, the dedup key carries only ids"
+discipline) must either accept that those ids land in Temporal's history,
+or configure the SDK's own `DataConverter` with a `PayloadCodec`
+(Temporal's documented encryption-at-rest hook) — **not implemented or
+guaranteed by this spike**; no encryption guarantee is invented here that
+was not actually built.
+
+### Tenant/security boundary
+
+`tenant_id` is explicit, plain workflow/activity input in this spike —
+never resolved from arbitrary payload content. No authorization decision
+is delegated to Temporal, and no second RBAC implementation is
+introduced anywhere in `product/automation/durable/`. The tenant-lifecycle
+purge interface this spike proves out (not a full purge-participant
+integration — explicitly out of scope): `product/automation/durable/
+client.py::list_workflows_for_tenant()`/`terminate_workflows_for_tenant()`
+implement and test the workflow-ID-prefix strategy (every workflow id
+this module starts is prefixed `automation-durable-probe:<tenant_id>:`;
+listing/terminating filters client-side on that prefix) — works on any
+Temporal deployment with zero server-side setup, at the cost of listing
+every execution in the namespace to find one tenant's own. A production
+implementation should instead register a custom Keyword search attribute
+(`temporal operator search-attribute create --name TenantId --type
+Keyword`, once per namespace) for server-side query filtering — not
+implemented here (would be speculative production purge code, out of
+this spike's own scope). Defense in depth already exists regardless: a
+stray, un-terminated Temporal execution can never by itself re-authorize
+anything for a closed tenant, since `core.rbac.can()` already fails for
+`SUSPENDED`/`DELETED`/`PURGING`/`PURGED` tenants
+(`core/tenancy/lifecycle.py::PRINCIPAL_INACCESSIBLE_STATUSES`) regardless
+of what a future real activity's own RBAC re-check would find.
+
+### Restart/recovery test — procedure and actual result
+
+**Not mocked. A genuine, separate-OS-process restart, executed and
+observed directly**, not a unit test with a mocked restart:
+
+1. Started a real Temporal dev server (`temporal` CLI 1.9.1, Server
+   1.32.0, via `temporalio.testing.WorkflowEnvironment.start_local()`,
+   which manages the actual upstream dev-server binary) bound to
+   `127.0.0.1:17233`, with a real on-disk SQLite persistence file — its
+   own separate OS process (confirmed via `Get-CimInstance
+   Win32_Process`, PID recorded, distinct from every other process).
+2. Started worker process #1 (`python -m
+   product.automation.durable.worker`) as its own, separate OS process,
+   confirmed connected.
+3. Submitted one `ProbeWorkflow` execution (synthetic tenant id
+   `restart-proof-tenant`).
+4. **Force-killed the entire worker process tree** (`taskkill /T /F`,
+   confirmed by process list showing zero durable-worker processes
+   remaining) within roughly 1-2 seconds of submission — well inside the
+   workflow's own 8-second inter-activity durable sleep, i.e. genuinely
+   mid-execution, not after completion.
+5. Queried the still-running server directly (a separate client script,
+   not the dead worker): workflow status was **RUNNING**, with
+   confirmed zero worker processes alive anywhere on the machine at that
+   moment — the execution existed only in the server's own persisted
+   state, held by no worker.
+6. Started worker process #3 — a brand-new, independently-launched OS
+   process, sharing no state with worker #1 beyond the same task queue
+   name and the same server.
+7. Within ~3 real seconds, the workflow reached status **COMPLETED**.
+   Fetched the final result directly: both activities had executed
+   correctly, each echoing back the correct synthetic `tenant_id`/
+   `resource_id` — the execution resumed exactly where it had been left
+   and finished correctly, having survived a real worker-process death
+   with zero worker present for a real, confirmed gap of time.
+8. Cleaned up: terminated the dev server and worker process trees,
+   removed the scratch SQLite file. Confirmed via process listing that
+   zero Temporal-related processes remained, and via `docker ps` that
+   the user's own persistent `marketstack-db-1`/`marketstack-redis-1`/
+   other containers were completely unaffected throughout.
+
+**What this validates**: server-side persistence of in-flight workflow
+state is independent of any single worker process, and a brand-new
+worker process can resume and correctly complete an interrupted
+execution with no data loss and no silent disappearance — the entire
+premise this ADR's Phase 10.1 section named as the reason a durable
+engine would eventually be needed.
+
+**What this does not validate**: the actual `docker-compose.yml`
+`temporal`/`temporal-worker` service definitions were not live-started
+end-to-end as part of this spike (deliberately, to avoid interacting
+with the developer's own persistent `db`/`redis` containers and the
+separately-owned, untouched `docker-compose.override.yml` sharing this
+same Compose project). `docker compose config` was used instead — a
+safe, read-only validation confirming the merged configuration parses
+correctly and both new services resolve with no schema error, alongside
+every existing service unaffected. The restart proof above exercises the
+identical underlying mechanism (a real Temporal server process plus
+separate, real worker OS processes, both reachable exactly the way the
+Compose services would be) — the Compose topology itself should be
+validated live in a disposable environment before this is relied on in
+CI, as a follow-up, not claimed equivalent here.
+
+### Known limitations
+
+- The full Docker Compose `temporal`/`temporal-worker` topology was
+  validated for config correctness only, not live-started (previous
+  section).
+- The tenant-scoped list/terminate interface uses client-side listing
+  (workflow-ID-prefix), not a server-side search attribute — documented
+  as a production follow-up, not built here.
+- No `PayloadCodec`/history encryption is configured or guaranteed —
+  privacy findings section above.
+- No cron-quality scheduler exists for a future "sweep all tenants"
+  need — the pre-existing, separately-disclosed gap
+  (`core.tenancy.service` has no tenant-enumeration primitive) is
+  unchanged by this spike.
+- This spike's own inter-activity sleep (`_INTER_ACTIVITY_SLEEP_SECONDS`
+  in `workflows.py`) exists purely as restart-proof test scaffolding —
+  it is not a delayed-business-workflow feature and must not be mistaken
+  for 10.3 production scope.
+
+### Explicit statement
+
+**Production Phase 10.3 workflow functionality (multi-step business
+workflow definitions, branching graphs, delayed business workflows,
+wait-for-event business workflows, workflow-versioning UI) is NOT
+implemented by this spike.** This ADR's own Decision section above,
+extended by this spike, establishes only that the chosen durable engine
+(Temporal) integrates safely with this product's deployment and security
+model — a precondition for that future work, not that work itself.
