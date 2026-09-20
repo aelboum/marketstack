@@ -13,3 +13,5 @@ export { Dialog, ConfirmDialog } from "./Dialog";
 export { InlineNotice } from "./InlineNotice";
 export type { NoticeTone } from "./InlineNotice";
 export { ApiErrorPanel } from "./ApiErrorPanel";
+export { DataTable } from "./DataTable";
+export type { DataTableColumn } from "./DataTable";
