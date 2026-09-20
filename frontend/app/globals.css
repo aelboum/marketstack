@@ -1,0 +1,169 @@
+/* Lightweight design-token foundation (UI-1, docs/ROADMAP.md UI Track).
+ *
+ * Deliberately not a finalized design system -- see the "UI design
+ * strategy: evolutionary, not finalized upfront" note in the UI Track
+ * roadmap. These are the tokens UI-1's own shell/primitives need; UI-9
+ * matures this once real product screens (UI-2-UI-8) have proven which
+ * values actually get reused.
+ *
+ * Every component in components/ui and components/shell reads color,
+ * spacing, radius, and type size through these variables, never a
+ * hardcoded value -- that is what keeps the visual theme replaceable
+ * without touching a domain page (docs/ARCHITECTURE.md §6.1's shell
+ * requirement, applied to styling specifically).
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- Color: surfaces --- */
+  --color-bg: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-border: #e2e2e6;
+  --color-border-strong: #c9c9d1;
+
+  /* --- Color: text --- */
+  --color-text: #17171b;
+  --color-text-muted: #5b5b66;
+  --color-text-faint: #8b8b96;
+  --color-text-on-accent: #ffffff;
+
+  /* --- Color: brand/accent (neutral placeholder -- the runtime
+   * white-label branding value, docs/ADR/0001 item 3, replaces this at
+   * a later UI phase; UI-1 hardcodes nothing brand-specific beyond this
+   * one token) --- */
+  --color-accent: #3454d1;
+  --color-accent-hover: #2c47b3;
+  --color-accent-muted: #eef1fc;
+
+  /* --- Color: semantic --- */
+  --color-danger: #c0293c;
+  --color-danger-muted: #fbeaec;
+  --color-success: #1f8a55;
+  --color-success-muted: #e8f6ee;
+  --color-warning: #a15c00;
+  --color-warning-muted: #fdf2e2;
+
+  /* --- Typography --- */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.9375rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+
+  /* --- Spacing scale --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* --- Shape --- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(16, 16, 20, 0.06);
+  --shadow-md: 0 4px 16px rgba(16, 16, 20, 0.08);
+
+  /* --- Layout --- */
+  --shell-nav-width: 232px;
+  --shell-topbar-height: 56px;
+  --page-max-width: 1120px;
+
+  /* --- Focus ring (accessibility: never rely on color alone) --- */
+  --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
+
+  /* --- Responsive breakpoints (referenced in comments; CSS custom
+   * properties cannot be used inside @media conditions, so components
+   * repeat these as literals -- centralized here as the source of
+   * truth) ---
+   * --breakpoint-tablet: 768px
+   * --breakpoint-desktop: 1024px
+   */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #101014;
+    --color-surface: #17171c;
+    --color-surface-raised: #1e1e24;
+    --color-border: #2b2b33;
+    --color-border-strong: #3a3a44;
+
+    --color-text: #f2f2f5;
+    --color-text-muted: #a8a8b3;
+    --color-text-faint: #77777f;
+
+    --color-accent: #5b7bf0;
+    --color-accent-hover: #7691f3;
+    --color-accent-muted: #1c2440;
+
+    --color-danger: #ef5b6c;
+    --color-danger-muted: #3a1d22;
+    --color-success: #3fc07f;
+    --color-success-muted: #123423;
+    --color-warning: #e0a542;
+    --color-warning-muted: #3a2c10;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+    --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

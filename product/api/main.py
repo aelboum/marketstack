@@ -70,12 +70,34 @@ the second module permitted to import `product.crm.contacts` directly
 scope) -- it reuses
 `create_or_update_contact_from_trusted_source()` for public booking
 rather than building a second anonymous-contact-creation path.
+
+UI-1 (docs/ROADMAP.md UI Track) adds `CORSMiddleware`, narrowly scoped to
+this product's own frontend origin(s) with credentials enabled -- the
+frontend's browser-side session (`/auth/me`, `/v1/*`) is cookie-based and
+calls this backend cross-origin in local dev (frontend :3000, backend
+:8000, no reverse proxy -- docker-compose.yml's own comment). Without
+this, the browser rejects every credentialed cross-origin response
+outright regardless of what the backend actually returns; this was a
+real, previously-undocumented gap (see the frontend's own
+`lib/api/client.ts` docstring before this change). `build_platform_app()`
+deliberately mounts no CORS policy of its own (ADR-0017: business
+middleware is a consumer concern, not a reusable-platform one), so this
+is this product's -- not `saas-os`'s -- to own. `_frontend_origins()`
+reads `FRONTEND_ORIGINS` via plain `os.environ`, mirroring
+`product/white_label/domains.py`'s own `PUBLIC_DOMAIN` precedent
+(ordinary runtime configuration, not a secret); unset/empty means no
+origin is allowed -- fail-closed, not "allow everything," matching this
+product's existing `ENVIRONMENT`-must-be-explicit posture
+(`infra.secrets`).
 """
 
 from __future__ import annotations
 
+import os
+
 from api.platform import build_platform_app
 from fastapi import FastAPI
+from starlette.middleware.cors import CORSMiddleware
 
 from product.agency.routes import router as agency_router
 from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
@@ -100,9 +122,35 @@ from product.white_label.domains import DomainResolutionMiddleware
 from product.white_label.purge import register as register_white_label_purge_participants
 
 
+def _frontend_origins() -> list[str]:
+    """Browser origins allowed to make credentialed cross-origin requests
+    against this API (e.g. `http://localhost:3000` in local dev), from
+    the comma-separated `FRONTEND_ORIGINS` env var. Empty/unset returns
+    `[]` -- CORSMiddleware then allows no origin at all, never `*`
+    (`docs/ROADMAP.md` UI Track's ARCHITECTURE.md §6.1: no permissive
+    production default)."""
+    raw = os.environ.get("FRONTEND_ORIGINS", "")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 def create_app() -> FastAPI:
     app = build_platform_app(title="Product", version="0.0.1")
     app.add_middleware(DomainResolutionMiddleware)
+    # Added last (see module docstring) so it wraps every other
+    # middleware/route -- Starlette's `add_middleware()` makes the most
+    # recently added middleware the outermost layer
+    # (`starlette.applications.Starlette.add_middleware` inserts at index
+    # 0; `build_middleware_stack()` wraps in reverse). CORS must be
+    # outermost: it needs to answer an OPTIONS preflight and annotate
+    # every response -- including a 404 from `DomainResolutionMiddleware`
+    # -- before/regardless of what runs underneath it.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_frontend_origins(),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "Authorization"],
+    )
     app.include_router(agency_router)
     app.include_router(crm_router)
     app.include_router(conversations_router)

@@ -76,7 +76,7 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Frontend checks (typecheck, eslint, next build)
+      - name: Frontend checks (typecheck, eslint, vitest, next build)
         run: bash scripts/check-frontend.sh
 
   security:

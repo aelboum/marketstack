@@ -1,0 +1,79 @@
+.shell {
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+/* --- Sidebar layout --- */
+.shell[data-layout="sidebar"] {
+  display: grid;
+  grid-template-columns: var(--shell-nav-width) 1fr;
+  grid-template-rows: 100vh;
+}
+
+.sidebar {
+  grid-column: 1;
+  grid-row: 1;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebarBrand {
+  padding: var(--space-4) var(--space-3) var(--space-2);
+  font-weight: var(--font-weight-semibold);
+}
+
+.body {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+@media (max-width: 768px) {
+  .shell[data-layout="sidebar"] {
+    display: block;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(78vw, 280px);
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease;
+    box-shadow: var(--shadow-md);
+  }
+
+  .sidebar[data-open="true"] {
+    transform: translateX(0);
+  }
+
+  .scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 14, 0.35);
+    z-index: 35;
+  }
+
+  .body {
+    min-height: 100vh;
+  }
+}
+
+/* --- Top-nav layout: no sidebar element at all; TopBar embeds
+   Navigation horizontally (see TopBar's showEmbeddedNav). --- */
+.shell[data-layout="topnav"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
