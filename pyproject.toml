@@ -112,6 +112,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/appointments/routes.py" = ["B008"]
 "product/telephony/routes.py" = ["B008"]
 "product/automation/routes.py" = ["B008"]
+"product/automation/durable/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]

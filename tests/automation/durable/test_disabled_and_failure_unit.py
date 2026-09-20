@@ -16,18 +16,28 @@ from product.automation.durable.config import DurableConfig
 from temporalio.service import RPCError
 
 
-def test_product_api_main_never_imports_the_durable_adapter() -> None:
-    """This phase's own required spike outcome 7 ("Product remains
-    usable if Temporal is not configured/started") and outcome 14 ("the
-    engine can be disabled without affecting existing 10.2 single-step
-    automation") are only true if ordinary API startup never imports
-    this package at all -- verified here by reading the actual source
-    text of `product/api/main.py`, not merely by convention."""
+def test_product_api_main_never_imports_a_temporal_worker_entrypoint() -> None:
+    """Updated for Phase 10.3 production (documented, intentional change
+    from the infrastructure spike's own identical-named test): ordinary
+    API startup now legitimately imports `product.automation.durable
+    .routes` (the production API surface) and `.triggers` (the
+    event-triggered-run adapter's own module-level `subscribe()` side
+    effect) -- neither one calls `get_durable_config()`/`get_client()` at
+    import time, so this still does not require `TEMPORAL_ADDRESS` to be
+    set merely to start the API (this phase's own required outcome
+    "Product remains usable if Temporal is not configured/started" still
+    holds -- verified by `test_app_smoke.py` itself passing with no
+    `TEMPORAL_ADDRESS` set). What must remain true, and is what this test
+    actually checks: `product/api/main.py` never imports a Temporal
+    *worker* entrypoint (`product.automation.durable.worker` or
+    `.production_worker`) -- those remain separate processes, never
+    imported by the API (`production_worker.py`'s own module docstring)."""
     main_py = Path(__file__).resolve().parents[3] / "product" / "api" / "main.py"
     content = main_py.read_text(encoding="utf-8")
 
-    assert "product.automation.durable" not in content
-    assert "temporalio" not in content
+    assert "product.automation.durable.worker" not in content
+    assert "product.automation.durable.production_worker" not in content
+    assert "durable_worker" not in content  # no `import ... as _durable_worker`-style alias either
 
 
 def test_existing_phase_10_2_automation_package_does_not_import_durable() -> None:

@@ -82,7 +82,16 @@ export DATABASE_URL="postgresql+psycopg://product_app:ci-only-app-placeholder@lo
 echo "== bootstrap: saas-os core migrations, then this product's own =="
 python scripts/bootstrap-db.py
 
-echo "== running the integration suite (pytest -m integration) =="
-pytest -m integration -v
+echo "== running the integration suite (pytest -m integration and not temporal) =="
+# docs/ROADMAP.md Phase 10.3: a handful of tests are marked BOTH
+# `integration` (real disposable Postgres, provisioned above) AND
+# `temporal` (real ephemeral Temporal server, needs outbound network
+# access this script's own disposable-Postgres-only environment does not
+# provide) -- excluded here the same way the default `pytest` run
+# already excludes every `temporal`-marked test
+# (`pyproject.toml::addopts`), so this script stays hermetic to exactly
+# the real service it itself provisions. Run those specifically via
+# `pytest -m "integration and temporal"` instead.
+pytest -m "integration and not temporal" -v
 
 echo "== integration gate: PASS =="

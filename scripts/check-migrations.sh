@@ -102,16 +102,19 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # This product's own alembic_version table -- since Phase 10.2
-    # (docs/ROADMAP.md), head is 0036_automation_workflow_runs
-    # (thirty-six real migrations: foundation.tenant_settings,
+    # This product's own alembic_version table -- since Phase 10.3
+    # (docs/ROADMAP.md), head is 0040_durable_run_steps
+    # (forty real migrations: foundation.tenant_settings,
     # white_label.*, twelve crm.* tables, three conversations.* tables,
     # seven marketing.* tables/alterations, five appointments.* tables,
-    # five telephony.* tables, plus two automation.* tables -- workflows,
-    # workflow_runs (the idempotency-ledger table)).
+    # five telephony.* tables, two automation.* tables -- workflows,
+    # workflow_runs (10.2's own idempotency-ledger table) -- plus four
+    # automation.durable_* tables (10.3's own production multi-step
+    # workflow domain: durable_workflows, durable_workflow_versions,
+    # durable_runs, durable_run_steps).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0036_automation_workflow_runs", (
-        f"expected product migrations at head 0036_automation_workflow_runs, "
+    assert product_version == "0040_durable_run_steps", (
+        f"expected product migrations at head 0040_durable_run_steps, "
         f"got {product_version!r}"
     )
 
@@ -174,6 +177,12 @@ with engine.connect() as conn:
         text(
             "SELECT conname FROM pg_constraint WHERE conname = "
             "'uq_automation_workflow_runs_tenant_workflow_dedup'"
+        )
+    ).all()
+    automation_durable_run_dedup_index_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'uq_automation_durable_runs_tenant_workflow_dedup'"
         )
     ).all()
 schemas_present = {row[0] for row in schema_rows}
@@ -266,7 +275,14 @@ assert len(telephony_calls_unique_index_rows) == 1, (
     "to exist on telephony.calls"
 )
 automation_tables_present = {row[0] for row in automation_table_rows}
-expected_automation_tables = {"workflows", "workflow_runs"}
+expected_automation_tables = {
+    "workflows",
+    "workflow_runs",
+    "durable_workflows",
+    "durable_workflow_versions",
+    "durable_runs",
+    "durable_run_steps",
+}
 assert automation_tables_present == expected_automation_tables, (
     f"expected automation tables {expected_automation_tables}, "
     f"got {automation_tables_present}"
@@ -275,6 +291,11 @@ assert len(automation_run_dedup_index_rows) == 1, (
     "expected the unique constraint "
     "'uq_automation_workflow_runs_tenant_workflow_dedup' to exist on "
     "automation.workflow_runs"
+)
+assert len(automation_durable_run_dedup_index_rows) == 1, (
+    "expected the unique constraint "
+    "'uq_automation_durable_runs_tenant_workflow_dedup' to exist on "
+    "automation.durable_runs"
 )
 
 print(
@@ -289,7 +310,9 @@ print(
     f"btree_gist installed: {len(btree_gist_rows) == 1}; "
     f"double-booking EXCLUDE constraint present: {len(exclude_constraint_rows) == 1}; "
     f"telephony calls unique index present: {len(telephony_calls_unique_index_rows) == 1}; "
-    f"automation run dedup constraint present: {len(automation_run_dedup_index_rows) == 1}"
+    f"automation run dedup constraint present: {len(automation_run_dedup_index_rows) == 1}; "
+    f"automation durable run dedup constraint present: "
+    f"{len(automation_durable_run_dedup_index_rows) == 1}"
 )
 PYEOF
 

@@ -389,3 +389,183 @@ implemented by this spike.** This ADR's own Decision section above,
 extended by this spike, establishes only that the chosen durable engine
 (Temporal) integrates safely with this product's deployment and security
 model — a precondition for that future work, not that work itself.
+
+---
+
+## Phase 10.3 Production Implementation (2026-09-20)
+
+Built on the infrastructure spike above, once reviewed and approved.
+**Implements the narrow production multi-step workflow engine only** --
+no visual builder, no frontend, no AI/accounting actions, no arbitrary
+code execution, no new scheduler. `product/automation/durable/` gained
+seven new modules (`models`, `dsl`, `permissions`, `definitions`,
+`business_activities`, `production_workflow`, `runs`, `triggers`,
+`routes`, `production_worker`) alongside the spike's own unmodified
+`config`/`client`/`worker`/`activities`/`workflows` (the probe workflow
+remains, unused by production code, a standing infra smoke-test).
+
+**Domain model**: `Workflow` (stable identity) -> `WorkflowVersion`
+(`draft`/`published`, immutable once published, steps as bounded JSON,
+never a separate steps table) -> `Run` (business execution state,
+pins the exact `workflow_version_id` it executes, forever) -> `RunStep`
+(per-step business outcome ledger). Four new tables
+(`automation.durable_workflows`/`durable_workflow_versions`/
+`durable_runs`/`durable_run_steps`), hand-written migrations 0037-0040
+(revision ids shortened to fit Alembic's own 32-character `version_num`
+column -- a real bug this implementation found and fixed, not a stylistic
+choice). Temporal's own execution history is never duplicated into these
+tables -- no retry-attempt counts, no serialized activity payloads, no
+timer state.
+
+**Step vocabulary**: exactly four types (`action`, `condition`, `delay`,
+`wait_for_event`) -- `action` reuses `product.automation.actions`'s
+closed 5-member set unchanged; `condition` reuses `product.automation
+.conditions.validate_conditions()`/`evaluate_conditions()` unchanged,
+never a second expression language. Branching is explicit-destination
+only; loops are rejected by a directed-cycle check at publish time
+(`dsl.py::_reject_cycles()`) -- every published graph is a finite DAG.
+
+**Determinism boundary**: `production_workflow.py::DurableWorkflow.run()`
+contains only `workflow.execute_activity(...)`, `asyncio.sleep(...)`
+(the durable timer), and a pure, in-memory `evaluate_conditions()` call
+-- every business action, every Postgres write, every `core.rbac`/
+`core.audit_log` call lives one layer down, in
+`business_activities.py`'s five plain, synchronous activities, dispatched
+through a `ThreadPoolExecutor` (`production_worker.py`) the same way the
+infrastructure spike's own `worker.py` never needed to (the spike's
+`probe_activity` was `async def` and did no I/O; every production
+activity does real, blocking Postgres I/O).
+
+**Authorization**: unchanged from 10.2's own load-bearing discipline,
+extended to multi-step -- `execute_step_action_activity()` calls straight
+into `product.automation.actions.execute_action()` using `Run
+.actor_user_id`, re-evaluated fresh by the underlying CRM/email/webhook
+function's own `core.rbac.can()` call at the instant each step actually
+executes. Proven, not merely asserted: `test_permission_revoked_before_
+later_step_denies_only_that_step` revokes the creator's own permission
+while a run is genuinely paused (`wait_for_event`) and confirms the
+already-executed step stays `succeeded` while the later one is denied at
+execution time -- the identical adversarial shape 10.2's own checkpoint
+required, now proven across a real pause with a real worker.
+
+**Retry classification -- a real bug this phase's own adversarial test
+found.** Temporal retries an activity until its `RetryPolicy` is
+exhausted, so a *permanent* failure must be raised as
+`ApplicationError(non_retryable=True)` or it is retried pointlessly.
+`execute_action()` deliberately does not normalize the underlying
+domain call's own exceptions (only `send_email`/`send_webhook`, which
+have a provider boundary, are wrapped), so a CRM action's
+`CrmAccessDeniedError` reaches the activity *raw*. The first
+implementation classified only the `Automation*` error families, which
+left exactly the most safety-critical permanent failure -- an
+execution-time authorization denial -- falling through to the generic
+retryable branch: retried five times, and never audited as
+`automation.durable_run.authorization_denied`. Caught by
+`test_permanent_authorization_denial_terminates_run_correctly`, and
+fixed by classifying the domain-layer error types explicitly
+(`business_activities.py::_PERMANENT_DENIAL_ERRORS`/
+`_NON_RETRYABLE_ACTION_ERRORS`). Both lists are closed and enumerated,
+matching this phase's own closed action vocabulary.
+
+**Idempotency**: `execute_step_action_activity()` wraps `execute_action()`
+in `core.idempotency.begin_idempotent_operation()`/
+`finalize_idempotent_operation()`, keyed by `f"{run_id}.{step_key}"` --
+reused, not reinvented; proven by calling the real activity function
+directly, twice, with the identical key, and confirming exactly one
+real CRM task was created.
+
+**Wait-for-event / signals**: `DurableWorkflow.submit_event()` only
+accepts a signal matching the step currently in flight
+(`_expected_event_type`); `runs.py::signal_run()` independently checks
+`Run.status == waiting` and `Run.waiting_for_event_type == event_type`
+in Postgres *before* ever contacting Temporal -- two independent checks,
+not one. Tenant isolation for signaling is structural, not a permission
+check alone: the only way to obtain a `WorkflowHandle` at all is through
+`runs.py`, which resolves `run_id` through a tenant-scoped Postgres
+lookup first.
+
+**Cancellation**: `runs.py::cancel_run()` calls `WorkflowHandle.cancel()`
+and sets `Run.status = cancelled` in Postgres directly, from the calling
+request -- never from inside workflow code, which lets Temporal's own
+unhandled-cancellation propagation do the "no new activity starts" work
+structurally (`production_workflow.py`'s own module docstring). No
+compensation/saga behavior, as scoped.
+
+**Tenant purge**: `product/automation/purge.py`'s existing
+`AutomationDataPurgeParticipant` was extended in place (not replaced) --
+before deleting the four new tables' rows, it queries this tenant's own
+non-terminal `Run.temporal_workflow_id` values directly from Postgres
+(the authoritative index of which Temporal executions belong to this
+tenant -- **better than the infrastructure spike's own client-side
+list-and-filter strategy**, which this production purge path does not
+use at all) and terminates exactly those executions.  Fails closed: a
+Temporal connection failure here propagates, and `core.tenancy
+.purge_tenant()` will not mark the tenant `PURGED`. Proven against a
+real waiting run: terminated on the Temporal side, deleted on the
+Postgres side, and unreachable on any later `get_run()`/`signal_run()`
+-- in practice denied at `require()` before the lookup even runs, since
+purging also removes this tenant's own RBAC rows (the stronger of the
+two rejections; `AutomationReferenceNotFoundError` is the fallback if a
+grant ever survived).
+
+**Trigger integration -- the disclosed sync/async gap is unchanged, not
+solved by Temporal.** `triggers.py`'s own event-triggered adapter
+subscribes synchronously (`product.foundation.events.subscribe()`,
+identical to 10.2's own dispatcher) and performs only a bounded, sync,
+Postgres-only reservation (`Run` row in `queued` status) -- it never
+calls Temporal directly, because doing so would require exactly the
+`asyncio.run()` bridge inside an already-risky sync call chain this
+ADR's own Phase 10.1 section identified and rejected. Actually starting
+a `queued` run on Temporal requires an explicit call to
+`submit_queued_durable_runs()` -- the same disclosed, bounded scheduling
+gap `product/automation/scheduled.py` already has for 10.2's own
+`scheduled` trigger type (`core.tenancy` has no tenant-enumeration
+primitive for a real cron sweep), **not a new gap, and not something
+adopting Temporal resolves** -- Temporal solves durable *execution*, not
+the sync-publisher/async-client boundary. 10.2's own triggers and
+`dispatcher.py` are completely unmodified and untouched by this work.
+
+**Privacy / history**: only bounded identifiers and scalars ever enter a
+workflow's arguments -- a step's business data is fetched from Product
+state *inside* the activity, after authorizing, never serialized into
+the workflow input. `test_workflow_history_contains_only_bounded_
+synthetic_context` proves this against a *real* CRM contact carrying
+real PII: it creates a contact with a unique email, phone, and surname,
+runs a workflow over that contact's id, fetches the completed run's own
+Temporal history, and asserts the id and the step title appear while
+none of the three PII values does. No `PayloadCodec`/encryption is
+configured here either -- the spike's own disclosed limitation stands
+unchanged, and nothing in this phase claims history is encrypted.
+
+**What the tests themselves had to get right.** Two test-harness
+defects in this phase's own execution suite produced failures that
+looked like engine bugs and were not: (1) polling Postgres with a
+blocking `time.sleep()` loop from *inside* a coroutine starves the
+`temporalio.worker.Worker` sharing that event loop -- the workflow
+cannot progress while the test blocks it, so runs sat in `queued` and
+the poll "timed out" on a workflow the test itself was stalling
+(`workflow_task_duration=20222` ms in the worker log, exactly the poll
+timeout). The in-coroutine poll is now `await`-based
+(`_await_run_status()`). (2) Temporal's automatic time skipping is
+attached only to the handle object `Client.start_workflow()` itself
+returns; a handle rebuilt from a workflow id via `get_workflow_handle()`
+-- the only kind these tests can hold, since `runs.start_run()` owns the
+`start_workflow()` call -- waits in *real* time, so the durable-delay
+test now advances the server clock explicitly with `env.sleep()`.
+Both are documented at their call sites so neither is reintroduced.
+
+**Known limitations, explicit**:
+- No cron/scheduling subsystem -- `submit_queued_durable_runs()` must be
+  invoked explicitly (API route or external scheduler), identical
+  standing gap to 10.2's own `scheduled` trigger type.
+- `WorkflowVersion.steps` bounded JSON is validated at save/publish time
+  but not further sandboxed at execution time beyond the closed
+  `action_type`/`event_type` vocabularies already enforced.
+- No workflow-history encryption (`PayloadCodec`) configured.
+- The production `Worker`'s `ThreadPoolExecutor` is sized (20 workers)
+  but not load-tested; this is a narrow engine proof, not a capacity-
+  planned deployment.
+- A version currently being drafted is fully mutable up to the moment of
+  `publish_version()` -- no draft-level optimistic-locking/conflict
+  detection exists for concurrent editors (out of this phase's own
+  scope).
