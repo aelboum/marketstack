@@ -1,10 +1,9 @@
 "use client";
 
-// Marketing hub (UI-5, replaces the UI-1 placeholder). Campaigns is the
-// primary surface; the sub-nav links to Forms/Suppressions/Templates.
-// No aggregate metrics/KPI section here -- no such endpoint exists
-// (see lib/api/marketing.ts module docstring); that's a documented
-// gap, not an omission.
+// Same campaign list as the Marketing hub (marketing/page.tsx), reached
+// via MarketingSubNav's "Campaigns" link and from other sections'
+// "back" links -- kept as its own route rather than redirecting so the
+// sub-nav's active-tab state stays correct.
 import { useState } from "react";
 import { useTenant } from "@/lib/tenant/tenant-context";
 import { Page } from "@/components/shell/Page";
@@ -13,14 +12,14 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { CampaignsList, CampaignForm, MarketingSubNav } from "@/components/marketing";
 
-export default function MarketingPage() {
+export default function CampaignsPage() {
   const { tenantId } = useTenant();
   const [createOpen, setCreateOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   return (
     <Page>
-      <PageHeader title="Marketing" actions={<Button onClick={() => setCreateOpen(true)}>New campaign</Button>} />
+      <PageHeader title="Campaigns" actions={<Button onClick={() => setCreateOpen(true)}>New campaign</Button>} />
       <MarketingSubNav tenantId={tenantId} />
       <CampaignsList
         tenantId={tenantId}
