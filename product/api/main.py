@@ -52,10 +52,24 @@ and a third `agency.role_provisioned` subscriber
 (`product/marketing/event_handlers.py`). `product.marketing` is the one
 module permitted to import a sibling module's service functions
 (`product.crm.contacts`, for audience segmentation --
-`docs/ADR/0005-marketing-depends-on-crm.md`) -- that exception is
-enforced by import-linter, not by anything special about how it is
-mounted here, so this file's own wiring is otherwise identical to Phase
-4/5's.
+`docs/ADR/0005-marketing-and-appointments-depend-on-crm.md`) -- that
+exception is enforced by import-linter, not by anything special about how
+it is mounted here, so this file's own wiring is otherwise identical to
+Phase 4/5's.
+
+Phase 7.1-7.2 adds `product/appointments/routes.py` (`/v1/appointments`),
+five more tables (`appointments.*` -- three ordinary RLS-scoped,
+`booking_links`/`appointment_manage_tokens` deliberately not, mirroring
+`marketing.forms`'s own precedent), two purge participants (mirroring
+`product/marketing/purge.py`'s own scoped/unscoped split, see
+`product/appointments/purge.py`'s own docstring), and a fourth
+`agency.role_provisioned` subscriber
+(`product/appointments/event_handlers.py`). `product.appointments` is now
+the second module permitted to import `product.crm.contacts` directly
+(`docs/ADR/0005-marketing-and-appointments-depend-on-crm.md`'s broadened
+scope) -- it reuses
+`create_or_update_contact_from_trusted_source()` for public booking
+rather than building a second anonymous-contact-creation path.
 """
 
 from __future__ import annotations
@@ -64,6 +78,9 @@ from api.platform import build_platform_app
 from fastapi import FastAPI
 
 from product.agency.routes import router as agency_router
+from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
+from product.appointments.purge import register as register_appointments_purge_participant
+from product.appointments.routes import router as appointments_router
 from product.conversations import event_handlers as _conversations_event_handlers  # noqa: F401
 from product.conversations.purge import register as register_conversations_purge_participant
 from product.conversations.routes import router as conversations_router
@@ -90,11 +107,13 @@ def create_app() -> FastAPI:
     app.include_router(crm_router)
     app.include_router(conversations_router)
     app.include_router(marketing_router)
+    app.include_router(appointments_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
     register_conversations_purge_participant()
     register_marketing_purge_participant()
+    register_appointments_purge_participant()
     return app
 
 

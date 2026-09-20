@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Migration bootstrap gate (docs/ROADMAP.md Phase 1.2/1.5, extended by
-# Phase 2.1/2.3/2.4's own migrations): proves a clean,
+# Phase 2.1/2.3/2.4's own migrations, and by Phase 7.1-7.2's own
+# appointments.* migrations, including an empirical check that
+# btree_gist and the double-booking-prevention EXCLUDE constraint on
+# appointments.appointments really exist post-migration, not just the
+# schema/table names): proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -95,18 +99,18 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # This product's own alembic_version table -- since Phase 6
-    # (docs/ROADMAP.md), head is 0023_marketing_tracking (twenty-three
-    # real migrations: foundation.tenant_settings, white_label.*, twelve
-    # crm.* tables, three conversations.* tables, seven marketing.*
-    # tables/alterations). Restored here after an unrelated CI-remediation
-    # pass (commit 120a88a) accidentally staged this file's then-in-
-    # progress Phase 6 bump, and a follow-up commit (92ff8de) correctly
-    # reverted it back to Phase 5's wording pending Phase 6's own
-    # checkpoint -- this is that checkpoint restoring it, not a new change.
+    # This product's own alembic_version table -- since Phase 7.3
+    # (docs/ROADMAP.md), head is 0029_appointments_reminder_at
+    # (twenty-nine real migrations: foundation.tenant_settings,
+    # white_label.*, twelve crm.* tables, three conversations.* tables,
+    # seven marketing.* tables/alterations, five appointments.* tables --
+    # calendars, availability_rules, appointments (the EXCLUDE-constraint
+    # table), booking_links, appointment_manage_tokens -- plus 0029's
+    # reminder_sent_at column alteration on appointments.appointments).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0023_marketing_tracking", (
-        f"expected product migrations at head 0023_marketing_tracking, got {product_version!r}"
+    assert product_version == "0029_appointments_reminder_at", (
+        f"expected product migrations at head 0029_appointments_reminder_at, "
+        f"got {product_version!r}"
     )
 
     schema_rows = conn.execute(
@@ -121,6 +125,7 @@ with engine.connect() as conn:
                 "crm",
                 "conversations",
                 "marketing",
+                "appointments",
             ]
         },
     ).all()
@@ -133,6 +138,20 @@ with engine.connect() as conn:
     marketing_table_rows = conn.execute(
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'marketing' ORDER BY tablename")
     ).all()
+    appointments_table_rows = conn.execute(
+        text(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'appointments' ORDER BY tablename"
+        )
+    ).all()
+    btree_gist_rows = conn.execute(
+        text("SELECT extname FROM pg_extension WHERE extname = 'btree_gist'")
+    ).all()
+    exclude_constraint_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'ex_appointments_appointments_no_overlap_confirmed'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -143,6 +162,7 @@ expected = {
     "crm",
     "conversations",
     "marketing",
+    "appointments",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -182,13 +202,37 @@ expected_marketing_tables = {
 assert marketing_tables_present == expected_marketing_tables, (
     f"expected marketing tables {expected_marketing_tables}, got {marketing_tables_present}"
 )
+appointments_tables_present = {row[0] for row in appointments_table_rows}
+expected_appointments_tables = {
+    "calendars",
+    "availability_rules",
+    "appointments",
+    "booking_links",
+    "appointment_manage_tokens",
+}
+assert appointments_tables_present == expected_appointments_tables, (
+    f"expected appointments tables {expected_appointments_tables}, "
+    f"got {appointments_tables_present}"
+)
+assert len(btree_gist_rows) == 1, (
+    "expected the btree_gist extension to be installed (required for the "
+    "appointments.appointments EXCLUDE constraint's GiST index on calendar_id)"
+)
+assert len(exclude_constraint_rows) == 1, (
+    "expected the double-booking-prevention EXCLUDE constraint "
+    "'ex_appointments_appointments_no_overlap_confirmed' to exist on "
+    "appointments.appointments"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
     f"product migrations at {product_version}; schemas present: {sorted(schemas_present)}; "
     f"crm tables present: {sorted(crm_tables_present)}; "
     f"conversations tables present: {sorted(conversations_tables_present)}; "
-    f"marketing tables present: {sorted(marketing_tables_present)}"
+    f"marketing tables present: {sorted(marketing_tables_present)}; "
+    f"appointments tables present: {sorted(appointments_tables_present)}; "
+    f"btree_gist installed: {len(btree_gist_rows) == 1}; "
+    f"double-booking EXCLUDE constraint present: {len(exclude_constraint_rows) == 1}"
 )
 PYEOF
 

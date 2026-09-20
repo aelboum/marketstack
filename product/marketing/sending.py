@@ -16,7 +16,8 @@ in the batch) -- the gate is enforced at both moments, not just one.
 stores only `contact_id`, never a copy of the contact's email/phone.
 Every actual send re-reads the contact's current address via
 `product.crm.contacts.get_contact()` (CRM's own published, already-
-authorizing function -- `docs/ADR/0005-marketing-depends-on-crm.md`),
+authorizing function --
+`docs/ADR/0005-marketing-and-appointments-depend-on-crm.md`),
 which needs a real `actor_user_id` to authorize against; the enrolling
 actor's id is threaded through the job payload for exactly this reason
 (`payload.data["actor_user_id"]`, mirroring `product/crm/imports.py`'s

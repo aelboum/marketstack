@@ -4,10 +4,15 @@ list, background bulk send (docs/ROADMAP.md Phase 6.1-6.2).
 **Tenancy**: the client tenant, same as CRM/Conversations -- see
 `product/marketing/models.py`'s own module docstring.
 
-**The one product module permitted to depend on another**:
+**One of two product modules permitted to depend on another** (the other
+being `product.appointments`, added in Phase 7 -- see
+`docs/ADR/0005-marketing-and-appointments-depend-on-crm.md`'s own
+extension):
 `product/marketing/segmentation.py` imports `product.crm.contacts` (CRM's
 own published, read-oriented service function) for audience segmentation
--- see `docs/ADR/0005-marketing-depends-on-crm.md` for the full decision.
+-- see `docs/ADR/0005-marketing-and-appointments-depend-on-crm.md` for the
+full decision. Marketing and Appointments each depend on CRM
+independently and never on each other.
 Every other cross-module need (role-permission granting) goes through the
 `agency.role_provisioned` event dispatcher, unchanged from the
 `product.crm`/`product.conversations` precedent -- `product.marketing`

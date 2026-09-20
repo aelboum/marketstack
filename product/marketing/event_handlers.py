@@ -3,8 +3,9 @@
 newly provisioned role -- the "module needing another module's
 capability reacts via the event dispatcher" path `docs/ARCHITECTURE.md`
 section 2.2 prescribes for permission-granting specifically (this is
-separate from, and unrelated to, `docs/ADR/0005-marketing-depends-on-crm
-.md`'s CRM-read exception -- `product.marketing` still never imports
+separate from, and unrelated to,
+`docs/ADR/0005-marketing-and-appointments-depend-on-crm.md`'s CRM-read
+exception -- `product.marketing` still never imports
 `product.agency` directly, the same rule `product/crm/event_handlers.py`
 already follows).
 

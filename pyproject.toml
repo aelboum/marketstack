@@ -90,6 +90,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/crm/routes.py" = ["B008"]
 "product/conversations/routes.py" = ["B008"]
 "product/marketing/routes.py" = ["B008"]
+"product/appointments/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
@@ -132,7 +133,6 @@ modules = [
     "product.conversations",
     "product.telephony",
     "product.ai",
-    "product.appointments",
     "product.automation",
     "product.reputation",
     "product.websites",
@@ -146,17 +146,27 @@ modules = [
 
 # Phase 6: product.marketing is deliberately NOT in the independence list
 # above -- it has its own, more precise pair of contracts below instead
-# (docs/ADR/0005-marketing-depends-on-crm.md): independent from every
-# module except product.crm, and a one-directional layers contract
-# permitting product.marketing -> product.crm, never the reverse. This is
-# a narrow, CRM-specific exception, not a loosening of the blanket rule
-# above for any other module.
+# (docs/ADR/0005-marketing-and-appointments-depend-on-crm.md): independent
+# from every module except product.crm, and a one-directional layers
+# contract permitting product.marketing -> product.crm, never the
+# reverse. This is a narrow, CRM-specific exception, not a loosening of
+# the blanket rule above for any other module.
+#
+# Phase 7.1-7.2: product.appointments joins product.marketing as a second
+# source_module on the same forbidden contract below (both removed from
+# the blanket independence list above), plus its own, separate layers
+# contract -- see docs/ADR/0005-marketing-and-appointments-depend-on-crm.md's
+# own extension for why this is two layers contracts, not one multi-layer
+# contract folding Marketing and Appointments into the same layer (that
+# shape would also permit Marketing <-> Appointments, which is not part
+# of this decision).
 [[tool.importlinter.contracts]]
-name = "Marketing does not depend on any product module except CRM"
+name = "Marketing and Appointments do not depend on any product module except CRM"
 type = "forbidden"
-source_modules = ["product.marketing"]
+source_modules = ["product.marketing", "product.appointments"]
 forbidden_modules = [
     "product.agency",
+    "product.marketing",
     "product.conversations",
     "product.telephony",
     "product.ai",
@@ -178,6 +188,14 @@ name = "Marketing may depend on CRM, never CRM on Marketing"
 type = "layers"
 layers = [
     "product.marketing",
+    "product.crm",
+]
+
+[[tool.importlinter.contracts]]
+name = "Appointments may depend on CRM, never CRM on Appointments"
+type = "layers"
+layers = [
+    "product.appointments",
     "product.crm",
 ]
 

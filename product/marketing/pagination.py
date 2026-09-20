@@ -2,7 +2,8 @@
 endpoint -- identical constants/logic to `product/crm/pagination.py`/
 `product/conversations/pagination.py`, but NOT imported from either:
 `product.marketing` importing `product.crm.pagination` would work
-mechanically now that `docs/ADR/0005-marketing-depends-on-crm.md`
+mechanically now that
+`docs/ADR/0005-marketing-and-appointments-depend-on-crm.md`
 permits a `product.marketing -> product.crm` dependency edge, but
 pagination bounds are an API/service-layer convention, not CRM-domain
 state -- tying this ordinary utility to that one narrow, CRM-specific
