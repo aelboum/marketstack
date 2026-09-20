@@ -14,23 +14,15 @@
 //     from the backend is surfaced as-is (via ApiError) for the caller to
 //     render, never swallowed or reinterpreted as a client-side "allowed".
 //
-// Known, currently-undecided backend/infrastructure gap (documented here,
-// not worked around): the backend (product/api/main.py, built on
-// saas-os's api.platform.build_platform_app()) mounts no CORS middleware,
-// and this frontend calls it cross-origin (frontend :3000, backend :8000
-// in local dev -- see docker-compose.yml's own comment: "no reverse proxy
-// exists yet in this repository"). A cross-origin `fetch(..., {credentials:
-// "include"})` call needs the backend to send
-// `Access-Control-Allow-Origin: <frontend origin>` +
-// `Access-Control-Allow-Credentials: true`, which it does not today. This
-// client is written the same way the existing Phase 1.6
-// `app/dashboard/page.tsx` already was (credentialed fetch straight to
-// NEXT_PUBLIC_API_URL) so it is a drop-in, not a new incompatible
-// pattern -- it will work as soon as a narrowly-scoped backend CORS
-// configuration is added (or a reverse proxy is introduced), and reports
-// as a clear `network` ApiError until then rather than failing silently.
-// This is flagged as a deferred backend-adjacent item in UI-1's final
-// report, not fixed here.
+// This calls the backend cross-origin in local dev (frontend :3000,
+// backend :8000 -- docker-compose.yml's own comment: "no reverse proxy
+// exists yet in this repository"), which needs the backend to send
+// `Access-Control-Allow-Origin`/`-Credentials`. It does, as of the UI-1
+// remediation pass: `product/api/main.py` mounts `CORSMiddleware`,
+// scoped to `FRONTEND_ORIGINS` (see that file's own module docstring).
+// If that env var isn't set for a given environment, every credentialed
+// cross-origin call here still surfaces as a clear `network` ApiError
+// below, rather than failing silently.
 
 import { API_BASE_URL } from "@/lib/api/config";
 import { ApiError, classifyErrorStatus, type ApiValidationDetail } from "@/lib/api/errors";

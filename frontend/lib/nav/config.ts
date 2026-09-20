@@ -25,6 +25,7 @@ export type NavItem = {
 // entries.").
 export const NAV_ITEMS: NavItem[] = [
   { key: "dashboard", label: "Dashboard", segment: "dashboard", status: "available" },
+  { key: "clients", label: "Clients", segment: "clients", status: "available" },
   { key: "crm", label: "CRM", segment: "crm", status: "available" },
   { key: "conversations", label: "Conversations", segment: "conversations", status: "available" },
   { key: "marketing", label: "Marketing", segment: "marketing", status: "available" },
