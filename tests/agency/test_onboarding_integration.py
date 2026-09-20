@@ -14,6 +14,19 @@ no RLS gap. This file now proves the real, working send -> accept ->
 assign-starting-role chain end-to-end, plus every failure mode named in
 the Phase 3 onboarding-completion task: wrong tenant, invalid token,
 expired, revoked, already-accepted, and concurrent acceptance.
+
+**Onboarding-role remediation.** `accept_client_invitation()` now
+assigns the starting role itself on every successful accept (see its own
+docstring in `product/agency/onboarding.py`). Every failure-path test
+below that asserts `get_membership(...) is None` already, structurally,
+also proves "no role was assigned": `product.agency.onboarding
+::accept_client_invitation()`'s new role-assignment step runs strictly
+after `accept_invitation()` returns a real membership, and
+`core.rbac.MembershipRole` is foreign-keyed to a `TenantMembership` row
+that, in every one of these failure cases, was never created -- there is
+structurally nothing for a role to attach to. A separate "and no role
+was assigned either" assertion on each of those tests would only repeat
+that same structural fact, not exercise a different code path.
 """
 
 from __future__ import annotations
@@ -83,13 +96,18 @@ def test_invite_client_member_without_authority_is_denied() -> None:
 
 
 def test_accept_client_invitation_end_to_end_then_assign_starting_role() -> None:
-    """The full, real chain: invite -> accept -> assign starting role.
-    `accept_client_invitation()` performs zero authorization logic of its
-    own (design-review note, not just an assertion): it passes
-    `raw_token`/`accepting_user_id`/`tenant_id` straight through to
-    `core.identity.accept_invitation()`, which is the sole authority on
-    whether the redemption succeeds -- no product-side pre-validation of
-    the token/tenant pairing exists or is needed."""
+    """The full, real chain: invite -> accept -> starting role, all the
+    way through -- the onboarding-completion remediation this file now
+    proves. `accept_client_invitation()` performs zero authorization
+    logic of its own for the *acceptance* itself (design-review note,
+    not just an assertion): it passes `raw_token`/`accepting_user_id`/
+    `tenant_id` straight through to `core.identity.accept_invitation()`,
+    which is the sole authority on whether the redemption succeeds -- no
+    product-side pre-validation of the token/tenant pairing exists or is
+    needed. What *is* new: `accept_client_invitation()` now also assigns
+    the starting role itself, automatically, using the invitation's own
+    inviter as the granting actor -- no separate manual call is needed
+    (or, per the assertion below, even safely repeatable) any more."""
     owner = make_user()
     agency = provision_agency(owner.id, _name("agency"))
     client = provision_client(owner.id, agency.tenant_id, _name("client"))
@@ -101,11 +119,23 @@ def test_accept_client_invitation_end_to_end_then_assign_starting_role() -> None
         assert membership.tenant_id == client.tenant_id
         assert membership.status == MembershipStatus.ACTIVE.value
 
-        membership_role = assign_starting_client_role(owner.id, client.tenant_id, membership.id)
-        from core.rbac import list_roles
+        from core.rbac import get_membership_role, list_roles
 
-        roles = {r.id: r for r in list_roles(client.tenant_id)}
-        assert roles[membership_role.role_id].name == CLIENT_MEMBER_ROLE_NAME
+        roles = {r.name: r for r in list_roles(client.tenant_id)}
+        member_role = roles[CLIENT_MEMBER_ROLE_NAME]
+        assignment = get_membership_role(client.tenant_id, membership.id, member_role.id)
+        assert assignment is not None, (
+            "accept_client_invitation() must assign the starting role itself -- "
+            "no separate call should be required."
+        )
+
+        # A second, manual call for the identical membership+role is a
+        # safe no-op (idempotency the remediation explicitly preserves),
+        # never a crash and never a second row.
+        from core.rbac import DuplicateRoleAssignmentError
+
+        with pytest.raises(DuplicateRoleAssignmentError):
+            assign_starting_client_role(owner.id, client.tenant_id, membership.id)
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id, accepting_user.id)
@@ -287,6 +317,60 @@ def test_accept_already_accepted_token_fails_closed_on_second_attempt() -> None:
         membership = get_membership(client.tenant_id, accepting_user.id)
         assert membership is not None
         assert membership.id == first.id
+
+        # And still exactly one starting-role assignment -- the replay
+        # raised inside accept_invitation() itself, before this product's
+        # role-assignment step ever ran a second time, so there was
+        # nothing to duplicate in the first place.
+        from core.rbac import get_membership_role, list_roles
+
+        roles = {r.name: r for r in list_roles(client.tenant_id)}
+        member_role = roles[CLIENT_MEMBER_ROLE_NAME]
+        assert get_membership_role(client.tenant_id, membership.id, member_role.id) is not None
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id, accepting_user.id)
+
+
+def test_reaccepting_a_second_fresh_invitation_while_already_active_does_not_duplicate_role() -> (
+    None
+):
+    """A real, documented Core edge case, distinct from a replayed token:
+    `core.identity.accept_invitation()`'s own docstring says "an
+    already-ACTIVE membership is a no-op success (the invitation is
+    still consumed)" -- so a *second, separate* invitation (a fresh
+    token) to a user who is already an ACTIVE member of this tenant
+    still redeems successfully, reusing the same membership row. This
+    product's new role-assignment step must not treat that as a reason
+    to raise `DuplicateRoleAssignmentError` up to the caller -- it is
+    exactly the idempotent case `accept_client_invitation()`'s own
+    docstring names, caught and swallowed internally."""
+    owner = make_user()
+    agency = provision_agency(owner.id, _name("agency"))
+    client = provision_client(owner.id, agency.tenant_id, _name("client"))
+    accepting_user = make_user()
+    try:
+        first_invite = invite_client_member(owner.id, client.tenant_id, "member@example.com")
+        first_membership = accept_client_invitation(
+            first_invite.raw_token, accepting_user.id, client.tenant_id
+        )
+        assert first_membership.status == MembershipStatus.ACTIVE.value
+
+        second_invite = invite_client_member(owner.id, client.tenant_id, "member@example.com")
+        second_membership = accept_client_invitation(
+            second_invite.raw_token, accepting_user.id, client.tenant_id
+        )
+
+        assert second_membership.id == first_membership.id
+        assert second_membership.status == MembershipStatus.ACTIVE.value
+
+        from core.rbac import get_membership_role, list_roles
+
+        roles = {r.name: r for r in list_roles(client.tenant_id)}
+        member_role = roles[CLIENT_MEMBER_ROLE_NAME]
+        assert (
+            get_membership_role(client.tenant_id, first_membership.id, member_role.id) is not None
+        )
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id, accepting_user.id)
@@ -299,7 +383,12 @@ def test_concurrent_acceptance_is_safe() -> None:
     `_consume_locked_invitation()`'s own documented row-lock guarantee
     (`with_for_update=True`): the loser's re-validation finds
     `accepted_at` already set and raises -- exactly one thread succeeds,
-    exactly one membership row results."""
+    exactly one membership row results, and (the onboarding-role
+    remediation's own addition to this test) exactly one starting-role
+    assignment results too -- the loser never reaches
+    `assign_starting_client_role()` at all, since `accept_invitation()`
+    itself raises before this product's new role-assignment step ever
+    runs for that thread."""
     owner = make_user()
     agency = provision_agency(owner.id, _name("agency"))
     client = provision_client(owner.id, agency.tenant_id, _name("client"))
@@ -336,6 +425,15 @@ def test_concurrent_acceptance_is_safe() -> None:
         # Exactly one of the two candidate accepting users ended up with
         # the membership -- never both, never neither.
         assert (membership_a is not None) != (membership_b is not None)
+
+        winning_membership = membership_a or membership_b
+        assert winning_membership is not None
+        from core.rbac import get_membership_role, list_roles
+
+        roles = {r.name: r for r in list_roles(client.tenant_id)}
+        member_role = roles[CLIENT_MEMBER_ROLE_NAME]
+        assignment = get_membership_role(client.tenant_id, winning_membership.id, member_role.id)
+        assert assignment is not None, "the winning thread's membership must have the starting role"
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id, accepting_user_a.id, accepting_user_b.id)
