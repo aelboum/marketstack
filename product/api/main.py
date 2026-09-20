@@ -116,6 +116,26 @@ imports `product.automation.dispatcher` for its own module-level
 must be registered before any request that could publish a trigger event
 runs, the identical "registered at import time" discipline every other
 `event_handlers.py` in this file already follows.
+
+Phase 10.3 adds `product/automation/durable/routes.py`
+(`/v1/automation/durable`), four more tables (`automation.durable_*`,
+all ordinary RLS-scoped -- production multi-step workflow definitions
+and run state; see `product/automation/durable/models.py`'s own module
+docstring), and `product.automation.durable.triggers` for its own
+module-level `subscribe()` side effect (the same "registered at import
+time" discipline, applied to its own narrow event-triggered-durable-run
+adapter -- `triggers.py`'s own module docstring). No new purge
+participant: `product/automation/purge.py`'s existing
+`AutomationDataPurgeParticipant` (registered by the same
+`register_automation_purge_participant()` call already below) was
+extended in place to also purge these four tables and terminate any of
+the tenant's own active Temporal executions first. Execution itself
+happens in two separate, dedicated worker processes
+(`product/automation/durable/worker.py` for the Phase 10.3 infrastructure
+spike's own probe workflow, `product/automation/durable
+/production_worker.py` for this phase's production `DurableWorkflow`) --
+neither is imported here; a Temporal outage can make either worker
+process exit without affecting this API process at all.
 """
 
 from __future__ import annotations
@@ -132,6 +152,8 @@ from product.appointments.purge import register as register_appointments_purge_p
 from product.appointments.routes import router as appointments_router
 from product.automation import dispatcher as _automation_dispatcher  # noqa: F401
 from product.automation import event_handlers as _automation_event_handlers  # noqa: F401
+from product.automation.durable import triggers as _automation_durable_triggers  # noqa: F401
+from product.automation.durable.routes import router as automation_durable_router
 from product.automation.purge import register as register_automation_purge_participant
 from product.automation.routes import router as automation_router
 from product.conversations import event_handlers as _conversations_event_handlers  # noqa: F401
@@ -192,6 +214,7 @@ def create_app() -> FastAPI:
     app.include_router(appointments_router)
     app.include_router(telephony_router)
     app.include_router(automation_router)
+    app.include_router(automation_durable_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
