@@ -16,6 +16,68 @@ permanently; Category D is adapter-isolated. Every phase respects
 `docs/ARCHITECTURE.md` §2's internal module-boundary rule. No phase modifies
 `saas-os`.
 
+As of 2026-09-20 (Phases 0–7 checkpointed, per the outcomes recorded in each
+phase below and `de26edc` for Phase 7), this document decomposes into **two
+coordinated tracks** rather than one: the **Product Backend Track** (Phase 0
+through Phase 20, unchanged below) and the **UI Track** (`UI-1` through
+`UI-9`, added at the end of this document, after Phase 20). The UI Track
+begins now, in parallel with the remaining backend phases, rather than
+waiting for Phase 20 to close — see "UI Track" for the sequencing principle,
+the frontend-first/backend-first rule, the feedback-loop and mock-data
+policies, and `docs/ARCHITECTURE.md` §6.1 for the non-negotiable
+frontend/backend layering both tracks are reviewed against. Nothing in
+Phases 0–20 below is renumbered, resequenced, or reworded by this addition.
+
+### Roadmap Overview — Two Parallel Tracks
+
+```text
+PRODUCT BACKEND TRACK
+──────────────────────
+
+0  Decisions                         ✓
+1  Repo Foundation                   ✓
+2  Product Foundation                ✓
+3  Agency / Client                   ✓
+4  CRM                               ✓
+5  Conversations                     ✓
+6  Marketing                         ✓
+7  Appointments                      ✓  (de26edc)
+8  Telephony
+9  AI
+10 Automation
+11 Websites
+12 Reputation
+13 SaaS Resale / Billing
+14 Templates / Snapshots
+15 Mini Accounting
+16 Reporting
+17 Integrations Hardening
+18 Production / Dutch Compliance
+19 Prospecting & Lead Intelligence
+20 Prospecting Automation & AI Agents
+
+
+UI TRACK
+────────
+
+UI-1  Application Shell & Frontend Foundation   ← next
+UI-2  Agency / Dashboard
+UI-3  CRM
+UI-4  Conversations
+UI-5  Marketing
+UI-6  Appointments
+UI-7  Settings / Branding / Tenant Configuration
+UI-8  Responsive / Accessibility / UX Hardening
+UI-9  Mature Design System & Reusable Components
+```
+
+The two tracks run side by side: a UI phase begins once its corresponding
+backend capability is sufficiently stable, not once the entire backend
+track (through Phase 20) is complete. See "UI Track" below for the full
+phase breakdown, dependencies, and the principles governing how the two
+tracks stay in sync without the UI Track becoming a second, divergent
+architecture.
+
 ---
 
 ## Phase 0 — Product Decisions & Architecture
@@ -1902,6 +1964,424 @@ Automation.
 
 ---
 
+# UI Track
+
+Status: PROPOSED sequencing, parallel to the Product Backend Track above.
+`UI-1` is the next phase to be implemented across either track; no UI phase
+below has started. Same template as every backend phase (Objective,
+Dependencies, Scope, Tests, Security, Acceptance Criteria, Rollback,
+Outcome, Checkpoint); "Outcome" is `not started` for every UI phase.
+
+The UI Track exists because the backend now has enough real, stable API
+surface (Agency/Client, CRM, Conversations, Marketing, Appointments,
+SaaS-OS auth/tenancy, branding/custom-domain) to build the user-facing
+application against, rather than waiting for Phases 8–20 (Telephony, AI,
+Automation, Websites, Reputation, Billing, Templates, Accounting,
+Reporting, Integrations Hardening, Production/Compliance, Prospecting) to
+close first. It is a second track, not a replacement for the backend track:
+Phases 8–20 continue exactly as scoped above, unchanged.
+
+### Architecture the UI Track must not violate
+
+Per `docs/ARCHITECTURE.md` §6.1 (added alongside this track):
+
+```text
+                    SaaS-OS
+                       │
+                       ▼
+              Product Backend
+                       │
+                 REST / OpenAPI
+                       │
+                       ▼
+              Product Frontend
+```
+
+The frontend consumes the Product REST/OpenAPI API; never imports `saas-os`
+code; never accesses the Product database directly; never replaces backend
+authorization with its own authoritative rule; contains no authoritative
+business rules of its own; treats the backend as the source of truth
+throughout. It may hide or disable a control for UX purposes (permission
+visibility), but a 403 from the backend is still authoritative even if a
+hidden control were somehow reached. Every UI phase below is reviewed
+against this boundary; a UI phase that would require reimplementing
+backend authorization, duplicating backend domain logic, or reaching the
+database directly is out of scope as written and needs a narrowly-scoped
+backend correction instead (see "UI/backend contract policy" below).
+
+### Replaceable application-shell architecture
+
+The initial UI layout built in `UI-1` is **not the permanent product
+design**. `UI-1` establishes a replaceable shell so that navigation style,
+layout, and visual theme can change later without rewriting the domain
+pages built in `UI-2`–`UI-7`:
+
+```text
+Product Frontend
+│
+├── AppShell
+│   ├── Navigation
+│   ├── TopBar
+│   └── MainContent
+│
+├── Dashboard
+├── CRM
+├── Conversations
+├── Marketing
+└── Appointments
+```
+
+Domain pages consume the shell's layout primitives (navigation, top bar,
+content container) rather than each implementing the global chrome
+themselves. Concretely, this means the application must be able to evolve
+from, e.g., a sidebar layout:
+
+```text
+┌──────────────┬────────────────────────────┐
+│              │ Top Bar                    │
+│   Sidebar    ├────────────────────────────┤
+│              │                            │
+│              │        Page Content        │
+│              │                            │
+└──────────────┴────────────────────────────┘
+```
+
+to, e.g., a top-nav layout:
+
+```text
+┌────────────────────────────────────────────┐
+│ Logo   CRM   Conversations   ...   User    │
+├────────────────────────────────────────────┤
+│                                            │
+│                 Page Content               │
+│                                            │
+└────────────────────────────────────────────┘
+```
+
+without rewriting CRM, Conversations, Marketing, or Appointments. `UI-1`'s
+acceptance criteria (below) require this to be demonstrated, not merely
+claimed.
+
+### UI design strategy: evolutionary, not finalized upfront
+
+`UI-1` builds a lightweight design foundation (typography, spacing,
+color/theme, and border/radius tokens; layout primitives; responsive
+breakpoints; a handful of reusable basic primitives; navigation and
+application-shell abstractions) — not a final design system. `UI-9`, at the
+end of this track, is where that foundation matures into a consolidated
+system, once real product screens (`UI-2`–`UI-7`) have exposed which
+patterns actually repeat.
+
+> The initial UI design is intentionally evolutionary. UI-1 establishes
+> reusable foundations and a replaceable shell; later UI phases may change
+> the visual language and navigation without requiring domain-page
+> rewrites.
+
+## UI-1 — Application Shell & Frontend Foundation
+
+- **Objective**: build the frontend application shell and foundation so the
+  product can begin being used through a real UI, without finalizing the
+  permanent visual design.
+- **Dependencies**: Phase 1.6 (frontend scaffold + OIDC login flow, already
+  scoped in the Backend Track), Phase 2.3 (branding, for the shell's
+  theming hook), Phase 3 (agency/client tenancy, for tenant context).
+- **Scope**: replaceable application shell (`AppShell`/`Navigation`/`TopBar`/
+  `MainContent`, per the diagram above); authenticated application/session
+  integration on top of Phase 1.6's login flow; tenant/agency context;
+  navigation architecture; lightweight design-token foundation (typography,
+  spacing, color/theme, border/radius); a handful of reusable UI primitives;
+  page/layout conventions; loading, error, empty, and permission-denied
+  states; a responsive foundation; a dashboard shell (no real dashboard data
+  yet); a Product API client generated from or hand-wired to the existing
+  REST/OpenAPI contract. Explicitly **not** in scope: a complete CRM,
+  Conversations, Marketing, or Appointments interface, and a finalized
+  permanent visual design — both are deliberately deferred to `UI-2`–`UI-7`
+  and `UI-9` respectively.
+- **Tests**: an authenticated session reaches the dashboard shell through
+  the real OIDC flow (Phase 1.6); a permission-denied state renders
+  correctly for a route the signed-in user's role doesn't grant, sourced
+  from a real 403 response, not a frontend-side permission guess; the
+  shell's navigation/layout can be swapped (sidebar ↔ top-nav, per the two
+  mockups above) without touching any domain-page component — this is the
+  specific, checkable proof of "replaceable shell," not an aspiration.
+- **Security considerations**: no client-side storage of any token beyond
+  what the OIDC flow's own session mechanism dictates (mirrors Phase 1.6);
+  the frontend never independently decides an action is allowed — every
+  permission-denied state is rendered from a real backend response, never
+  from a frontend-only role check standing alone.
+- **Acceptance criteria**: matches the tests above; a reviewer can point at
+  the `AppShell`/domain-page boundary and confirm no domain page imports
+  navigation/layout internals directly.
+- **Rollback**: standard; no real product data flows through this phase.
+- **Outcome**: not started.
+- **Checkpoint**: demo the shell-swap proof (sidebar → top-nav with no
+  domain-page changes) before `UI-2` starts building the first real screen
+  on top of it.
+
+## UI-2 — Agency / Dashboard
+
+- **Objective**: the first functional product experience, built on the
+  existing Agency APIs (Backend Phase 3).
+- **Dependencies**: UI-1; Backend Phase 3.
+- **Scope**: agency context; client/tenant switching where the existing
+  authorization (Backend Phase 3.3) already supports it; dashboard;
+  agency/client overview; onboarding state; basic activity/status
+  information; navigation integration into `UI-1`'s shell; permission-aware
+  UI; useful empty states.
+- **Tests**: dashboard/overview data matches real Agency API responses (no
+  permanent mock data); tenant switching respects the same `SUBTREE`/deny
+  rules Backend Phase 3.3 already enforces (a UI-level switch attempt the
+  backend would reject is itself rejected, not silently allowed client-side).
+- **Security considerations**: none beyond `docs/ARCHITECTURE.md` §6.1's
+  standing rule — tenant switching is a UI convenience over the backend's
+  existing authorization, never a second authorization mechanism.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond UI-1's standing shell-boundary review.
+
+## UI-3 — CRM
+
+- **Objective**: the UI for the existing CRM backend (Backend Phase 4).
+- **Dependencies**: UI-1, UI-2; Backend Phase 4.
+- **Scope**: contacts, companies, opportunities, pipelines, stages, tasks,
+  notes, activities, tags, custom fields, search/filtering, pagination,
+  import/export UX where Backend Phase 4.5 already supports it,
+  permission-aware actions.
+- **Tests**: CRUD/list/filter/paginate against the real CRM API; no
+  frontend-only contact/company/opportunity model diverging from the API
+  shape.
+- **Security considerations**: none beyond §6.1's standing rule; custom-field
+  rendering must not assume a shape the API doesn't actually guarantee.
+- **Acceptance criteria**: matches the tests above; the CRM domain model
+  used by the UI is demonstrably the API's own shape, not a parallel one.
+- **Rollback**: standard.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond UI-1's standing shell-boundary review.
+
+## UI-4 — Conversations
+
+- **Objective**: the UI for the existing Conversations backend (Backend
+  Phase 5).
+- **Dependencies**: UI-1, UI-3 (contact context); Backend Phase 5.
+- **Scope**: conversation/thread list, thread view, messages, contact
+  context, message templates where Backend Phase 5.5 supports them, sending
+  states, error/retry UX, pagination/history, permission handling.
+- **Tests**: send/receive flow matches real Conversations API state
+  transitions; an internal note (Backend Phase 5.5) never renders as an
+  outbound message and vice versa.
+- **Security considerations**: none beyond §6.1's standing rule. Do not
+  introduce a real-time transport (websockets/SSE) unless the corresponding
+  backend capability exists and a roadmap phase explicitly requires it —
+  polling against the existing REST API is the default until then.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond UI-1's standing shell-boundary review.
+
+## UI-5 — Marketing
+
+- **Objective**: the UI for the existing Marketing backend (Backend
+  Phase 6).
+- **Dependencies**: UI-1, UI-3; Backend Phase 6.
+- **Scope**: campaigns, campaign recipients, suppressions, forms, form
+  submissions, templates, tracking information already exposed by the API
+  (Backend Phase 6.5), relevant filtering/search, permission-aware actions.
+- **Tests**: suppression-list state shown in the UI matches what the
+  backend actually enforces (Backend Phase 6.1's hard gate) — the UI never
+  implies a suppressed contact will be reachable.
+- **Security considerations**: none beyond §6.1's standing rule. Any
+  provider capability the backend has not yet implemented (e.g. a specific
+  channel/provider integration not yet built) must render as a clearly
+  unavailable/"not yet connected" state — never presented as a working
+  integration.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond UI-1's standing shell-boundary review.
+
+## UI-6 — Appointments
+
+- **Objective**: the UI for the existing Appointments backend (Backend
+  Phase 7, checkpointed at `de26edc`).
+- **Dependencies**: UI-1, UI-3; Backend Phase 7.
+- **Scope**: calendars, availability, appointments, booking links,
+  appointment management, booking/reschedule/cancel flows, reminder status
+  where exposed (Backend Phase 7.3), timezone-aware presentation, provider
+  status where applicable (Backend Phase 7.4).
+- **Tests**: the UI's booking flow cannot double-book a slot the backend's
+  own concurrency guard (Backend Phase 7.2) would reject — a UI-level
+  optimistic-booking bug must not present a false success; timezone display
+  correctness across at least two zones.
+- **Security considerations**: none beyond §6.1's standing rule. Since
+  Backend Phase 7.4 (calendar provider sync) is a Category D adapter and
+  its actual provider status depends on what's genuinely wired up, the UI
+  must not imply Google/Microsoft calendar synchronization exists beyond
+  whatever the backend actually reports (fake/provider-neutral status
+  surfaced as such, not dressed up as a real sync).
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond UI-1's standing shell-boundary review.
+
+## UI-7 — Settings, Branding & Tenant Configuration
+
+- **Objective**: the user-facing configuration experience for capabilities
+  the backend already provides (Backend Phase 2.3–2.4, Phase 3).
+- **Dependencies**: UI-1; Backend Phase 2.3–2.4, Phase 3.
+- **Scope**: profile/account settings, tenant settings, branding, logo/brand
+  configuration where Backend Phase 2.3 supports it, custom-domain
+  configuration where Backend Phase 2.4 supports it, role/permission-related
+  settings where appropriate, product preferences.
+- **Tests**: branding changes made through this UI resolve correctly
+  through the existing fallback-chain (Backend Phase 2.3) with no separate
+  frontend-side resolution logic.
+- **Security considerations**: none beyond §6.1's standing rule. TLS
+  provisioning for custom domains is explicitly out of scope (Backend
+  Phase 2.4 defers it) — this UI must not imply it exists.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond UI-1's standing shell-boundary review.
+
+## UI-8 — Responsive, Accessibility & UX Hardening
+
+- **Objective**: after `UI-2`–`UI-7` exist, consolidate the UX patterns
+  they exposed rather than duplicating fixes page by page.
+- **Dependencies**: UI-2–UI-7.
+- **Scope**: responsive layouts, mobile/tablet behavior, accessibility,
+  keyboard navigation, consistent loading/error/empty states, confirmation
+  flows, destructive-action UX, pagination/filter consistency, navigation
+  consistency, visual consistency, performance improvements, frontend
+  security hardening.
+- **Tests**: a representative set of pages pass a keyboard-navigation and
+  screen-reader pass; a destructive action (e.g. delete contact) requires
+  confirmation consistently across every module.
+- **Security considerations**: frontend security hardening here means
+  standard web-client hygiene (XSS-safe rendering, no secret in client
+  bundle, CSRF posture matching the backend's own) — no new authorization
+  surface is introduced at this phase.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started.
+- **Checkpoint**: review pattern consolidation against `UI-9` before that
+  phase starts — `UI-8` is where duplication is found, `UI-9` is where it's
+  resolved into reusable components.
+
+## UI-9 — Mature Design System & Reusable Product Components
+
+- **Objective**: mature and consolidate the patterns UI-1's lightweight
+  foundation and `UI-2`–`UI-8`'s real screens have proven — not a from-zero
+  design-system build.
+- **Dependencies**: UI-1 (the foundation being matured), UI-8 (the
+  duplication it surfaced).
+- **Scope**: finalized component patterns — tables, forms, dialogs/drawers,
+  tabs, cards, badges, notifications, command/search interfaces, consistent
+  data-loading patterns, error boundaries, permission-aware controls — plus
+  a matured theme/token system and refined navigation/layout patterns
+  building on `UI-1`'s shell, not replacing its architecture.
+- **Tests**: each component in the matured system has at least one real
+  call site across `UI-2`–`UI-8` it was extracted from (no component built
+  speculatively ahead of a proven need).
+- **Security considerations**: permission-aware controls here still defer
+  to the backend per §6.1 — a mature component library does not become a
+  place where authorization logic quietly gets reimplemented for
+  convenience.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard; component consolidation is refactor-shaped, not
+  behavior-shaped.
+- **Outcome**: not started.
+- **Checkpoint**: review that no component's authorization behavior
+  diverges from what the backend already enforces.
+
+### UI Track sequencing
+
+The UI Track is intentionally not strictly dependent on backend roadmap
+completion (Phases 8–20). A UI phase may begin once its own backend
+capability is sufficiently stable — it does not wait for later, unrelated
+backend phases:
+
+```text
+BACKEND                         UI
+
+Phase 3 Agency ───────────────► UI-2 Agency
+Phase 4 CRM ──────────────────► UI-3 CRM
+Phase 5 Conversations ────────► UI-4 Conversations
+Phase 6 Marketing ────────────► UI-5 Marketing
+Phase 7 Appointments ─────────► UI-6 Appointments
+                                │
+                                ├── UI-7 Settings
+                                ├── UI-8 UX Hardening
+                                └── UI-9 Mature Design System
+```
+
+Phases 8–20 (Telephony, AI, Automation, Websites, Reputation, Billing,
+Templates, Accounting, Reporting, Integrations Hardening,
+Production/Compliance, Prospecting) continue on the Backend Track; each
+gets its own UI phase, numbered and scoped when that backend capability is
+sufficiently stable — not pre-allocated here, for the same reason Phase
+19.1's provider spike declines to pre-select a vendor: scoping it now would
+be speculative against capability that doesn't exist yet.
+
+### Frontend-first / backend-first rule
+
+- **Existing, stable backend capability** (CRM, Conversations, Marketing,
+  Appointments, Agency/Client, branding/custom-domain, as of this
+  addition): **frontend is normally built next** — this is exactly what
+  `UI-2`–`UI-7` above do.
+- **New capability requiring new domain logic, security rules, data
+  models, or infrastructure** (e.g. Telephony, Accounting, Automation's
+  durable engine): **backend/domain design comes first**, per those
+  phases' own existing Backend Track scoping — no corresponding UI phase is
+  opened before the backend design is settled.
+- **Large, genuinely new capability**: **backend and frontend are developed
+  in parallel around an agreed API contract** — avoids both building
+  backend years before it's usable and building a frontend mockup with no
+  real backend behind it.
+
+### UI as a product-validation mechanism
+
+Building `UI-2`–`UI-7` against the real APIs may surface: missing API
+operations; unsuitable response shapes; missing pagination/filtering;
+authorization UX gaps; tenant-context problems; missing loading/error
+states; unclear terminology; onboarding problems; missing empty states;
+workflow inconsistencies. When this happens:
+
+1. document the issue;
+2. classify it — a narrowly-scoped backend correction, a dependency on a
+   not-yet-built backend phase, or genuinely new future scope;
+3. if it's a narrowly-scoped correction, fix it as such — do not silently
+   expand the current backend phase's stated scope;
+4. otherwise, record it against the relevant future phase rather than
+   building around it in the frontend.
+
+### Mock-data policy
+
+The frontend may use temporary mocks while building against a backend
+endpoint that does not yet exist. Mocks must be clearly isolated (never
+indistinguishable from a real API response at the code level); must never
+become the permanent data source for a completed UI phase; a completed UI
+phase (`UI-2`–`UI-7`, once checkpointed) uses the real Product API wherever
+the corresponding backend capability exists. No second, frontend-only
+domain model is built that diverges from the backend's own.
+
+### UI/backend contract policy
+
+The Product REST/OpenAPI API is the standing contract between the two
+tracks. Where an existing API is awkward for the UI actually being built:
+
+1. document the mismatch;
+2. determine whether it can be consumed as-is (most cases — an awkward
+   shape is not automatically a backend bug);
+3. if a backend adjustment is genuinely required, scope it as a narrow
+   backend correction against the owning Backend Track phase, not a new
+   parallel endpoint;
+4. never introduce frontend-specific database access or duplicated
+   business logic to work around it — `docs/ARCHITECTURE.md` §6.1 is not
+   negotiable per-endpoint.
+
+---
+
 ## Notes on Sequencing Flexibility
 
 Exactly like `saas-os`'s own roadmap states: phases within the same group
@@ -1916,3 +2396,11 @@ any tenant-scoped product module, and Phase 18 (hardening/compliance) last
 20 (Prospecting Automation & AI Agents) are a later, separately-gated
 extension appended after Phase 18, not part of the 1–18 sequence Phase 18
 closes out — see Phase 19's own opening note for why.
+
+The UI Track (`UI-1`–`UI-9`, above) is a third kind of flexibility,
+distinct from both: it runs *alongside* Phases 8–20 rather than before or
+after them, starting as soon as `UI-1` and each domain phase's own backend
+dependency (Phase 3 for `UI-2`, Phase 4 for `UI-3`, and so on) is stable.
+It does not renumber, gate, or reorder any Backend Track phase — a UI phase
+missing its backend dependency simply doesn't start yet, the same way any
+other listed dependency above works.

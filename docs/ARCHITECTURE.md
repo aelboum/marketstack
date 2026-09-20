@@ -317,6 +317,42 @@ optionally eyeballing its i18n pattern once. See
 `docs/RISKS-AND-OPEN-QUESTIONS.md` for this flagged as an open question
 rather than assumed.
 
+### 6.1 Frontend/backend layering (non-negotiable)
+
+```text
+                    SaaS-OS
+                       │
+                       ▼
+              Product Backend
+                       │
+                 REST / OpenAPI
+                       │
+                       ▼
+              Product Frontend
+```
+
+The frontend, at every UI phase (`docs/ROADMAP.md`'s UI Track, UI-1 onward):
+
+- consumes the Product Backend's REST/OpenAPI contract only;
+- never imports `saas-os` code directly (no `core.*`/`infra.*` import from
+  `product/frontend/`);
+- never accesses the Product database directly (no ORM, no direct SQL, no
+  connection string in the frontend);
+- never reimplements backend authorization as a replacement for it — a
+  permission-denied UI state reflects what the backend already refused, it
+  does not independently decide what is allowed. The backend's `core.rbac
+  .can()` chokepoint (§3 above) remains the sole authority; the frontend may
+  hide/disable actions for UX purposes only, and must still handle a 403 from
+  the backend as authoritative even if a hidden control was somehow reached;
+- treats the backend as the sole source of truth for tenant/agency context,
+  entitlements, and data — no independent frontend-side domain model that
+  diverges from what the API returns.
+
+This mirrors `docs/RESPONSIBILITY-MATRIX.md`'s existing Frontend section
+(Category C: product-owned UI, consuming Category A mechanisms it does not
+reimplement) and is the standing constraint every UI Track phase in
+`docs/ROADMAP.md` is reviewed against.
+
 ## 7. What This Document Deliberately Does Not Decide
 
 Per the task scope: no database schema, no API endpoint shapes, no frontend
