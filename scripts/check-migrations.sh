@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Migration bootstrap gate (docs/ROADMAP.md Phase 1.2/1.5, extended by
-# Phase 2.1/2.3/2.4's own migrations, and by Phase 7.1-7.2's own
+# Phase 2.1/2.3/2.4's own migrations, by Phase 7.1-7.2's own
 # appointments.* migrations, including an empirical check that
 # btree_gist and the double-booking-prevention EXCLUDE constraint on
 # appointments.appointments really exist post-migration, not just the
-# schema/table names): proves a clean,
+# schema/table names, and by Phase 8.1-8.3's own telephony.* migrations,
+# including an empirical check that the partial unique index dedup-ing
+# telephony.calls by (tenant_id, provider_name, provider_call_id) really
+# exists): proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -99,17 +102,17 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # This product's own alembic_version table -- since Phase 7.3
-    # (docs/ROADMAP.md), head is 0029_appointments_reminder_at
-    # (twenty-nine real migrations: foundation.tenant_settings,
+    # This product's own alembic_version table -- since Phase 8.3
+    # (docs/ROADMAP.md), head is 0034_telephony_call_recordings
+    # (thirty-four real migrations: foundation.tenant_settings,
     # white_label.*, twelve crm.* tables, three conversations.* tables,
-    # seven marketing.* tables/alterations, five appointments.* tables --
-    # calendars, availability_rules, appointments (the EXCLUDE-constraint
-    # table), booking_links, appointment_manage_tokens -- plus 0029's
-    # reminder_sent_at column alteration on appointments.appointments).
+    # seven marketing.* tables/alterations, five appointments.* tables,
+    # plus five telephony.* tables -- phone_numbers (NOT RLS-scoped),
+    # phone_number_routing_targets, calls (the partial-unique-index
+    # table), call_events, call_recordings).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0029_appointments_reminder_at", (
-        f"expected product migrations at head 0029_appointments_reminder_at, "
+    assert product_version == "0034_telephony_call_recordings", (
+        f"expected product migrations at head 0034_telephony_call_recordings, "
         f"got {product_version!r}"
     )
 
@@ -126,6 +129,7 @@ with engine.connect() as conn:
                 "conversations",
                 "marketing",
                 "appointments",
+                "telephony",
             ]
         },
     ).all()
@@ -143,6 +147,11 @@ with engine.connect() as conn:
             "SELECT tablename FROM pg_tables WHERE schemaname = 'appointments' ORDER BY tablename"
         )
     ).all()
+    telephony_table_rows = conn.execute(
+        text(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'telephony' ORDER BY tablename"
+        )
+    ).all()
     btree_gist_rows = conn.execute(
         text("SELECT extname FROM pg_extension WHERE extname = 'btree_gist'")
     ).all()
@@ -150,6 +159,12 @@ with engine.connect() as conn:
         text(
             "SELECT conname FROM pg_constraint WHERE conname = "
             "'ex_appointments_appointments_no_overlap_confirmed'"
+        )
+    ).all()
+    telephony_calls_unique_index_rows = conn.execute(
+        text(
+            "SELECT indexname FROM pg_indexes WHERE indexname = "
+            "'uq_telephony_calls_tenant_provider_call'"
         )
     ).all()
 schemas_present = {row[0] for row in schema_rows}
@@ -163,6 +178,7 @@ expected = {
     "conversations",
     "marketing",
     "appointments",
+    "telephony",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -214,6 +230,18 @@ assert appointments_tables_present == expected_appointments_tables, (
     f"expected appointments tables {expected_appointments_tables}, "
     f"got {appointments_tables_present}"
 )
+telephony_tables_present = {row[0] for row in telephony_table_rows}
+expected_telephony_tables = {
+    "phone_numbers",
+    "phone_number_routing_targets",
+    "calls",
+    "call_events",
+    "call_recordings",
+}
+assert telephony_tables_present == expected_telephony_tables, (
+    f"expected telephony tables {expected_telephony_tables}, "
+    f"got {telephony_tables_present}"
+)
 assert len(btree_gist_rows) == 1, (
     "expected the btree_gist extension to be installed (required for the "
     "appointments.appointments EXCLUDE constraint's GiST index on calendar_id)"
@@ -223,6 +251,10 @@ assert len(exclude_constraint_rows) == 1, (
     "'ex_appointments_appointments_no_overlap_confirmed' to exist on "
     "appointments.appointments"
 )
+assert len(telephony_calls_unique_index_rows) == 1, (
+    "expected the partial unique index 'uq_telephony_calls_tenant_provider_call' "
+    "to exist on telephony.calls"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -231,8 +263,10 @@ print(
     f"conversations tables present: {sorted(conversations_tables_present)}; "
     f"marketing tables present: {sorted(marketing_tables_present)}; "
     f"appointments tables present: {sorted(appointments_tables_present)}; "
+    f"telephony tables present: {sorted(telephony_tables_present)}; "
     f"btree_gist installed: {len(btree_gist_rows) == 1}; "
-    f"double-booking EXCLUDE constraint present: {len(exclude_constraint_rows) == 1}"
+    f"double-booking EXCLUDE constraint present: {len(exclude_constraint_rows) == 1}; "
+    f"telephony calls unique index present: {len(telephony_calls_unique_index_rows) == 1}"
 )
 PYEOF
 

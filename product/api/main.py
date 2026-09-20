@@ -71,6 +71,23 @@ scope) -- it reuses
 `create_or_update_contact_from_trusted_source()` for public booking
 rather than building a second anonymous-contact-creation path.
 
+Phase 8.1-8.3 adds `product/telephony/routes.py` (`/v1/telephony`), five
+more tables (`telephony.*` -- `phone_numbers` deliberately NOT RLS-scoped,
+mirroring `appointments.booking_links`'s own precedent, the other four
+ordinary RLS-scoped), two purge participants (mirroring
+`product/appointments/purge.py`'s own scoped/unscoped split), and a fifth
+`agency.role_provisioned` subscriber (`product/telephony/event_handlers.py`).
+Unlike `product.marketing`/`product.appointments`, `product.telephony`
+imports no sibling module at all -- no ADR-0005-style CRM exception
+needed (`product/telephony/__init__.py`'s own module docstring: no CRM
+function resolves a contact by phone number today). Its own router is
+read-only (list/get phone numbers, list/get calls) -- every write path
+depends on a `TelephonyProvider` with no real default (no vendor selected,
+`docs/RISKS-AND-OPEN-QUESTIONS.md` item 6), mirroring
+`product/conversations/sms.py`'s identical "no HTTP route for a
+provider-dependent write path" precedent, so this file's own wiring adds
+one router, not the usual write-capable set.
+
 UI-1 (docs/ROADMAP.md UI Track) adds `CORSMiddleware`, narrowly scoped to
 this product's own frontend origin(s) with credentials enabled -- the
 frontend's browser-side session (`/auth/me`, `/v1/*`) is cookie-based and
@@ -118,6 +135,9 @@ from product.foundation.purge import register as register_foundation_purge_parti
 from product.marketing import event_handlers as _marketing_event_handlers  # noqa: F401
 from product.marketing.purge import register as register_marketing_purge_participant
 from product.marketing.routes import router as marketing_router
+from product.telephony import event_handlers as _telephony_event_handlers  # noqa: F401
+from product.telephony.purge import register as register_telephony_purge_participant
+from product.telephony.routes import router as telephony_router
 from product.white_label.domains import DomainResolutionMiddleware
 from product.white_label.purge import register as register_white_label_purge_participants
 
@@ -156,12 +176,14 @@ def create_app() -> FastAPI:
     app.include_router(conversations_router)
     app.include_router(marketing_router)
     app.include_router(appointments_router)
+    app.include_router(telephony_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
     register_conversations_purge_participant()
     register_marketing_purge_participant()
     register_appointments_purge_participant()
+    register_telephony_purge_participant()
     return app
 
 
