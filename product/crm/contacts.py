@@ -13,6 +13,12 @@ unknown id) -- defense in depth on top of, never instead of, the
 composite-FK constraint on `crm.contacts.company_id` itself
 (`product/crm/models.py`), which is what actually makes a cross-tenant
 reference impossible at the database level.
+
+`create_contact()` publishes `crm.contact.created` (docs/ROADMAP.md
+Phase 10.2's own trigger library) -- added as a single, additive
+`publish()` call, mirroring `product/crm/opportunities.py
+::change_stage()`'s own `crm.opportunity.stage_changed` precedent
+exactly; no other behavior in this module changed for it.
 """
 
 from __future__ import annotations
@@ -29,7 +35,11 @@ from product.crm.models import ENTITY_TYPE_CONTACT, Company, Contact
 from product.crm.pagination import DEFAULT_PAGE_SIZE, clamp_limit
 from product.crm.permissions import CONTACT_RESOURCE, require
 from product.crm.search import apply_custom_field_filters, apply_tag_filter, apply_text_search
+from product.foundation.events import Event, publish
 from product.foundation.values import normalize_phone_number
+
+CONTACT_CREATED_EVENT_TYPE = "crm.contact.created"
+CONTACT_CREATED_EVENT_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +114,14 @@ def create_contact(
         resource_type="crm.contact",
         resource_id=str(row.id),
         outcome=AuditOutcome.SUCCESS,
+    )
+    publish(
+        Event(
+            type=CONTACT_CREATED_EVENT_TYPE,
+            version=CONTACT_CREATED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={"contact_id": str(row.id)},
+        )
     )
     return _to_view(row)
 

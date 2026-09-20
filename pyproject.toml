@@ -92,6 +92,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/marketing/routes.py" = ["B008"]
 "product/appointments/routes.py" = ["B008"]
 "product/telephony/routes.py" = ["B008"]
+"product/automation/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
@@ -133,7 +134,6 @@ modules = [
     "product.crm",
     "product.conversations",
     "product.telephony",
-    "product.automation",
     "product.reputation",
     "product.websites",
     "product.billing",
@@ -257,6 +257,43 @@ type = "layers"
 layers = [
     "product.ai",
     "product.telephony",
+]
+
+# Phase 10.2: product.automation (docs/ADR/0008-automation-depends-on-crm.md)
+# needs the identical single-CRM-dependency shape Marketing/Appointments
+# already established (ADR-0005) -- create_task/update_contact/
+# move_opportunity actions each wrap exactly one bounded, already-RBAC-gated
+# CRM write. A separate contract pair (not folded into the Marketing/
+# Appointments one, which predates this phase and is documented under its
+# own ADR) mirrors AI's own identical choice above for the same reason.
+[[tool.importlinter.contracts]]
+name = "Automation does not depend on any product module except CRM"
+type = "forbidden"
+source_modules = ["product.automation"]
+forbidden_modules = [
+    "product.agency",
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Automation may depend on CRM, never CRM on Automation"
+type = "layers"
+layers = [
+    "product.automation",
+    "product.crm",
 ]
 
 # Phase 1's independence contract above only forbids sibling

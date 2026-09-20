@@ -4,10 +4,10 @@
 # appointments.* migrations, including an empirical check that
 # btree_gist and the double-booking-prevention EXCLUDE constraint on
 # appointments.appointments really exist post-migration, not just the
-# schema/table names, and by Phase 8.1-8.3's own telephony.* migrations,
+# schema/table names, by Phase 8.1-8.3's own telephony.* migrations,
 # including an empirical check that the partial unique index dedup-ing
 # telephony.calls by (tenant_id, provider_name, provider_call_id) really
-# exists): proves a clean,
+# exists, and by Phase 10.2's own automation.* migrations: proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -102,17 +102,16 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # This product's own alembic_version table -- since Phase 8.3
-    # (docs/ROADMAP.md), head is 0034_telephony_call_recordings
-    # (thirty-four real migrations: foundation.tenant_settings,
+    # This product's own alembic_version table -- since Phase 10.2
+    # (docs/ROADMAP.md), head is 0036_automation_workflow_runs
+    # (thirty-six real migrations: foundation.tenant_settings,
     # white_label.*, twelve crm.* tables, three conversations.* tables,
     # seven marketing.* tables/alterations, five appointments.* tables,
-    # plus five telephony.* tables -- phone_numbers (NOT RLS-scoped),
-    # phone_number_routing_targets, calls (the partial-unique-index
-    # table), call_events, call_recordings).
+    # five telephony.* tables, plus two automation.* tables -- workflows,
+    # workflow_runs (the idempotency-ledger table)).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0034_telephony_call_recordings", (
-        f"expected product migrations at head 0034_telephony_call_recordings, "
+    assert product_version == "0036_automation_workflow_runs", (
+        f"expected product migrations at head 0036_automation_workflow_runs, "
         f"got {product_version!r}"
     )
 
@@ -130,6 +129,7 @@ with engine.connect() as conn:
                 "marketing",
                 "appointments",
                 "telephony",
+                "automation",
             ]
         },
     ).all()
@@ -167,6 +167,15 @@ with engine.connect() as conn:
             "'uq_telephony_calls_tenant_provider_call'"
         )
     ).all()
+    automation_table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'automation' ORDER BY tablename")
+    ).all()
+    automation_run_dedup_index_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'uq_automation_workflow_runs_tenant_workflow_dedup'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -179,6 +188,7 @@ expected = {
     "marketing",
     "appointments",
     "telephony",
+    "automation",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -255,6 +265,17 @@ assert len(telephony_calls_unique_index_rows) == 1, (
     "expected the partial unique index 'uq_telephony_calls_tenant_provider_call' "
     "to exist on telephony.calls"
 )
+automation_tables_present = {row[0] for row in automation_table_rows}
+expected_automation_tables = {"workflows", "workflow_runs"}
+assert automation_tables_present == expected_automation_tables, (
+    f"expected automation tables {expected_automation_tables}, "
+    f"got {automation_tables_present}"
+)
+assert len(automation_run_dedup_index_rows) == 1, (
+    "expected the unique constraint "
+    "'uq_automation_workflow_runs_tenant_workflow_dedup' to exist on "
+    "automation.workflow_runs"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -264,9 +285,11 @@ print(
     f"marketing tables present: {sorted(marketing_tables_present)}; "
     f"appointments tables present: {sorted(appointments_tables_present)}; "
     f"telephony tables present: {sorted(telephony_tables_present)}; "
+    f"automation tables present: {sorted(automation_tables_present)}; "
     f"btree_gist installed: {len(btree_gist_rows) == 1}; "
     f"double-booking EXCLUDE constraint present: {len(exclude_constraint_rows) == 1}; "
-    f"telephony calls unique index present: {len(telephony_calls_unique_index_rows) == 1}"
+    f"telephony calls unique index present: {len(telephony_calls_unique_index_rows) == 1}; "
+    f"automation run dedup constraint present: {len(automation_run_dedup_index_rows) == 1}"
 )
 PYEOF
 

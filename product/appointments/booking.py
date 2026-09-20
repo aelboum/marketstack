@@ -54,6 +54,12 @@ interleave into a torn state; Postgres's own row lock makes the loser
 wait for the winner's transaction to commit, then re-read the
 now-current row, exactly the guarantee `docs/ROADMAP.md` Phase 7's own
 "cancellation races"/"rescheduling races" requirement calls for.
+
+`book_appointment()` publishes `appointments.appointment.booked`
+(docs/ROADMAP.md Phase 10.2's own trigger library) -- a single, additive
+`publish()` call added in this phase, mirroring `product/crm/opportunities.py
+::change_stage()`'s own precedent; no other behavior in this module
+changed for it.
 """
 
 from __future__ import annotations
@@ -82,6 +88,10 @@ from product.appointments.models import (
 )
 from product.appointments.permissions import APPOINTMENT_RESOURCE, require
 from product.crm.contacts import create_or_update_contact_from_trusted_source
+from product.foundation.events import Event, publish
+
+APPOINTMENT_BOOKED_EVENT_TYPE = "appointments.appointment.booked"
+APPOINTMENT_BOOKED_EVENT_VERSION = 1
 
 _TOKEN_BYTES = 32  # mirrors core/identity/service.py's own invitation-token byte length
 
@@ -190,6 +200,18 @@ def book_appointment(
             "starts_at": starts_at.isoformat(),
             "ends_at": ends_at.isoformat(),
         },
+    )
+    publish(
+        Event(
+            type=APPOINTMENT_BOOKED_EVENT_TYPE,
+            version=APPOINTMENT_BOOKED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={
+                "appointment_id": str(row.id),
+                "calendar_id": str(calendar_id),
+                "contact_id": str(contact.id),
+            },
+        )
     )
     return _to_view(row)
 

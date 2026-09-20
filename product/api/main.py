@@ -106,6 +106,16 @@ reads `FRONTEND_ORIGINS` via plain `os.environ`, mirroring
 origin is allowed -- fail-closed, not "allow everything," matching this
 product's existing `ENVIRONMENT`-must-be-explicit posture
 (`infra.secrets`).
+
+Phase 10.2 adds `product/automation/routes.py` (`/v1/automation`), two
+more tables (`automation.*`, both ordinary RLS-scoped), one purge
+participant, and a sixth `agency.role_provisioned` subscriber
+(`product/automation/event_handlers.py`). `product.automation` also
+imports `product.automation.dispatcher` for its own module-level
+`subscribe()` side effect -- the trigger library's event subscriptions
+must be registered before any request that could publish a trigger event
+runs, the identical "registered at import time" discipline every other
+`event_handlers.py` in this file already follows.
 """
 
 from __future__ import annotations
@@ -120,6 +130,10 @@ from product.agency.routes import router as agency_router
 from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
 from product.appointments.purge import register as register_appointments_purge_participant
 from product.appointments.routes import router as appointments_router
+from product.automation import dispatcher as _automation_dispatcher  # noqa: F401
+from product.automation import event_handlers as _automation_event_handlers  # noqa: F401
+from product.automation.purge import register as register_automation_purge_participant
+from product.automation.routes import router as automation_router
 from product.conversations import event_handlers as _conversations_event_handlers  # noqa: F401
 from product.conversations.purge import register as register_conversations_purge_participant
 from product.conversations.routes import router as conversations_router
@@ -177,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(marketing_router)
     app.include_router(appointments_router)
     app.include_router(telephony_router)
+    app.include_router(automation_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
@@ -184,6 +199,7 @@ def create_app() -> FastAPI:
     register_marketing_purge_participant()
     register_appointments_purge_participant()
     register_telephony_purge_participant()
+    register_automation_purge_participant()
     return app
 
 

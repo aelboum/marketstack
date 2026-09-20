@@ -62,6 +62,13 @@ resolves a contact by phone number today. `Call.contact_id` is always
 routing targets configured), the call is still created and tracked
 (`assigned_user_id = None`), never rejected/dropped -- a real, disclosed
 simplification, not a silent failure.
+
+`_process_inbound_event()` publishes `telephony.call.completed` the
+instant a call actually reaches `STATUS_COMPLETED` (docs/ROADMAP.md
+Phase 10.2's own trigger library) -- a single, additive `publish()` call
+added in this phase, mirroring `product/crm/opportunities.py
+::change_stage()`'s own precedent; no other transition/status behavior
+in this module changed for it.
 """
 
 from __future__ import annotations
@@ -74,6 +81,7 @@ from typing import Any
 from core.audit_log import ActorType, AuditOutcome, record
 from infra.db import IntegrityError, select, session_scope, tenant_session_scope
 
+from product.foundation.events import Event, publish
 from product.telephony.errors import (
     TelephonyInvalidStateTransitionError,
     TelephonyProviderError,
@@ -99,6 +107,9 @@ from product.telephony.pagination import DEFAULT_PAGE_SIZE, clamp_limit
 from product.telephony.permissions import CALL_RESOURCE, require
 from product.telephony.provider import TelephonyProvider
 from product.telephony.routing import route_inbound_call
+
+CALL_COMPLETED_EVENT_TYPE = "telephony.call.completed"
+CALL_COMPLETED_EVENT_VERSION = 1
 
 _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     STATUS_RINGING: frozenset({STATUS_IN_PROGRESS, STATUS_NO_ANSWER, STATUS_FAILED}),
@@ -476,6 +487,15 @@ def _process_inbound_event(
         outcome=AuditOutcome.SUCCESS,
         metadata={"event_type": event_type},
     )
+    if view is not None and view.status == STATUS_COMPLETED:
+        publish(
+            Event(
+                type=CALL_COMPLETED_EVENT_TYPE,
+                version=CALL_COMPLETED_EVENT_VERSION,
+                tenant_id=str(tenant_id),
+                payload={"call_id": str(view.id)},
+            )
+        )
     return view
 
 
