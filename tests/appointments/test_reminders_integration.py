@@ -284,7 +284,7 @@ def test_audit_metadata_never_contains_contact_pii() -> None:
     proof."""
     owner = make_user()
     agency, client = _agency_and_client(owner.id)
-    secret_marker = "reminder-pii-marker-xyz@example.com"
+    pii_marker = "reminder-pii-marker-xyz@example.com"
     try:
         calendar = create_calendar(
             owner.id, client.tenant_id, name="Cal", owner_user_id=owner.id, timezone="UTC"
@@ -295,7 +295,7 @@ def test_audit_metadata_never_contains_contact_pii() -> None:
             calendar.id,
             owner.id,
             starts_at=now + timedelta(hours=1),
-            email=secret_marker,
+            email=pii_marker,
         )
 
         send_due_reminders(owner.id, client.tenant_id, now=now, provider=FakeEmailProvider())
@@ -309,7 +309,7 @@ def test_audit_metadata_never_contains_contact_pii() -> None:
         assert len(matching) >= 1
         for entry in matching:
             serialized = str(entry.metadata)
-            assert secret_marker not in serialized
+            assert pii_marker not in serialized
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)

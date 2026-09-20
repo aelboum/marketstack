@@ -383,7 +383,7 @@ async def test_audit_metadata_never_contains_campaign_body_or_pii() -> None:
     core.audit_log row back."""
     owner = make_user()
     agency, client = _agency_and_client(owner.id)
-    secret_marker = "super-secret-campaign-body-marker-xyz"
+    pii_marker = "super-secret-campaign-body-marker-xyz"
     try:
         create_contact(
             owner.id,
@@ -398,7 +398,7 @@ async def test_audit_metadata_never_contains_campaign_body_or_pii() -> None:
             name="Audit Test",
             channel="email",
             subject="s",
-            body=secret_marker,
+            body=pii_marker,
         )
         await start_campaign_send(owner.id, client.tenant_id, campaign.id)
         await _run_job_inline(
@@ -411,7 +411,7 @@ async def test_audit_metadata_never_contains_campaign_body_or_pii() -> None:
         assert len(entries) >= 1
         for entry in entries:
             serialized = str(entry.metadata)
-            assert secret_marker not in serialized
+            assert pii_marker not in serialized
             assert "audit-pii@ex.com" not in serialized
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
