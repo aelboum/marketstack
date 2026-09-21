@@ -4,6 +4,26 @@ below is the *only* set of things a workflow can ever do; there is no
 path from a workflow definition to arbitrary code, an arbitrary function,
 or an arbitrary shell command (this phase's own explicit prohibition).
 
+**Registering an action from another product domain (Phase 10.3A).**
+Since 10.3A each action is one `product.foundation.workflow_actions
+.WorkflowActionSpec` in a `WorkflowActionRegistry`, rather than an entry
+in three parallel structures (`ACTIONS`, an if/elif validation chain, and
+an `_EXECUTORS` dict) that could drift apart. The registry is what makes
+Phase 10.4A's AI action reachable *without* `product.automation`
+importing `product.ai` -- an import the import-linter contracts forbid in
+both directions (see `product/foundation/workflow_actions.py`'s own
+module docstring for the full reasoning and the inverted dependency
+diagram). A foreign domain's adapter is registered by a composition root
+through `get_action_registry()`, never by an import side effect of the
+domain package.
+
+The closed vocabulary itself is unaffected by any of that: `ACTIONS`
+below is a static constant, and `validate_action_type()` consults it
+directly, so which workflow definitions are publishable can never vary
+with import order or with what a given process has wired up. Today
+`ACTIONS` still names exactly Phase 10.2's own five actions -- 10.3A adds
+the mechanism, not a sixth action.
+
 **Every action re-authorizes as the workflow's own `created_by_user_id`,
 never as a synthetic "automation" identity** -- `create_task`/
 `update_contact`/`move_opportunity` each call straight into
@@ -58,6 +78,11 @@ from product.automation.errors import AutomationActionError, AutomationValidatio
 from product.crm.activities import create_task
 from product.crm.contacts import update_contact
 from product.crm.opportunities import change_stage
+from product.foundation.workflow_actions import (
+    UnknownWorkflowActionError,
+    WorkflowActionRegistry,
+    WorkflowActionSpec,
+)
 
 MAX_ACTION_CONFIG_STRING_CHARS = 4_000
 MAX_WEBHOOK_BODY_BYTES = 16_384
@@ -290,39 +315,125 @@ def _execute_send_webhook(
     }
 
 
-_EXECUTORS = {
-    ACTION_CREATE_TASK: _execute_create_task,
-    ACTION_UPDATE_CONTACT: _execute_update_contact,
-    ACTION_MOVE_OPPORTUNITY: _execute_move_opportunity,
-    ACTION_SEND_EMAIL: _execute_send_email,
-    ACTION_SEND_WEBHOOK: _execute_send_webhook,
-}
+# --- per-action config validation ------------------------------------------
+# One function per action, replacing the single if/elif chain this module
+# carried before Phase 10.3A. Behaviour is unchanged, branch for branch --
+# splitting them is what lets each action be expressed as one
+# `WorkflowActionSpec` (name + validate + execute) instead of being spread
+# across three parallel structures (`ACTIONS`, the chain, `_EXECUTORS`)
+# that could silently disagree with one another.
+
+
+def _validate_create_task_config(action_config: Mapping[str, object]) -> None:
+    _config_string(action_config, "title", required=True)
+
+
+def _validate_update_contact_config(action_config: Mapping[str, object]) -> None:
+    # every field is optional; a no-op update is a caller choice, not invalid
+    return None
+
+
+def _validate_move_opportunity_config(action_config: Mapping[str, object]) -> None:
+    raw = _config_string(action_config, "to_stage_id", required=True)
+    try:
+        uuid.UUID(raw)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise AutomationValidationError("action_config.to_stage_id must be a valid UUID.") from exc
+
+
+def _validate_send_email_config(action_config: Mapping[str, object]) -> None:
+    _config_string(action_config, "to", required=True)
+    _config_string(action_config, "subject", required=True)
+    _config_string(action_config, "body", required=True)
+
+
+def _validate_send_webhook_config(action_config: Mapping[str, object]) -> None:
+    url = _config_string(action_config, "url", required=True)
+    _validate_webhook_url(url)  # type: ignore[arg-type]
+
+
+# --- registry ---------------------------------------------------------------
+
+
+def _build_registry() -> WorkflowActionRegistry:
+    """Construct this module's registry and register the five actions
+    Automation itself owns. Called exactly once, unconditionally, at this
+    module's own import -- which is *not* the import-order-dependent
+    registration this phase exists to avoid: these five actions live in
+    this very module, so importing `product.automation.actions` always
+    produces the identical, complete registry, with no dependence on what
+    else the interpreter has loaded. `require_complete()` proves it before
+    the module finishes importing.
+
+    A *foreign* domain's action (Phase 10.4A's AI action being the first)
+    is registered differently and deliberately so -- see this module's own
+    "Registering an action from another product domain" note below."""
+    registry = WorkflowActionRegistry(allowed_names=ACTIONS)
+    for spec in (
+        WorkflowActionSpec(
+            name=ACTION_CREATE_TASK,
+            validate_config=_validate_create_task_config,
+            execute=_execute_create_task,
+        ),
+        WorkflowActionSpec(
+            name=ACTION_UPDATE_CONTACT,
+            validate_config=_validate_update_contact_config,
+            execute=_execute_update_contact,
+        ),
+        WorkflowActionSpec(
+            name=ACTION_MOVE_OPPORTUNITY,
+            validate_config=_validate_move_opportunity_config,
+            execute=_execute_move_opportunity,
+        ),
+        WorkflowActionSpec(
+            name=ACTION_SEND_EMAIL,
+            validate_config=_validate_send_email_config,
+            execute=_execute_send_email,
+        ),
+        WorkflowActionSpec(
+            name=ACTION_SEND_WEBHOOK,
+            validate_config=_validate_send_webhook_config,
+            execute=_execute_send_webhook,
+        ),
+    ):
+        registry.register(spec)
+    registry.require_complete()
+    return registry
+
+
+_REGISTRY = _build_registry()
+
+
+def get_action_registry() -> WorkflowActionRegistry:
+    """The process-wide Automation action registry.
+
+    Exposed so a composition root (`product/api/main.py`, the durable
+    worker entrypoints) can register an action implementation owned by
+    another product domain **without Automation importing that domain** --
+    the dependency inversion Phase 10.3A exists to establish. Registration
+    is an explicit call made by the composition root, never an import side
+    effect of the domain package, so the wiring is visible in one place
+    and cannot vary with import order.
+
+    No such foreign action is registered today: `ACTIONS` below declares
+    only Automation's own five, so `register()` would reject anything
+    else. Phase 10.4A adds its name to that declared vocabulary and wires
+    its adapter here; this phase deliberately stops at the seam."""
+    return _REGISTRY
 
 
 def validate_action_config(action_type: str, action_config: Mapping[str, object]) -> None:
     """Structural validation only, at workflow create/update time -- the
     same required-field checks each `_execute_*` performs at execution
     time, run early so a malformed workflow definition is rejected before
-    it is ever saved, not discovered the first time it tries to fire."""
-    if action_type == ACTION_CREATE_TASK:
-        _config_string(action_config, "title", required=True)
-    elif action_type == ACTION_UPDATE_CONTACT:
-        pass  # every field is optional; a no-op update is a caller choice, not invalid
-    elif action_type == ACTION_MOVE_OPPORTUNITY:
-        raw = _config_string(action_config, "to_stage_id", required=True)
-        try:
-            uuid.UUID(raw)  # type: ignore[arg-type]
-        except ValueError as exc:
-            raise AutomationValidationError(
-                "action_config.to_stage_id must be a valid UUID."
-            ) from exc
-    elif action_type == ACTION_SEND_EMAIL:
-        _config_string(action_config, "to", required=True)
-        _config_string(action_config, "subject", required=True)
-        _config_string(action_config, "body", required=True)
-    elif action_type == ACTION_SEND_WEBHOOK:
-        url = _config_string(action_config, "url", required=True)
-        _validate_webhook_url(url)  # type: ignore[arg-type]
+    it is ever saved, not discovered the first time it tries to fire.
+
+    Resolves through the registry, but the *vocabulary* check above it
+    (`validate_action_type()`) still consults the static `ACTIONS`
+    constant -- so whether a given workflow definition is publishable
+    never depends on which implementations happen to be registered in this
+    process."""
+    _REGISTRY.get(action_type).validate_config(action_config)
 
 
 def execute_action(
@@ -332,10 +443,15 @@ def execute_action(
     action_config: Mapping[str, object],
     payload: Mapping[str, object],
 ) -> dict[str, object]:
-    executor = _EXECUTORS.get(action_type)
-    if executor is None:  # pragma: no cover -- validate_action_type() already guards this earlier
-        raise AutomationValidationError(f"unknown action_type: {action_type!r}")
-    return executor(actor_user_id, tenant_id, action_config, payload)
+    try:
+        action = _REGISTRY.get(action_type)
+    except UnknownWorkflowActionError as exc:
+        # Preserves this function's own pre-10.3A contract exactly:
+        # an unresolvable action_type is an AutomationValidationError,
+        # which the durable engine already classifies as permanent /
+        # non-retryable (`product/automation/durable/business_activities.py`).
+        raise AutomationValidationError(f"unknown action_type: {action_type!r}") from exc
+    return action.execute(actor_user_id, tenant_id, action_config, payload)
 
 
 __all__ = [
@@ -348,6 +464,7 @@ __all__ = [
     "MAX_ACTION_CONFIG_STRING_CHARS",
     "MAX_WEBHOOK_BODY_BYTES",
     "execute_action",
+    "get_action_registry",
     "validate_action_config",
     "validate_action_type",
 ]

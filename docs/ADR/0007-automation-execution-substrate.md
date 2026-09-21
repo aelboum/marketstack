@@ -655,3 +655,81 @@ neither prerequisite changes the engine decided and implemented above:
 10.3A changes how an action implementation *reaches* the closed
 vocabulary, never the vocabulary's closed nature, the publish-time
 validation's determinism, or either execution path.
+
+## Phase 10.3A Implemented: Action Registry / Dependency Inversion (2026-09-21)
+
+The prerequisite above is now built. **No AI action exists** -- this
+phase delivers the boundary only, and `ACTIONS` still names exactly
+Phase 10.2's own five actions.
+
+**Why a direct `product.automation -> product.ai` import is not
+available.** The import-linter contracts forbid it in *both* directions:
+`product.ai` is listed in Automation's own `forbidden_modules`, and
+`product.automation` in AI's. A "narrow exception" edge is not available
+either -- `product.ai` itself imports `product.conversations` and
+`product.telephony`, both also forbidden to Automation, so a direct edge
+would create forbidden *indirect* chains (no `allow_indirect_imports` is
+set anywhere in this repository, by design). Since neither package may
+import the other, the only correct resolution is a dependency inversion
+onto a contract neither owns.
+
+**Where the contract lives.** `product/foundation/workflow_actions.py`
+-- the placement `docs/ARCHITECTURE.md` section 2.2 already prescribes
+("the capability is generic enough to belong in `product/foundation`...
+promote it, don't duplicate it"). `product/foundation/` is the one
+always-allowed dependency *target* and itself imports no product module,
+so the contract is domain-neutral by construction: every value crossing
+it is a primitive, a `uuid.UUID`, or a plain mapping.
+
+    product.automation  ---->  product.foundation.workflow_actions
+                                          ^
+                                          |
+    product.<domain> adapter  ------------+
+
+**The contract.** A `@runtime_checkable Protocol` (`WorkflowAction`:
+`name`, `validate_config`, `execute`), a frozen-dataclass convenience
+implementation (`WorkflowActionSpec`), three neutral error types
+(`WorkflowActionConfigError`, `WorkflowActionDeniedError`,
+`WorkflowActionExecutionError`), and `WorkflowActionRegistry`. The
+neutral errors exist because a foreign adapter cannot import
+`product.automation.errors`; `business_activities.py` classifies them
+identically to their Automation/CRM counterparts, so a foreign action
+gets exactly the same permanent-vs-retryable treatment as a built-in
+one. Protocol parameters are position-only, which is what lets the
+existing `_validate_*`/`_execute_*` functions satisfy the contract with
+no rewrite.
+
+**Why registration is deterministic, and why that mattered.** The
+registry is constructed with an explicit, finite `allowed_names` set and
+refuses anything outside it; a duplicate registration raises rather than
+silently overwriting (last-one-wins is precisely how import order leaks
+into behaviour); and the *publishable* vocabulary is a static constant
+(`ACTIONS`) that `validate_action_type()` consults directly -- never the
+registry's current contents. So importing an unrelated module can never
+change which workflow definitions validate. `require_complete()` closes
+the other half at bootstrap: a declared name with no implementation is a
+loud startup failure, not a surprise at the first run that reaches it.
+Automation's own five actions are registered unconditionally inside the
+module that defines them, so that import is self-contained and
+order-independent; a *foreign* domain's adapter is instead registered by
+an explicit composition-root call through `get_action_registry()`, never
+by an import side effect of the domain package.
+
+**Compatibility.** `ACTIONS`, `validate_action_type()`,
+`validate_action_config()`, and `execute_action()` kept their exact
+signatures and behaviour, so 10.2's dispatcher, 10.3's DSL validation,
+10.3's durable activity, and `workflows.py` needed no changes at all.
+`execute_action()` still raises `AutomationValidationError` for an
+unresolvable action type, preserving its permanent/non-retryable
+classification. Authorization, tenant scoping, idempotency, audit, and
+retry semantics are untouched -- the registry maps names to
+implementations and holds nothing else: no cached actor, no tenant, no
+authorization decision, and no `__dict__` to grow one.
+
+**The remaining 10.4A integration point, deliberately not built.** A
+`product.ai` adapter satisfying `WorkflowAction` and calling
+`invoke_product_ai_tool()`, its action name added to `ACTIONS`, and one
+composition-root registration call. Wiring any of that now would be
+10.4A, and it stays blocked on 9.4 regardless. The seam is proven
+instead by a test module that `product.automation` does not import,
+supplying a working action purely by satisfying the neutral contract.

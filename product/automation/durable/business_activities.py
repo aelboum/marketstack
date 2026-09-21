@@ -112,6 +112,11 @@ from product.crm.errors import (
     CrmReferenceNotFoundError,
     CrmValidationError,
 )
+from product.foundation.workflow_actions import (
+    UnknownWorkflowActionError,
+    WorkflowActionConfigError,
+    WorkflowActionDeniedError,
+)
 
 # `execute_action()` deliberately does NOT normalize the underlying
 # domain call's own exceptions (`product/automation/actions.py`: only
@@ -127,9 +132,20 @@ from product.crm.errors import (
 # `product.crm`, and `send_email`/`send_webhook` are already normalized
 # to `AutomationActionError`/`AutomationValidationError` by
 # `execute_action()` itself.
+# Phase 10.3A adds the three domain-neutral types from
+# `product/foundation/workflow_actions.py` alongside the domain-specific
+# ones. An action implementation owned by another product domain cannot
+# import `product.automation.errors` (the import-linter contracts forbid
+# it), so the neutral types are the vocabulary it signals permanence
+# with -- classified here identically to their Automation/CRM
+# counterparts, so a foreign action gets exactly the same retry
+# treatment as a built-in one. `WorkflowActionExecutionError` is
+# deliberately absent from both lists: like `AutomationActionError`, it
+# is the *potentially transient* case the bounded RetryPolicy handles.
 _PERMANENT_DENIAL_ERRORS: tuple[type[Exception], ...] = (
     AutomationAccessDeniedError,
     CrmAccessDeniedError,
+    WorkflowActionDeniedError,
 )
 
 _NON_RETRYABLE_ACTION_ERRORS: tuple[type[Exception], ...] = (
@@ -138,6 +154,8 @@ _NON_RETRYABLE_ACTION_ERRORS: tuple[type[Exception], ...] = (
     AutomationReferenceNotFoundError,
     CrmReferenceNotFoundError,
     CrmValidationError,
+    WorkflowActionConfigError,
+    UnknownWorkflowActionError,
 )
 
 
