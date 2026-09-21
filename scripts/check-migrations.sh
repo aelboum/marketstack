@@ -13,7 +13,12 @@
 # `telephony.phone_numbers`'s own precedent -- see
 # `product/websites/models.py::Website`'s own module docstring), while
 # `websites.pages` (0043) must have it both enabled and forced, same as
-# every other tenant-owned table. Proves a clean,
+# every other tenant-owned table. Extended by Phase 12.1-12.3's own
+# reputation.* migrations (0044-0046): all three tables (`review_requests`,
+# `reviews`, `review_responses`) are ordinary RLS-scoped, tenant-owned
+# data (`product/reputation/models.py`'s own module docstring) -- RLS
+# both enabled and forced on all three, same assertion shape as
+# `websites.pages`/`ai.tenant_policies`. Proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -119,10 +124,13 @@ with engine.connect() as conn:
     # workflow domain: durable_workflows, durable_workflow_versions,
     # durable_runs, durable_run_steps), plus ai.tenant_policies (9.4's
     # own persisted, per-tenant AI policy), plus websites.websites and
-    # websites.pages (11.1's own page-builder foundation).
+    # websites.pages (11.1's own page-builder foundation), plus
+    # reputation.review_requests, reputation.reviews, and
+    # reputation.review_responses (12.1-12.3's own review-request/review/
+    # response domain).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0043_websites_pages", (
-        f"expected product migrations at head 0043_websites_pages, "
+    assert product_version == "0046_reputation_review_responses", (
+        f"expected product migrations at head 0046_reputation_review_responses, "
         f"got {product_version!r}"
     )
 
@@ -143,6 +151,7 @@ with engine.connect() as conn:
                 "automation",
                 "ai",
                 "websites",
+                "reputation",
             ]
         },
     ).all()
@@ -240,6 +249,37 @@ with engine.connect() as conn:
             "'uq_websites_pages_tenant_website_slug'"
         )
     ).all()
+    reputation_table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'reputation' ORDER BY tablename")
+    ).all()
+    # docs/ROADMAP.md Phase 12.1-12.3: all three reputation.* tables are
+    # ordinary RLS-scoped, tenant-owned data (product/reputation/models.py's
+    # own module docstring) -- assert RLS is both ENABLED and FORCED on all
+    # three, same assertion shape as ai.tenant_policies/websites.pages above.
+    reputation_review_requests_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'reputation.review_requests'::regclass"
+        )
+    ).all()
+    reputation_reviews_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'reputation.reviews'::regclass"
+        )
+    ).all()
+    reputation_review_responses_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'reputation.review_responses'::regclass"
+        )
+    ).all()
+    reputation_review_request_contact_fk_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'fk_reputation_review_requests_tenant_contact'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -255,6 +295,7 @@ expected = {
     "automation",
     "ai",
     "websites",
+    "reputation",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -384,6 +425,33 @@ assert len(websites_page_slug_unique_rows) == 1, (
     "expected the unique constraint 'uq_websites_pages_tenant_website_slug' to "
     "exist on websites.pages"
 )
+reputation_tables_present = {row[0] for row in reputation_table_rows}
+expected_reputation_tables = {"review_requests", "reviews", "review_responses"}
+assert reputation_tables_present == expected_reputation_tables, (
+    f"expected reputation tables {expected_reputation_tables}, "
+    f"got {reputation_tables_present}"
+)
+assert reputation_review_requests_rls_rows == [(True, True)], (
+    "expected reputation.review_requests to have ROW LEVEL SECURITY both enabled "
+    f"and forced, got {reputation_review_requests_rls_rows}"
+)
+assert reputation_reviews_rls_rows == [(True, True)], (
+    "expected reputation.reviews to have ROW LEVEL SECURITY both enabled and "
+    f"forced, got {reputation_reviews_rls_rows}"
+)
+assert reputation_review_responses_rls_rows == [(True, True)], (
+    "expected reputation.review_responses to have ROW LEVEL SECURITY both enabled "
+    f"and forced, got {reputation_review_responses_rls_rows}"
+)
+assert len(reputation_review_request_contact_fk_rows) == 1, (
+    "expected the composite FK 'fk_reputation_review_requests_tenant_contact' to "
+    "exist on reputation.review_requests (docs/ADR/0010-reputation-depends-on-crm.md)"
+)
+reputation_rls_all_enabled_and_forced = (
+    reputation_review_requests_rls_rows == [(True, True)]
+    and reputation_reviews_rls_rows == [(True, True)]
+    and reputation_review_responses_rls_rows == [(True, True)]
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -405,7 +473,9 @@ print(
     f"websites tables present: {sorted(websites_tables_present)}; "
     f"websites.websites RLS neither enabled nor forced: "
     f"{websites_website_rls_rows == [(False, False)]}; "
-    f"websites.pages RLS enabled+forced: {websites_page_rls_rows == [(True, True)]}"
+    f"websites.pages RLS enabled+forced: {websites_page_rls_rows == [(True, True)]}; "
+    f"reputation tables present: {sorted(reputation_tables_present)}; "
+    f"reputation.* RLS enabled+forced (all three): {reputation_rls_all_enabled_and_forced}"
 )
 PYEOF
 

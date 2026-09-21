@@ -1284,7 +1284,25 @@ the vocabulary's closed nature or either execution path.
 - **Acceptance criteria**: a review request can be triggered and its status
   tracked.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented (domain/service/API layer) --
+  `product/reputation/models.py`, `review_requests.py`, `reviews.py`,
+  `permissions.py`, `event_handlers.py`, `purge.py`, `routes.py`;
+  migrations 0044-0046. Manual triggering works end-to-end (synchronous
+  send via `core.email`, status tracked through
+  `pending`/`sent`/`failed`/`cancelled`/`fulfilled`). The Automation
+  trigger-integration half of this phase's own Dependencies line is
+  **deferred, not implemented** -- see `docs/ADR/0010
+  -reputation-depends-on-crm.md`'s "Deferred: Automation Integration"
+  section; `reputation.review_request.created/.sent/.failed` are
+  published via the existing event dispatcher so that integration can be
+  added later without a Reputation-side change. `product/api/main.py`
+  wiring (router mount, purge-participant registration, event-handler
+  import) is also deferred -- an explicitly protected, pre-existing
+  uncommitted local change in that file made it out of this phase's
+  scope; see `product/reputation/__init__.py`'s own module docstring for
+  the exact follow-up diff. Covered by `tests/reputation/` (unit +
+  integration against disposable PostgreSQL; see this phase's own
+  implementation/audit report for exact counts).
 - **Checkpoint**: none.
 
 ### 12.2 Review platform integrations (Category D)
@@ -1299,7 +1317,21 @@ the vocabulary's closed nature or either execution path.
 - **Acceptance criteria**: at least one real provider integration works
   end-to-end.
 - **Rollback**: disable the specific provider adapter.
-- **Outcome**: not started.
+- **Outcome**: deliberately deferred, not implemented -- the
+  provider-neutral interface itself is established
+  (`product/reputation/providers.py::ReviewProvider`/
+  `resolve_provider()`, plus `FakeReviewProvider` for tests), but no real
+  Google Business Profile/Facebook adapter exists: no vendor has actually
+  been committed to (mirrors Phase 9.4's own "no vendor is chosen here"
+  treatment), and building one now would mean inventing credentials that
+  do not exist. `resolve_provider()` returns `None` for every provider
+  name today, by design. A tenant can record a review manually
+  (`provider='manual'`, the only value the DB `CheckConstraint` accepts
+  in this phase) and respond to it; posting a response to a real,
+  non-`'manual'` review is implemented and unit-tested
+  (`product/reputation/responses.py::_ensure_posted_externally()`) but
+  unreachable through the full stack until a real Phase 12.2 adapter is
+  actually built, since no such row can exist yet.
 - **Checkpoint**: none.
 
 ### 12.3 Review response and automation hooks
@@ -1313,7 +1345,21 @@ the vocabulary's closed nature or either execution path.
 - **Acceptance criteria**: a response posts correctly to the real provider
   in a test environment.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: partially implemented -- responding to a review from
+  within the product is fully implemented
+  (`product/reputation/responses.py`, `routes.py`'s
+  `/reviews/{review_id}/responses`) and tested for the only provider this
+  phase can produce (`'manual'`). "Automation trigger on new review
+  received" is **deferred, not implemented** -- see `docs/ADR/0010
+  -reputation-depends-on-crm.md`'s "Deferred: Automation Integration"
+  section (extending `product/automation/`'s own closed trigger
+  vocabulary is a change to Automation's own files, out of this phase's
+  scope); `reputation.review.received`/`reputation.review.responded` are
+  published via the existing event dispatcher so that integration can be
+  added later without a Reputation-side change. "Response posts correctly
+  to the real provider" is not demonstrated end-to-end (12.2's own real
+  provider is deferred) -- proven instead at the unit level for the
+  provider-routing decision itself.
 - **Checkpoint**: none.
 
 ---

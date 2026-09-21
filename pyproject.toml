@@ -114,6 +114,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/automation/routes.py" = ["B008"]
 "product/automation/durable/routes.py" = ["B008"]
 "product/websites/routes.py" = ["B008"]
+"product/reputation/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
@@ -156,7 +157,6 @@ modules = [
     "product.crm",
     "product.conversations",
     "product.telephony",
-    "product.reputation",
     "product.billing",
     "product.accounting",
     "product.reporting",
@@ -386,4 +386,44 @@ type = "layers"
 layers = [
     "product.websites",
     "product.white_label",
+]
+
+# Phase 12.1 (docs/ADR/0010-reputation-depends-on-crm.md): product.reputation
+# needs one narrow, one-directional read -- product.crm.contacts.get_contact(),
+# to resolve a review request's target contact and email address -- so it is
+# removed from the blanket independence contract above (mirroring exactly how
+# Phase 6/7/9/10/11 removed product.marketing/product.appointments/product.ai/
+# product.automation/product.websites for their own, separately-justified
+# single-module edges) and given its own precise pair of contracts instead.
+# product.reputation remains independent from every other product module,
+# including product.automation -- see ADR-0010's own "Deferred: Automation
+# Integration" section for why no automation <-> reputation edge exists yet.
+[[tool.importlinter.contracts]]
+name = "Reputation does not depend on any product module except CRM"
+type = "forbidden"
+source_modules = ["product.reputation"]
+forbidden_modules = [
+    "product.agency",
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Reputation may depend on CRM, never CRM on Reputation"
+type = "layers"
+layers = [
+    "product.reputation",
+    "product.crm",
 ]
