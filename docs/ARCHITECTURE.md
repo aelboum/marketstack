@@ -303,6 +303,42 @@ This is flagged now, in Phase 0, so the decision is not discovered mid-Phase-10:
   conceptual room for exactly this: "no distributed workflow engine yet;
   interfaces reserved for one later").
 
+### 5.1 What Automation owns, and what it only consumes
+
+Automation is the **workflow/orchestration layer**. It owns workflow
+definitions, versions, runs, run steps, conditions, trigger handling,
+action dispatch, durable execution, execution-time authorization, and its
+own audit behaviour. It does **not** own the domains its actions reach
+into — each of those remains the source of truth for its own data and its
+own business rules, and Automation consumes them through their service
+contracts rather than restating their semantics. Stated explicitly for the
+two domains `docs/ROADMAP.md` Phase 10.4 extends Automation toward,
+because each has been a live source of confusion:
+
+- **AI (10.4A).** Tool authorization, Data Authorization, provider/model
+  policy, autonomy tier, and the human-approval gate remain owned by the
+  AI Control Plane and this product's own `product/ai/` tool
+  registrations (`docs/RESPONSIBILITY-MATRIX.md` §"AI Control Plane").
+  An AI workflow action passes the run's own execution identity through
+  those existing gates and honours their decision — **Automation never
+  builds a second AI authorization system**, never calls an LLM/voice
+  provider directly, and never caches an authorization decision made when
+  the workflow was configured.
+- **Accounting (10.4B).** Accounting is the source of truth for
+  accounting data, posting logic, and its posted-entry immutability
+  discipline (`docs/ACCOUNTING-SCOPE.md`). Automation must consume that
+  contract, never define accounting semantics, never touch `accounting.*`
+  tables directly, and never duplicate Accounting's models or
+  persistence. That contract does not exist yet — Phase 15 has not
+  started — so accounting automation cannot be implemented before Phase
+  15 establishes it, and no placeholder accounting contract belongs in
+  Automation in the meantime.
+
+Neither point introduces a new durable-execution architecture: Phase
+10.3's existing Temporal-based substrate (ADR-0007) remains the basis for
+both, and nothing here changes SaaS-OS's own architecture — SaaS-OS stays
+unaware of this product's workflow engine.
+
 ## 6. Frontend
 
 SaaS-OS's own `frontend/` (`saas-os` repository) is a placeholder Next.js

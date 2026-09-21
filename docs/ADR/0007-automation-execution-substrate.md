@@ -569,3 +569,39 @@ Both are documented at their call sites so neither is reintroduced.
   `publish_version()` -- no draft-level optimistic-locking/conflict
   detection exists for concurrent editors (out of this phase's own
   scope).
+
+## Phase 10.4 Split: AI vs. Accounting Automation (2026-09-21)
+
+Documentation correction only -- no code, no substrate change. The
+"Consequences" section above was written in the 10.2 era, when neither
+10.4 half was actionable and both were correctly described together as
+unimplemented. That is no longer an accurate framing of the *current*
+state, because the two halves' dependencies diverged:
+
+- **10.4A (AI automation) is now unblocked.** Phase 9 is built
+  (`product/ai/` registers real tools behind
+  `invoke_product_ai_tool()`) and Phase 10.3's durable engine is
+  complete, so the AI-invocation action can be implemented on the
+  existing action vocabulary -- on 10.2's synchronous path and 10.3's
+  durable path alike, with no second executor. The 10.2-era caveat above
+  ("only if it fits cleanly on 10.2's own synchronous... action model")
+  is superseded by 10.3 existing: the durable path is now a supported
+  destination for that action, not a hypothetical one. The binding
+  constraint is unchanged and restated: Automation must not become a
+  second AI authorization system -- tool authorization, Data
+  Authorization, provider/model policy, and autonomy tier remain owned by
+  the AI Control Plane and `product/ai/`, and this action passes the
+  run's own execution identity through those existing gates rather than
+  re-deciding anything itself.
+- **10.4B (accounting automation) remains blocked on Phase 15.** Phase 15
+  has not started; `product/accounting/` is a placeholder with no schema,
+  models, services, or migrations, so there is no accounting domain
+  contract for Automation to consume and no posting/immutability logic to
+  reuse. Automation consumes accounting contracts, it never defines
+  accounting semantics -- so no accounting model, migration, API, action,
+  trigger, or placeholder contract belongs in Automation before Phase 15
+  establishes them (`docs/ACCOUNTING-SCOPE.md`, `docs/ROADMAP.md` 10.4B).
+
+Temporal remains the durable execution substrate for both halves; this
+split introduces no new execution architecture and changes nothing about
+the engine decided and implemented above.

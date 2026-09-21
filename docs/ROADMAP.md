@@ -990,14 +990,90 @@ the triggers exist would be speculative.
 - **Checkpoint**: review the restart-survival test specifically — this is
   the entire reason the durable engine was adopted in 10.1.
 
-### 10.4 Automation-specific triggers/actions (invoicing, AI)
-- **Objective**: the remaining brief-listed triggers/actions that depend on
-  later phases — invoice overdue, payment received, create invoice, record
-  payment (depends on Phase 15, Accounting), invoke AI (depends on Phase 9).
-- **Dependencies**: 10.2, Phase 9, Phase 15.
+### 10.4 Automation extensions
+
+Originally written as one phase covering both the AI-invocation action and
+the Accounting-dependent actions. Split into **10.4A** and **10.4B**
+because their dependencies are not the same and never became available at
+the same time: Phase 9 (AI) is built, so the AI half is implementable now,
+while Phase 15 (Mini Accounting) has not started — `product/accounting/`
+is a placeholder with no schema, no models, no services, and no migrations,
+so there is no accounting domain contract for Automation to consume. The
+two halves are therefore sequenced independently; neither blocks the other.
+
+```text
+Phase 9 AI                        Phase 15 Mini Accounting
+    |                                     |
+    v                                     v
+10.4A AI Automation               10.4B Accounting Automation
+    ^                                     ^
+    |                                     |
+10.3 Durable Workflows            10.3 Durable Workflows
+```
+
+Neither subphase introduces a new execution substrate: both extend the
+existing action vocabulary dispatched through
+`product.automation.actions.execute_action()`, executed by 10.2's
+synchronous path and 10.3's Temporal durable path (ADR-0007), with no
+second executor, no second scheduler, and no second expression language.
+
+### 10.4A AI automation action
+- **Objective**: the brief-listed "invoke AI" action — a bounded workflow
+  action that calls one already-registered Phase 9 product AI tool.
+- **Dependencies**: 10.3 (durable execution), Phase 9 (the AI tools and
+  the authorization gates this action invokes). Both are met.
+- **Scope**: one additional action registration in 10.2/10.3's existing
+  closed action vocabulary, calling `product.ai.invocation
+  .invoke_product_ai_tool()` — the same seam every other caller of a
+  registered tool already uses. Bounded, typed action config naming which
+  registered tool to invoke and which bounded inputs to pass; a bounded,
+  typed result. No new engine work.
+- **Tests**: mirrors 10.2, plus 10.3's own durable-path coverage —
+  execution-time authorization (including permission revoked between
+  workflow submission and the AI step, denied at execution time),
+  cross-tenant denial, idempotency under duplicate activity invocation,
+  permanent-vs-retryable error classification, and no sensitive AI input
+  or output text entering Temporal workflow history (bounded identifiers
+  and references only, per 10.3's own privacy discipline).
+- **Security considerations**: **Automation must not become a second AI
+  authorization system.** Tool authorization, Data Authorization,
+  model/provider policy, autonomy tier, and the human-approval gate all
+  remain owned by the AI Control Plane and `product/ai/`
+  (`docs/RESPONSIBILITY-MATRIX.md` §"AI Control Plane"; `saas-os`
+  `docs/AI-CONTROL-PLANE.md` §3/§5). This action passes the run's own
+  execution identity through to those existing gates and honours their
+  decision; it never caches an authorization decision made at workflow
+  submission time, never calls an LLM/voice provider directly, and never
+  bypasses the Data Authorization boundary. The action vocabulary stays
+  closed: no arbitrary prompts, no arbitrary tool selection beyond the
+  registered set, no arbitrary code execution — mirroring 10.2's own
+  privilege-escalation rule (a workflow may never exceed the permissions
+  of the user who configured it).
+- **Acceptance criteria**: a workflow step invokes a registered product AI
+  tool end-to-end on both the synchronous and durable paths, is denied at
+  execution time when the configuring user's permission is revoked, and
+  produces the same audit trail a direct tool invocation produces.
+- **Rollback**: standard — the action can be removed from the vocabulary
+  without affecting the rest of the engine.
+- **Outcome**: not started — ready to implement; dependencies met
+  (Phase 9, 10.3).
+- **Checkpoint**: none beyond 10.2's standing security review, extended to
+  the AI action specifically (the "no second AI authorization system" rule
+  above is the thing to review).
+
+### 10.4B Accounting automation triggers/actions
+- **Objective**: the brief-listed accounting triggers/actions — invoice
+  overdue, payment received, create invoice, record payment.
+- **Dependencies**: 10.3 (durable execution), **Phase 15 (Mini
+  Accounting)**. Phase 15 is not started, so this subphase is blocked.
 - **Scope**: additional trigger/action registrations only — no new engine
-  work, reuses 10.2/10.3's mechanism.
-- **Tests**: mirrors 10.2.
+  work, reuses 10.2/10.3's mechanism. Automation consumes Accounting's own
+  service/domain contract; it never defines accounting semantics, never
+  touches `accounting.*` tables directly, and never duplicates Accounting's
+  models or persistence.
+- **Tests**: mirrors 10.2, plus 10.3's durable-path coverage, with
+  particular weight on idempotency — a durable retry must never create a
+  duplicate invoice, payment, or journal entry.
 - **Security considerations**: mirrors 10.2, with particular attention to
   financial actions (`create invoice`, `record payment`) — these must
   reuse Accounting's own posting logic and its immutability discipline
@@ -1006,7 +1082,10 @@ the triggers exist would be speculative.
 - **Acceptance criteria**: an invoice-overdue trigger and a payment-received
   trigger both work correctly against real Accounting data.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: not started — blocked on Phase 15; deferred until Phase 15
+  establishes the accounting domain contract. No accounting model,
+  migration, API, action, trigger, or placeholder contract is to be created
+  in Automation before then (`docs/ACCOUNTING-SCOPE.md`).
 - **Checkpoint**: none beyond 10.2's standing security review, extended to
   the financial actions specifically.
 
@@ -1858,9 +1937,9 @@ The automation layer on top of Phase 19. This phase explicitly does not
 duplicate the generic automation engine built in Phase 10 — it *consumes*
 Phase 10's trigger/condition/action framework (and, once built, its
 durable multi-step engine) the same way Phase 12 (Reputation) and Phase
-10.4 (invoicing/AI triggers) already do, per `docs/ROADMAP.md` Phase 10's
-existing design. No second workflow engine, no second scheduler, no second
-job runner is introduced.
+10.4 (10.4A AI automation, 10.4B accounting automation) are themselves
+designed to, per `docs/ROADMAP.md` Phase 10's existing design. No second
+workflow engine, no second scheduler, no second job runner is introduced.
 
 Example future user intent this phase is designed against: "Every Monday
 find 50 dentists in Casablanca within 50 km that match these criteria,
@@ -1878,7 +1957,8 @@ Automation.
   new engine.
 - **Dependencies**: Phase 19 (the domain/provider design this automation
   operates over), Phase 10.2–10.3 (the framework being extended, exactly
-  as Phase 10.4 already extends it for invoicing/AI triggers).
+  as Phase 10.4A/10.4B are designed to extend it for AI and accounting
+  triggers/actions).
 - **Scope**: a design document listing each new trigger/action and which
   Phase 19 capability it invokes — no implementation, no new trigger
   engine, no new job runner.

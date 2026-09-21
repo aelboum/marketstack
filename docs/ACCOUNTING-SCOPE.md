@@ -175,6 +175,16 @@ rules — not as a substitute for that review.
 - `infra.db` tenant-scoping — accounting tables are ordinary tenant-owned
   tables, isolated exactly like every other module's.
 
+## Dependency: Accounting Automation (Roadmap 10.4B)
+
+Accounting automation depends on the Phase 15 accounting domain contract.
+`docs/ROADMAP.md` 10.4B (accounting triggers/actions — invoice overdue,
+payment received, create invoice, record payment) is therefore deferred
+until Phase 15 establishes that contract: Automation consumes it, and
+never defines accounting semantics of its own. This document remains a
+scope/boundary document — Phase 15 owns the schemas, VAT rules, journal
+structures, numbering rules, and APIs, none of which are specified here.
+
 ## Acceptance Criteria for "Mini" Staying Mini
 
 Each Phase 15 subphase (`docs/ROADMAP.md`) must be checked against this
