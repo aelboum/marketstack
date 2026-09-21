@@ -214,6 +214,7 @@ from product.foundation.purge import register as register_foundation_purge_parti
 from product.marketing import event_handlers as _marketing_event_handlers  # noqa: F401
 from product.marketing.purge import register as register_marketing_purge_participant
 from product.marketing.routes import router as marketing_router
+from product.reputation.routes import router as reputation_router
 from product.telephony import event_handlers as _telephony_event_handlers  # noqa: F401
 from product.telephony.purge import register as register_telephony_purge_participant
 from product.telephony.routes import router as telephony_router
@@ -262,6 +263,7 @@ def create_app() -> FastAPI:
     app.include_router(automation_router)
     app.include_router(automation_durable_router)
     app.include_router(websites_router)
+    app.include_router(reputation_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
