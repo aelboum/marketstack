@@ -146,6 +146,17 @@ a {
   color: inherit;
 }
 
+/* This product renders a great many unbroken identifiers -- tenant ids,
+   appointment ids, tokens, public URLs. Without a wrapping rule each one
+   is a potential source of horizontal page scroll on a narrow screen,
+   which is why eight components had already reached for an ad-hoc
+   `wordBreak: "break-all"`. Handling it once here makes the next such
+   value safe by default. `anywhere` (not `break-all`) only breaks when
+   the word genuinely cannot fit, so ordinary prose is unaffected. */
+body {
+  overflow-wrap: anywhere;
+}
+
 button {
   font-family: inherit;
 }
@@ -166,4 +177,24 @@ button {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Respect a reduced-motion preference across the whole product (UI-8).
+   Previously only the StatePanel spinner honoured it, so the sidebar
+   slide-in and every hover/state transition still animated for users who
+   had asked the OS not to.
+   Motion is reduced to a near-instant step rather than removed outright:
+   a duration of exactly 0 can cancel `transitionend`/`animationend`
+   handlers, and this product should not depend on which. `visibility`
+   transitions are kept intact for the same reason the shell sets them --
+   they gate the overlay's focusability, not its appearance. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

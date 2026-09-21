@@ -48,7 +48,7 @@ function TemplateRow({
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-2)" }}>
         <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
-          <strong>{template.name}</strong>
+          <h2 style={{ margin: 0, fontSize: "var(--font-size-md)" }}>{template.name}</h2>
           {template.channel ? <Badge tone="accent">{template.channel}</Badge> : <Badge>Any channel</Badge>}
         </div>
         <div style={{ display: "flex", gap: "var(--space-1)" }}>
@@ -74,6 +74,7 @@ function TemplateRow({
           style={{ marginTop: "var(--space-2)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
         >
           <textarea
+            aria-label={`Body of template ${template.name}`}
             value={body}
             onChange={(event) => setBody(event.target.value)}
             rows={3}
@@ -123,7 +124,7 @@ function CreateTemplateForm({ tenantId, onCreated }: { tenantId: string; onCreat
 
   return (
     <Card>
-      <h3 style={{ marginTop: 0 }}>Create a template</h3>
+      <h2 style={{ marginTop: 0, fontSize: "var(--font-size-md)" }}>Create a template</h2>
       <form
         onSubmit={async (event) => {
           event.preventDefault();
@@ -155,6 +156,7 @@ function CreateTemplateForm({ tenantId, onCreated }: { tenantId: string; onCreat
           value={body}
           onChange={(event) => setBody(event.target.value)}
           rows={3}
+          aria-label="Template body"
           placeholder="Template body…"
           style={{ fontFamily: "inherit", fontSize: "var(--font-size-sm)", padding: "var(--space-2)", border: "1px solid var(--color-border-strong)", borderRadius: "var(--radius-sm)" }}
         />

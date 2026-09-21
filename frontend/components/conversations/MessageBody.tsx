@@ -6,17 +6,19 @@
 // ever executed. Long bodies are visually bounded (collapsed behind a
 // "Show more" toggle) rather than truncated -- the full content is
 // always still there and reachable, never silently discarded.
-import { useState } from "react";
+import { useId, useState } from "react";
 
 const COLLAPSE_THRESHOLD = 600;
 
 export function MessageBody({ body }: { body: string }) {
   const [expanded, setExpanded] = useState(false);
   const isLong = body.length > COLLAPSE_THRESHOLD;
+  const bodyId = useId();
 
   return (
     <div>
       <p
+        id={bodyId}
         style={{
           margin: 0,
           whiteSpace: "pre-wrap",
@@ -31,6 +33,8 @@ export function MessageBody({ body }: { body: string }) {
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-controls={bodyId}
           style={{
             background: "none",
             border: "none",

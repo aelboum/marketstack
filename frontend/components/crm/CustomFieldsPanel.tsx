@@ -25,6 +25,7 @@ import { InlineNotice } from "@/components/ui/InlineNotice";
 function FieldValueForm({
   tenantId,
   entityType,
+  label,
   entityId,
   fieldDefinitionId,
   fieldType,
@@ -35,6 +36,9 @@ function FieldValueForm({
   entityType: EntityType;
   entityId: string;
   fieldDefinitionId: string;
+  /** The field's own name -- gives its input an accessible name, since
+   * the visible name is rendered by the parent as a detached span. */
+  label: string;
   fieldType: FieldType;
   currentValue: string | number | boolean | null;
   onSaved: () => void;
@@ -56,15 +60,25 @@ function FieldValueForm({
       style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
     >
       {fieldType === "boolean" ? (
-        <select value={value} onChange={(event) => setValue(event.target.value)}>
-          <option value="">—</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
+        // A real <label> rather than aria-label, so the boolean field is
+        // labelled the same visible way as every other field type.
+        <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
+            {label}
+          </span>
+          <select value={value} onChange={(event) => setValue(event.target.value)}>
+            <option value="">—</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </label>
       ) : (
         <div style={{ flex: 1 }}>
           <Input
-            label="Value"
+            // Named after the field itself: a page renders one of these
+            // per custom field, so a shared "Value" label would give
+            // every input on the page the same accessible name.
+            label={label}
             type={fieldType === "number" ? "number" : fieldType === "date" ? "date" : "text"}
             value={value}
             onChange={(event) => setValue(event.target.value)}
@@ -113,7 +127,7 @@ function DefineFieldForm({
           placeholder="e.g. lead_source"
         />
       </div>
-      <select value={fieldType} onChange={(event) => setFieldType(event.target.value as FieldType)}>
+      <select aria-label="Field type" value={fieldType} onChange={(event) => setFieldType(event.target.value as FieldType)}>
         <option value="text">Text</option>
         <option value="number">Number</option>
         <option value="date">Date</option>
@@ -165,15 +179,18 @@ export function CustomFieldsPanel({
         </p>
       ) : (
         definitionsQuery.data.map((definition) => (
+          // The field name used to be rendered here as a detached
+          // <span> that labelled nothing. It now lives on the control
+          // itself (see FieldValueForm), so the name is still shown
+          // exactly once -- just properly associated this time, rather
+          // than duplicated alongside it.
           <div key={definition.id} style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-            <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
-              {definition.name}
-            </span>
             <FieldValueForm
               tenantId={tenantId}
               entityType={entityType}
               entityId={entityId}
               fieldDefinitionId={definition.id}
+              label={definition.name}
               fieldType={definition.field_type}
               currentValue={valueByDefinitionId.get(definition.id) ?? null}
               onSaved={valuesQuery.refetch}

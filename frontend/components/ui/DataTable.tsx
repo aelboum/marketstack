@@ -22,14 +22,30 @@ export function DataTable<T>({
   rows,
   rowKey,
   getRowHref,
+  label = "Data table",
 }: {
   columns: DataTableColumn<T>[];
   rows: T[];
   rowKey: (row: T) => string;
   getRowHref?: (row: T) => string;
+  /** Names the scrollable region for assistive tech. Defaults to a
+   * generic name so existing callers stay valid; pass something
+   * specific ("Contacts", "Campaigns") where a page has more than one. */
+  label?: string;
 }) {
   return (
-    <div className={styles.scrollWrapper}>
+    // A horizontally scrollable region must itself be keyboard
+    // reachable (WCAG 2.1.1): without `tabIndex`, a keyboard-only user
+    // on a narrow screen can never scroll a wide table into view --
+    // there is nothing focusable to send arrow keys to. `role="region"`
+    // plus a name is what makes the stop meaningful rather than a
+    // mystery tab stop.
+    <div
+      className={styles.scrollWrapper}
+      role="region"
+      aria-label={label}
+      tabIndex={0}
+    >
       <table className={styles.table}>
         <thead>
           <tr>

@@ -30,9 +30,17 @@ describe("ClientsList", () => {
     expect(screen.getByRole("status")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Acme Dental")).toBeInTheDocument());
     expect(screen.getByText("Acme Legal")).toBeInTheDocument();
-    const links = screen.getAllByRole("link", { name: "View →" });
-    expect(links[0]).toHaveAttribute("href", "/t/agency-1/clients/c1");
-    expect(links[1]).toHaveAttribute("href", "/t/agency-1/clients/c2");
+    // Each row's link is named after its own client, so a screen-reader
+    // user listing the page's links can tell them apart -- previously
+    // every row produced an identical "View →".
+    expect(screen.getByRole("link", { name: "View Acme Dental" })).toHaveAttribute(
+      "href",
+      "/t/agency-1/clients/c1",
+    );
+    expect(screen.getByRole("link", { name: "View Acme Legal" })).toHaveAttribute(
+      "href",
+      "/t/agency-1/clients/c2",
+    );
   });
 
   it("shows an empty state when the API returns no clients", async () => {

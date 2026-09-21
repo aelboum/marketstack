@@ -25,11 +25,10 @@
 // (membership + starting role assigned), never a specific permission
 // list the response doesn't report.
 import { useState } from "react";
-import Link from "next/link";
 import { acceptInvitation, type InvitationAccepted } from "@/lib/api/agency";
 import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { Input } from "@/components/ui/Input";
-import { Button } from "@/components/ui/Button";
+import { Button, LinkButton } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 
 export function AcceptInvitationForm({
@@ -51,9 +50,11 @@ export function AcceptInvitationForm({
         <InlineNotice tone="success">
           You&apos;ve joined this tenant, with your starting access already in place.
         </InlineNotice>
-        <Link href={`/t/${accepted.tenant_id}/dashboard`}>
-          <Button>Go to the dashboard</Button>
-        </Link>
+        {/* A <button> nested inside an <a> is invalid HTML and leaves
+            browsers and assistive tech disagreeing about which element
+            is actually activated. `LinkButton` exists for exactly this
+            case: one real <a>, styled as a button. */}
+        <LinkButton href={`/t/${accepted.tenant_id}/dashboard`}>Go to the dashboard</LinkButton>
       </div>
     );
   }

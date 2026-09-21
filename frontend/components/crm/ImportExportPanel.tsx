@@ -64,6 +64,7 @@ function ImportSection({ tenantId }: { tenantId: string }) {
           value={csvContent}
           onChange={(event) => setCsvContent(event.target.value)}
           rows={6}
+          aria-label="CSV content"
           placeholder="first_name,last_name,email,phone
 Jane,Doe,jane@example.com,+15551234567"
           style={{

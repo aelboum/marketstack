@@ -105,6 +105,7 @@ function InternalNoteForm({
         value={body}
         onChange={(event) => setBody(event.target.value)}
         rows={3}
+        aria-label="Internal note"
         placeholder="Only visible to your team -- never sent to the contact."
         style={{
           fontFamily: "inherit",
@@ -164,6 +165,7 @@ function SendEmailForm({
         value={body}
         onChange={(event) => setBody(event.target.value)}
         rows={5}
+        aria-label="Email body"
         placeholder="Email body…"
         style={{
           fontFamily: "inherit",
@@ -199,13 +201,26 @@ export function MessageComposer({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+      {/* `variant` alone made the selected tab a colour-only signal.
+          `aria-pressed` states it outright, matching the pattern
+          AvailableSlotsPicker already uses for its slot toggles. */}
       <div style={{ display: "flex", gap: "var(--space-1)" }}>
         {channel === "email" ? (
-          <Button variant={tab === "send" ? "primary" : "ghost"} size="sm" onClick={() => setTab("send")}>
+          <Button
+            variant={tab === "send" ? "primary" : "ghost"}
+            size="sm"
+            aria-pressed={tab === "send"}
+            onClick={() => setTab("send")}
+          >
             Send email
           </Button>
         ) : null}
-        <Button variant={tab === "note" ? "primary" : "ghost"} size="sm" onClick={() => setTab("note")}>
+        <Button
+          variant={tab === "note" ? "primary" : "ghost"}
+          size="sm"
+          aria-pressed={tab === "note"}
+          onClick={() => setTab("note")}
+        >
           Internal note
         </Button>
       </div>

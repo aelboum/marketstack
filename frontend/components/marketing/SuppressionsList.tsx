@@ -83,7 +83,7 @@ export function SuppressionsList({ tenantId, reloadKey, onCreate }: { tenantId: 
     { key: "created", header: "Since", render: (s) => new Date(s.created_at).toLocaleString() },
     {
       key: "actions",
-      header: "",
+      header: "Actions",
       render: (s) => (
         <DeleteSuppressionButton tenantId={tenantId} suppression={s} onDeleted={query.refetch} />
       ),

@@ -3,8 +3,13 @@
   inset: 0;
   background: rgba(10, 10, 14, 0.45);
   display: flex;
-  align-items: center;
+  /* Top-aligned rather than centered so that a dialog taller than the
+     viewport grows downward into the overlay's own scroll area instead
+     of overflowing symmetrically off both edges -- the top half of a
+     centered, non-scrolling dialog is unreachable by any input method. */
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
   padding: var(--space-4);
   z-index: 50;
 }
@@ -15,6 +20,12 @@
   box-shadow: var(--shadow-md);
   max-width: 440px;
   width: 100%;
+  /* Long content scrolls inside the dialog instead of off-screen.
+     `dvh` (not `vh`) so a mobile browser's retracting URL bar does not
+     push the action buttons out of reach. */
+  max-height: calc(100dvh - var(--space-7));
+  overflow-y: auto;
+  margin: auto;
   padding: var(--space-5);
 }
 
@@ -34,4 +45,7 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+  /* Buttons set `white-space: nowrap`, so a long confirm label beside a
+     Cancel button overflows a narrow dialog unless the row may wrap. */
+  flex-wrap: wrap;
 }

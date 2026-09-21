@@ -59,16 +59,40 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  flex-shrink: 0;
+  /* Allowed to shrink so a long workspace id truncates instead of
+     pushing the account control off a narrow screen. */
+  min-width: 0;
 }
 
 .tenantTag {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
   font-size: var(--font-size-xs);
+}
+
+.tenantLabel {
   color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.6875rem;
+}
+
+/* Truncation is visual only -- the full id stays in the DOM, so
+   assistive tech still announces the whole value. */
+.tenantValue {
+  color: var(--color-text-muted);
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .tenantValue {
+    max-width: 96px;
+  }
 }
 
 .accountTrigger {

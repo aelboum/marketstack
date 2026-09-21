@@ -43,8 +43,13 @@ function StagesList({ tenantId, pipeline }: { tenantId: string; pipeline: Pipeli
               .slice()
               .sort((a, b) => a.position - b.position)
               .map((stage) => (
+                // Won/lost was carried entirely by the badge colour, so a
+                // screen-reader user heard only the stage name and a
+                // colour-blind user saw two similar chips. The outcome is
+                // now in the text as well.
                 <Badge key={stage.id} tone={stage.is_won ? "success" : stage.is_lost ? "danger" : "neutral"}>
                   {stage.name}
+                  {stage.is_won ? " (won)" : stage.is_lost ? " (lost)" : ""}
                 </Badge>
               ))
           )}
@@ -97,7 +102,7 @@ export function PipelinesPanel({ tenantId }: { tenantId: string }) {
         pipelinesQuery.data.map((pipeline: Pipeline) => (
           <Card key={pipeline.id}>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-              <strong>{pipeline.name}</strong>
+              <h2 style={{ margin: 0, fontSize: "var(--font-size-md)" }}>{pipeline.name}</h2>
               {pipeline.is_default ? <Badge tone="accent">Default</Badge> : null}
             </div>
             <StagesList tenantId={tenantId} pipeline={pipeline} />
@@ -106,7 +111,7 @@ export function PipelinesPanel({ tenantId }: { tenantId: string }) {
       )}
 
       <Card>
-        <h3 style={{ marginTop: 0 }}>Create a pipeline</h3>
+        <h2 style={{ marginTop: 0, fontSize: "var(--font-size-md)" }}>Create a pipeline</h2>
         <form
           onSubmit={async (event) => {
             event.preventDefault();

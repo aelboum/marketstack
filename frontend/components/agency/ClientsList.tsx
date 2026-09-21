@@ -70,7 +70,12 @@ export function ClientsList({
             }}
           >
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: "var(--font-weight-medium)" }}>{client.name}</div>
+              {/* A real heading: this is the title of a card with its own
+                  content and action, and it gives the "View" link below
+                  something to be announced under. */}
+              <h3 style={{ margin: 0, fontSize: "var(--font-size-md)", fontWeight: "var(--font-weight-medium)" }}>
+                {client.name}
+              </h3>
               <div
                 style={{
                   fontSize: "var(--font-size-xs)",
@@ -84,6 +89,10 @@ export function ClientsList({
             </div>
             <Link
               href={`/t/${agencyTenantId}/clients/${client.tenant_id}`}
+              // Every card renders this link, so "View →" alone gives a
+              // screen reader a list of identically named links with no
+              // way to tell which client each belongs to.
+              aria-label={`View ${client.name}`}
               style={{ fontSize: "var(--font-size-sm)", flexShrink: 0 }}
             >
               View →

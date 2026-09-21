@@ -31,8 +31,11 @@ describe("CustomFieldsPanel", () => {
 
     render(<CustomFieldsPanel tenantId="t1" entityType="contact" entityId="c1" />);
 
-    await waitFor(() => expect(screen.getByText("lead_source")).toBeInTheDocument());
-    const valueInput = screen.getByLabelText("Value");
+    // The input is found *by the field's own name*: each custom field's
+    // control is labelled with its definition name, so a page with
+    // several custom fields no longer gives them all the same
+    // accessible name ("Value").
+    const valueInput = await waitFor(() => screen.getByLabelText("lead_source"));
     expect(valueInput).toHaveValue("referral");
 
     await user.clear(valueInput);

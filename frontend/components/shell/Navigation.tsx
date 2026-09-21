@@ -43,7 +43,15 @@ export function Navigation({
 
           return (
             <li key={item.key}>
-              <Link href={href} className={styles.link} data-active={isActive}>
+              <Link
+                href={href}
+                className={styles.link}
+                data-active={isActive}
+                // `data-active` styles it; `aria-current` is what tells a
+                // screen-reader user which item is the current page --
+                // without it the active state is sighted-only.
+                aria-current={isActive ? "page" : undefined}
+              >
                 {item.label}
               </Link>
             </li>

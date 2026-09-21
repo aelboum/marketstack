@@ -48,12 +48,14 @@ export function CreateFormForm({ tenantId, onSaved }: { tenantId: string; onSave
         {fields.map((field, index) => (
           <div key={index} style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
             <input
+              aria-label={`Field ${index + 1} name`}
               value={field.name}
               onChange={(event) => updateField(index, { name: event.target.value })}
               placeholder="Field name"
               style={{ flex: 1, padding: "var(--space-2)", border: "1px solid var(--color-border-strong)", borderRadius: "var(--radius-sm)" }}
             />
             <select
+              aria-label={`Field ${index + 1} type`}
               value={field.field_type}
               onChange={(event) => updateField(index, { field_type: event.target.value as FormFieldType })}
             >

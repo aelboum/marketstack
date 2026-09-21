@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { SessionProvider } from "@/lib/auth/session-context";
 import "./globals.css";
 
@@ -11,6 +11,17 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Product",
   description: "Agency platform.",
+};
+
+// Declared explicitly (UI-8) rather than left to the framework default,
+// so the zoom policy is a deliberate, reviewable decision: pinch-zoom
+// stays enabled and no maximum scale is imposed. Disabling either is a
+// common accessibility failure for low-vision users, and a silent
+// default is easy to regress without anyone noticing.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  userScalable: true,
 };
 
 export default function RootLayout({

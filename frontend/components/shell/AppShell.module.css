@@ -3,6 +3,33 @@
   background: var(--color-bg);
 }
 
+/* Off-screen until focused, then pinned to the top-left above everything
+   else. Keyboard-only affordance: pointer users never see it. */
+.skipLink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+.skipLink:focus {
+  left: var(--space-2);
+  top: var(--space-2);
+}
+
+/* The main region is focus targetable (tabIndex={-1}) so the skip link
+   actually moves focus, but it must never show a focus ring of its own
+   when focused programmatically. */
+.main:focus {
+  outline: none;
+}
+
 /* --- Sidebar layout --- */
 .shell[data-layout="sidebar"] {
   display: grid;
@@ -45,12 +72,22 @@
     width: min(78vw, 280px);
     z-index: 40;
     transform: translateX(-100%);
-    transition: transform 0.18s ease;
+    /* `visibility` is what actually removes the closed overlay from the
+       tab order and the accessibility tree -- `transform` alone only
+       moves it out of sight, leaving every nav link focusable and
+       announced (the UI-8 defect this fixes). It is transitioned rather
+       than switched so the slide-out animation still completes before
+       the element goes away. */
+    visibility: hidden;
+    transition:
+      transform 0.18s ease,
+      visibility 0.18s ease;
     box-shadow: var(--shadow-md);
   }
 
   .sidebar[data-open="true"] {
     transform: translateX(0);
+    visibility: visible;
   }
 
   .scrim {

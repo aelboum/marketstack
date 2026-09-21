@@ -45,4 +45,19 @@
   font-size: var(--font-size-md);
   line-height: 1;
   padding: 0;
+  /* The "×" glyph alone produced roughly a 10x15px hit area -- the
+     smallest target in the product and well under the 24x24 minimum.
+     Sizing the box (rather than adding padding) keeps the glyph
+     optically centered without shifting the notice's layout. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.dismiss:hover {
+  background: rgba(0, 0, 0, 0.06);
 }
