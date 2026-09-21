@@ -33,6 +33,13 @@ _CONVERSATIONS_TABLES_LEAF_TO_ROOT = ("messages", "threads", "message_templates"
 def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
     for tenant_id in tenant_ids_leaf_to_root:
         with tenant_session_scope(tenant_id) as session:
+            # docs/ROADMAP.md Phase 9.4's own `ai.tenant_policies` -- one
+            # row per tenant, FK to `core.tenants`, so a test tenant that
+            # configured a policy cannot otherwise be deleted.
+            session.execute(
+                text("DELETE FROM ai.tenant_policies WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
             for table in _TELEPHONY_TABLES_LEAF_TO_ROOT:
                 session.execute(
                     text(f"DELETE FROM telephony.{table} WHERE tenant_id = :t"),

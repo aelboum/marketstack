@@ -102,19 +102,20 @@ with engine.connect() as conn:
     ).scalar_one()
     assert saas_os_version, "saas-os's own alembic_version_saas_os is empty"
 
-    # This product's own alembic_version table -- since Phase 10.3
-    # (docs/ROADMAP.md), head is 0040_durable_run_steps
-    # (forty real migrations: foundation.tenant_settings,
+    # This product's own alembic_version table -- since Phase 9.4
+    # (docs/ROADMAP.md), head is 0041_ai_tenant_policies
+    # (forty-one real migrations: foundation.tenant_settings,
     # white_label.*, twelve crm.* tables, three conversations.* tables,
     # seven marketing.* tables/alterations, five appointments.* tables,
     # five telephony.* tables, two automation.* tables -- workflows,
     # workflow_runs (10.2's own idempotency-ledger table) -- plus four
     # automation.durable_* tables (10.3's own production multi-step
     # workflow domain: durable_workflows, durable_workflow_versions,
-    # durable_runs, durable_run_steps).
+    # durable_runs, durable_run_steps), plus ai.tenant_policies (9.4's
+    # own persisted, per-tenant AI policy).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0040_durable_run_steps", (
-        f"expected product migrations at head 0040_durable_run_steps, "
+    assert product_version == "0041_ai_tenant_policies", (
+        f"expected product migrations at head 0041_ai_tenant_policies, "
         f"got {product_version!r}"
     )
 
@@ -133,6 +134,7 @@ with engine.connect() as conn:
                 "appointments",
                 "telephony",
                 "automation",
+                "ai",
             ]
         },
     ).all()
@@ -173,6 +175,20 @@ with engine.connect() as conn:
     automation_table_rows = conn.execute(
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'automation' ORDER BY tablename")
     ).all()
+    ai_table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'ai' ORDER BY tablename")
+    ).all()
+    # docs/ROADMAP.md Phase 9.4: the persisted tenant AI policy is
+    # tenant-isolated in PostgreSQL, not merely by application filtering
+    # -- assert RLS is both ENABLED and FORCED, the same guarantee
+    # infra.db.tenant_rls_statements() applies to every other
+    # tenant-owned table in this product.
+    ai_policy_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'ai.tenant_policies'::regclass"
+        )
+    ).all()
     automation_run_dedup_index_rows = conn.execute(
         text(
             "SELECT conname FROM pg_constraint WHERE conname = "
@@ -198,6 +214,7 @@ expected = {
     "appointments",
     "telephony",
     "automation",
+    "ai",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -297,6 +314,15 @@ assert len(automation_durable_run_dedup_index_rows) == 1, (
     "'uq_automation_durable_runs_tenant_workflow_dedup' to exist on "
     "automation.durable_runs"
 )
+ai_tables_present = {row[0] for row in ai_table_rows}
+expected_ai_tables = {"tenant_policies"}
+assert ai_tables_present == expected_ai_tables, (
+    f"expected ai tables {expected_ai_tables}, got {ai_tables_present}"
+)
+assert ai_policy_rls_rows == [(True, True)], (
+    "expected ai.tenant_policies to have ROW LEVEL SECURITY both enabled and forced, "
+    f"got {ai_policy_rls_rows}"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -312,7 +338,9 @@ print(
     f"telephony calls unique index present: {len(telephony_calls_unique_index_rows) == 1}; "
     f"automation run dedup constraint present: {len(automation_run_dedup_index_rows) == 1}; "
     f"automation durable run dedup constraint present: "
-    f"{len(automation_durable_run_dedup_index_rows) == 1}"
+    f"{len(automation_durable_run_dedup_index_rows) == 1}; "
+    f"ai tables present: {sorted(ai_tables_present)}; "
+    f"ai.tenant_policies RLS enabled+forced: {ai_policy_rls_rows == [(True, True)]}"
 )
 PYEOF
 

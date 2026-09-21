@@ -136,6 +136,15 @@ spike's own probe workflow, `product/automation/durable
 /production_worker.py` for this phase's production `DurableWorkflow`) --
 neither is imported here; a Temporal outage can make either worker
 process exit without affecting this API process at all.
+
+Phase 9.4 adds `product.ai.event_handlers` for its own module-level
+`subscribe()` side effect (granting `ai.policy` to newly provisioned
+roles -- the same "registered at import time" discipline every other
+`event_handlers.py` here follows) and one more purge participant for the
+new `ai.tenant_policies` table. **No AI route and no AI execution path is
+mounted**: production AI execution stays fail-closed at
+`product/ai/production.py` because no AI vendor has been approved, and
+Phase 10.4A's Automation AI action is not implemented.
 """
 
 from __future__ import annotations
@@ -147,6 +156,8 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from product.agency.routes import router as agency_router
+from product.ai import event_handlers as _ai_event_handlers  # noqa: F401
+from product.ai.purge import register as register_ai_purge_participant
 from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
 from product.appointments.purge import register as register_appointments_purge_participant
 from product.appointments.routes import router as appointments_router
@@ -223,6 +234,7 @@ def create_app() -> FastAPI:
     register_appointments_purge_participant()
     register_telephony_purge_participant()
     register_automation_purge_participant()
+    register_ai_purge_participant()
     return app
 
 
