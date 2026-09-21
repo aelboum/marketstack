@@ -324,6 +324,36 @@ because each has been a live source of confusion:
   builds a second AI authorization system**, never calls an LLM/voice
   provider directly, and never caches an authorization decision made when
   the workflow was configured.
+
+  **`product.automation` does not — and will not — import `product.ai`.**
+  §2's module-boundary rule is enforced here by an import-linter contract
+  that lists `product.ai` among Automation's forbidden modules, and
+  `product.ai` in turn imports `product.conversations` and
+  `product.telephony`, which are forbidden to Automation as well. So the
+  intended shape is a dependency inversion, not a new edge:
+
+  ```text
+  Automation
+      |
+      v
+  generic action protocol / registry   (owned by Automation)
+      ^
+      |
+  AI capability implementation         (registers itself; owned by product.ai)
+  ```
+
+  Three states, deliberately distinguished so none is mistaken for
+  another:
+  - **Current architecture**: no such registry exists. Automation's
+    action vocabulary is a closed, statically-dispatched set
+    (`product/automation/actions.py`), and no AI action is in it.
+  - **Approved prerequisite architecture**: `docs/ROADMAP.md` **10.3A**
+    introduces the protocol/registry boundary above, with its own ADR
+    written when that subphase is scheduled. Not started; the diagram
+    above describes its intent, not a shipped mechanism.
+  - **Future implementation**: `docs/ROADMAP.md` **10.4A** adds the AI
+    action itself, on top of 10.3A and of **9.4** (production AI
+    readiness). Also not started.
 - **Accounting (10.4B).** Accounting is the source of truth for
   accounting data, posting logic, and its posted-entry immutability
   discipline (`docs/ACCOUNTING-SCOPE.md`). Automation must consume that

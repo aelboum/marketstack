@@ -578,7 +578,10 @@ Documentation correction only -- no code, no substrate change. The
 unimplemented. That is no longer an accurate framing of the *current*
 state, because the two halves' dependencies diverged:
 
-- **10.4A (AI automation) is now unblocked.** Phase 9 is built
+- **10.4A (AI automation) is now unblocked.** *(SUPERSEDED -- this
+  specific claim was disproved the next day; see "Phase 10.4A
+  Prerequisites Discovered" below. The rest of this bullet's
+  authorization-boundary requirement still stands.)* Phase 9 is built
   (`product/ai/` registers real tools behind
   `invoke_product_ai_tool()`) and Phase 10.3's durable engine is
   complete, so the AI-invocation action can be implemented on the
@@ -605,3 +608,50 @@ state, because the two halves' dependencies diverged:
 Temporal remains the durable execution substrate for both halves; this
 split introduces no new execution architecture and changes nothing about
 the engine decided and implemented above.
+
+## Phase 10.4A Prerequisites Discovered (2026-09-21)
+
+Documentation correction only -- no code. The 10.4A implementation
+attempt produced **no source changes**: an audit of the real seam,
+performed before writing anything, disproved the bullet above. **"10.4A
+(AI automation) is now unblocked" was wrong**, for two independent
+reasons neither the 10.2-era section nor the split section knew about.
+Both are now sequenced as explicit roadmap prerequisites rather than
+absorbed into 10.4A:
+
+- **The import boundary forbids the edge outright.** `pyproject.toml`'s
+  import-linter contract "Automation does not depend on any product
+  module except CRM" lists `product.ai` in `forbidden_modules`, so
+  `product.automation` cannot import `invoke_product_ai_tool()` at all.
+  Adding one narrow `automation -> ai` layers edge does not resolve it
+  either: `product.ai` itself imports `product.conversations` and
+  `product.telephony`, both also forbidden to Automation, so the edge
+  creates forbidden *indirect* chains (this repository sets no
+  `allow_indirect_imports` anywhere, by design). The resolution is
+  dependency inversion -- a generic Automation-owned action
+  protocol/registry a domain capability registers against -- scoped as
+  `docs/ROADMAP.md` **10.3A**, with its own ADR to be written when that
+  subphase is scheduled. **That registry does not exist today**, and
+  nothing in this ADR should be read as describing a shipped mechanism.
+- **Phase 9 is not production-executable, deliberately.** No product tool
+  is registered in `control_plane.orchestration.default_registry()`
+  (`product/ai/__init__.py` states the reason: a Fake-backed handler must
+  never return synthetic output to a real tenant), and
+  `product.ai.policy.resolve_tenant_ai_policy()` returns `None` for every
+  tenant, so Data Authorization default-denies. Every 9.1-9.3 test that
+  exercises an allow path necessarily supplies *both* its own
+  `ToolRegistry` and its own permissive `TenantAIDataPolicy`. So the
+  earlier bullet's "`product/ai/` registers real tools behind
+  `invoke_product_ai_tool()`" overstated it: the tool *definitions* are
+  real and complete, their production *registration* is not, and that
+  deferral is documented and intentional. Closing that gap is
+  `docs/ROADMAP.md` **9.4**, a follow-on production-readiness subphase --
+  9.1-9.3 remain valid and complete for their own stated scope.
+
+A deny-only AI workflow action -- correctly wired but guaranteed to fail
+for every real tenant until 9.4 lands -- is explicitly not an acceptable
+way to close 10.4A. Temporal remains the durable execution substrate, and
+neither prerequisite changes the engine decided and implemented above:
+10.3A changes how an action implementation *reaches* the closed
+vocabulary, never the vocabulary's closed nature, the publish-time
+validation's determinism, or either execution path.

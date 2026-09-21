@@ -842,6 +842,13 @@ Builds on the AI Control Plane (Category A, already mature) — this phase is
 almost entirely about registering this product's own tools, never about
 building agent infrastructure.
 
+9.1–9.3 deliver tool *definitions*. They deliberately stop short of
+production execution: no tool is registered into the production registry,
+and no tenant AI policy is persisted, so Data Authorization default-denies
+for every real tenant. That is a documented decision, not a gap in those
+subphases — **9.4** below is the follow-on that closes it, and
+`docs/ROADMAP.md` 10.4A depends on 9.4 rather than on 9.1–9.3 alone.
+
 ### 9.1 Product tool registrations: CRM assistance
 - **Objective**: register `control_plane` tools for lead qualification,
   suggested next actions, and conversation summarization, each scoped and
@@ -909,6 +916,47 @@ building agent infrastructure.
 - **Rollback**: disable the tool.
 - **Outcome**: not started.
 - **Checkpoint**: none beyond 9.1's standing review.
+
+### 9.4 Production AI readiness (follow-on)
+- **Objective**: make an approved AI capability genuinely executable for a
+  real tenant through the existing Control Plane. **This is a follow-on
+  production-readiness subphase, not a correction** — 9.1–9.3 are valid
+  and complete for their own stated scope ("tool definitions only"), and
+  every deferral below was an explicit, documented decision at the time,
+  not an omission (`product/ai/__init__.py`, `product/ai/policy.py`).
+- **Dependencies**: 9.1–9.3.
+- **Scope**: the production-readiness gaps those modules disclose, at
+  roadmap level only — a production LLM/voice **provider boundary and
+  vendor selection** (no vendor is chosen here, and none is implied:
+  `docs/RISKS-AND-OPEN-QUESTIONS.md` item 6 still owns that open
+  question); **production tool registration** into
+  `control_plane.orchestration.default_registry()`, which today registers
+  no product tool deliberately, so a Fake-backed handler can never return
+  synthetic output to a real tenant; a **persisted tenant AI policy**
+  store behind `product.ai.policy.resolve_tenant_ai_policy()`, which today
+  returns `None` for every tenant by design; and the resulting
+  **production Data Authorization path** and policy/authorization
+  configuration that a real tenant's approved capability actually passes
+  through.
+- **Tests**: a real tenant executes one approved capability end-to-end
+  through the existing Control Plane — RBAC, autonomy tier, Data
+  Authorization, and audit all exercised on the production path, not via
+  a test-constructed registry and a test-constructed permissive policy
+  (which is how every 9.1–9.3 test necessarily exercises the allow path
+  today).
+- **Security considerations**: the whole point of the current default-deny
+  posture is that **no tenant data can reach an LLM provider through any
+  tool in this codebase today**. Lifting that is the single most
+  security-sensitive change in this phase and must not be done implicitly
+  as a side effect of some other subphase's work.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: unregister the production tool(s) / remove the tenant
+  policy — the default-deny posture is the safe resting state, and
+  returning to it is always available.
+- **Outcome**: not started.
+- **Checkpoint**: dedicated security review before any real tenant data
+  can reach a real provider — this is the gate that decision passes
+  through, and it is reviewed on its own, never bundled.
 
 ---
 
@@ -990,25 +1038,93 @@ the triggers exist would be speculative.
 - **Checkpoint**: review the restart-survival test specifically — this is
   the entire reason the durable engine was adopted in 10.1.
 
+### 10.3A Automation action registry / dependency inversion
+- **Objective**: introduce a generic Automation action protocol/registry
+  boundary so a domain-specific capability can register an action
+  implementation **without Automation importing that domain**.
+- **Dependencies**: 10.2, 10.3 (the action vocabulary and both execution
+  paths this boundary has to keep working unchanged).
+- **Why this exists**: discovered during the 10.4A implementation audit,
+  not assumed. `pyproject.toml`'s own import-linter contract "Automation
+  does not depend on any product module except CRM" lists `product.ai` in
+  `forbidden_modules`, so `product.automation` cannot import
+  `product.ai.invocation.invoke_product_ai_tool()` at all. A single
+  narrow `automation -> ai` edge does not fix it either: `product.ai`
+  itself imports `product.conversations` and `product.telephony` (for the
+  summarize/suggest-reply and receptionist tools), both of which are
+  *also* forbidden to Automation, so the edge would create forbidden
+  indirect chains. Dependency inversion is the resolution that keeps
+  every existing boundary intact.
+- **Scope**: Automation owns the generic protocol and dispatch contract;
+  a domain capability registers its implementation against that contract;
+  Automation never imports the domain. Registration must be
+  **deterministic**, and publish-time closed-vocabulary validation must
+  stay deterministic and **independent of module import order** — a
+  workflow definition must never validate differently depending on which
+  modules happen to have been imported first. Existing 10.2/10.3 actions
+  keep working unchanged, as do existing action execution, idempotency,
+  and retry behaviour.
+- **Explicitly not in scope**: no AI provider implementation; no tenant AI
+  policy implementation; no accounting automation; no workflow-DSL
+  redesign beyond the minimum the registry boundary itself requires; no
+  SaaS-OS changes.
+- **Boundaries that must survive unchanged**: no `product.automation ->
+  product.ai` import; no broad relaxation of any import-linter contract;
+  no `allow_indirect_imports`; no removal of Conversations/Telephony (or
+  any other unrelated domain) from Automation's own forbidden list.
+- **Tests**: existing 10.2 and 10.3 suites pass unchanged; publish-time
+  validation of the closed vocabulary is proven order-independent;
+  import-linter still reports every contract kept.
+- **Security considerations**: the module-isolation boundary is itself a
+  security control — it is what stops Automation acquiring read paths
+  into domains it has no business reaching. This subphase exists
+  specifically to extend Automation's capability *without* weakening it;
+  any proposal that relaxes a contract instead of inverting the
+  dependency is out of scope by definition.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard — the registry boundary is additive; removing a
+  registered implementation returns the engine to its current vocabulary.
+- **Outcome**: not started.
+- **Checkpoint**: architecture review, recorded as its own ADR when the
+  subphase is actually scheduled (referenced from here rather than
+  written twice — this roadmap entry is not itself the decision record).
+
 ### 10.4 Automation extensions
 
 Originally written as one phase covering both the AI-invocation action and
 the Accounting-dependent actions. Split into **10.4A** and **10.4B**
-because their dependencies are not the same and never became available at
-the same time: Phase 9 (AI) is built, so the AI half is implementable now,
-while Phase 15 (Mini Accounting) has not started — `product/accounting/`
-is a placeholder with no schema, no models, no services, and no migrations,
-so there is no accounting domain contract for Automation to consume. The
-two halves are therefore sequenced independently; neither blocks the other.
+because their dependencies are not the same: 10.4A is blocked on two
+Automation/AI prerequisites, 10.4B on the accounting domain contract
+Phase 15 has not yet created (`product/accounting/` is a placeholder with
+no schema, no models, no services, and no migrations). The two halves are
+sequenced independently; neither blocks the other, and they share no
+prerequisite.
+
+**Both halves are blocked, for unrelated reasons.** 10.4A was originally
+recorded here as "ready to implement"; the 10.4A implementation audit
+disproved that and found two concrete prerequisites — the import boundary
+resolved by **10.3A**, and the production-AI capability resolved by
+**9.4**. Neither was known when the split was written, and both are now
+sequenced explicitly rather than absorbed into 10.4A's own scope.
 
 ```text
-Phase 9 AI                        Phase 15 Mini Accounting
-    |                                     |
-    v                                     v
-10.4A AI Automation               10.4B Accounting Automation
-    ^                                     ^
-    |                                     |
-10.3 Durable Workflows            10.3 Durable Workflows
+9.4 Production AI readiness
+         |
+         +--------------+
+         v              |
+10.3A Action registry / |
+      dependency        |
+      inversion         |
+         |              |
+         +------+-------+
+                v
+       10.4A AI Automation          10.4B Accounting Automation
+                ^                              ^
+                |                              |
+       10.3 Durable Workflows         10.3 Durable Workflows
+                                               ^
+                                               |
+                                      Phase 15 Mini Accounting
 ```
 
 Neither subphase introduces a new execution substrate: both extend the
@@ -1016,18 +1132,27 @@ existing action vocabulary dispatched through
 `product.automation.actions.execute_action()`, executed by 10.2's
 synchronous path and 10.3's Temporal durable path (ADR-0007), with no
 second executor, no second scheduler, and no second expression language.
+10.3A changes *how* an action implementation reaches that vocabulary, not
+the vocabulary's closed nature or either execution path.
 
 ### 10.4A AI automation action
 - **Objective**: the brief-listed "invoke AI" action — a bounded workflow
   action that calls one already-registered Phase 9 product AI tool.
-- **Dependencies**: 10.3 (durable execution), Phase 9 (the AI tools and
-  the authorization gates this action invokes). Both are met.
-- **Scope**: one additional action registration in 10.2/10.3's existing
-  closed action vocabulary, calling `product.ai.invocation
-  .invoke_product_ai_tool()` — the same seam every other caller of a
-  registered tool already uses. Bounded, typed action config naming which
-  registered tool to invoke and which bounded inputs to pass; a bounded,
-  typed result. No new engine work.
+- **Dependencies**: 10.3 (durable execution); **10.3A** (the action
+  registry/dependency-inversion boundary — without it Automation cannot
+  reach the AI seam at all without breaking an import-linter contract);
+  **9.4** (production AI readiness — without it an AI action cannot
+  succeed for any real tenant, because no product tool is registered in
+  the production registry and Data Authorization default-denies). Phase
+  9.1–9.3 supply the tool definitions and authorization gates themselves
+  and are complete.
+- **Scope**: one additional action in 10.2/10.3's existing closed action
+  vocabulary, reaching `product.ai.invocation.invoke_product_ai_tool()`
+  **through 10.3A's registry boundary — never by importing `product.ai`
+  from `product.automation` directly**, which the import-linter contract
+  forbids. Bounded, typed action config naming which already-registered
+  tool to invoke and which bounded inputs to pass; a bounded, typed
+  result. No new engine work.
 - **Tests**: mirrors 10.2, plus 10.3's own durable-path coverage —
   execution-time authorization (including permission revoked between
   workflow submission and the AI step, denied at execution time),
@@ -1055,11 +1180,16 @@ second executor, no second scheduler, and no second expression language.
   produces the same audit trail a direct tool invocation produces.
 - **Rollback**: standard — the action can be removed from the vocabulary
   without affecting the rest of the engine.
-- **Outcome**: not started — ready to implement; dependencies met
-  (Phase 9, 10.3).
+- **Outcome**: not started — blocked on prerequisites (10.3A, 9.4). An
+  earlier revision of this entry recorded it as "ready to implement";
+  the 10.4A implementation audit disproved that and produced no code.
+  A deny-only AI action — one wired correctly but guaranteed to fail for
+  every real tenant until 9.4 lands — is explicitly **not** an acceptable
+  way to close this subphase.
 - **Checkpoint**: none beyond 10.2's standing security review, extended to
   the AI action specifically (the "no second AI authorization system" rule
-  above is the thing to review).
+  above is the thing to review), plus 10.3A's and 9.4's own checkpoints,
+  which are cleared before this subphase begins rather than as part of it.
 
 ### 10.4B Accounting automation triggers/actions
 - **Objective**: the brief-listed accounting triggers/actions — invoice
