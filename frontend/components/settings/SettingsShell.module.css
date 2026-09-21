@@ -1,0 +1,131 @@
+/* Every visual decision UI-7 is told to keep replaceable lives here, not
+   in a settings page: sidebar-vs-tabs arrangement, sidebar width, page
+   container width, spacing, typography, colors, borders/radius, and the
+   narrow-viewport arrangement. A settings page renders content into
+   `.main` and owns none of this. */
+
+.shell {
+  display: grid;
+  gap: var(--space-4);
+  /* Container width is a shell decision, not a page decision. */
+  max-width: 72rem;
+}
+
+/* --- Sidebar variant ---------------------------------------------- */
+
+.shell[data-settings-layout="sidebar"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .shell[data-settings-layout="sidebar"] {
+    /* Sidebar width lives in exactly one place. */
+    grid-template-columns: 14rem minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.shell[data-settings-layout="sidebar"] .nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+@media (max-width: 47.999rem) {
+  /* Narrow viewports collapse the sidebar into a scrollable strip rather
+     than stacking a tall column above the content. */
+  .shell[data-settings-layout="sidebar"] .nav {
+    flex-direction: row;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--space-1);
+  }
+}
+
+/* --- Tabs variant -------------------------------------------------- */
+
+.shell[data-settings-layout="tabs"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell[data-settings-layout="tabs"] .nav {
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* --- Shared link treatment ----------------------------------------- */
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+
+.link:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+/* Focus is not restyled here: globals.css already applies the shared
+   `--focus-ring` to every `:focus-visible`, so these links inherit the
+   same visible focus treatment as the rest of the product. */
+
+.link[data-active="true"] {
+  color: var(--color-accent);
+  border-color: var(--color-border);
+  font-weight: 600;
+}
+
+.shell[data-settings-layout="tabs"] .link {
+  border-radius: 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+}
+
+.shell[data-settings-layout="tabs"] .link[data-active="true"] {
+  border-bottom-color: var(--color-accent);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* --- Section ------------------------------------------------------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-size: var(--font-size-md);
+  margin: 0;
+}
+
+.sectionDescription {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
