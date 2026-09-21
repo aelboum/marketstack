@@ -1384,7 +1384,22 @@ Maps mostly onto `core.billing` (Category A) plus the reseller-specific UI
 - **Acceptance criteria**: an agency can subscribe, upgrade, downgrade,
   cancel, through this product's own UI.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented (backend service/API layer; no UI in this
+  backend-only phase) -- generalized beyond "agency" per
+  `docs/ADR/0012-resale-billing-ownership-model.md`'s own "Plan ownership"
+  section: `product/billing/subscriptions.py::create_platform_subscription()`
+  wraps `core.billing.subscribe_idempotent()`/`upgrade_subscription()`/
+  `cancel_subscription()` identically for any tenant subscribing directly
+  to a global platform plan (an agency or a root "Direct Platform
+  Client" -- nothing in `core.billing` or this wrapper distinguishes the
+  two). Requires a caller-supplied idempotency key (`docs/ADR/0012-...`'s
+  own "Idempotency" section). `GET /v1/billing/plans` lists the global
+  catalog read-only; plan *creation* remains an ops/seeding concern, not
+  exposed via this product's API (`docs/ADR/0012-...`'s own "Plan
+  ownership" section). `product/api/main.py` wiring (router mount, purge
+  registration, event-handler import) is deferred -- see
+  `product/billing/__init__.py`'s own module docstring for the exact
+  follow-up diff.
 - **Checkpoint**: none — thin wrapper phase.
 
 ### 13.2 Agency-defined resale plans for clients
@@ -1401,7 +1416,21 @@ Maps mostly onto `core.billing` (Category A) plus the reseller-specific UI
   own subscription actually has (a resale-tier ceiling check).
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented -- `product/billing/models.py::ResalePlan`
+  (the only new product-owned table this phase introduces,
+  `docs/ADR/0012-resale-billing-ownership-model.md`), `resale_plans.py`
+  (CRUD + the resale-tier ceiling check against `core.billing
+  .get_entitlements()`, live and hierarchy-aware). Commercial terms
+  (price/entitlements) are immutable after creation -- `core.billing`
+  exposes no `update_plan()` to propagate a change onto existing
+  subscribers, so this phase does not half-support one (see
+  `resale_plans.py`'s own module docstring). Migration `0047
+  _billing_resale_plans` (RLS enabled+forced, verified against a
+  disposable PostgreSQL bootstrap). Covered by `tests/billing
+  /test_resale_plans_integration.py` -- the ceiling check
+  (numeric/boolean/absent-key/unsupported-type cases), tenant isolation,
+  owner/member authorization, and suspended-tenant denial; see 13.3's own
+  Outcome for the full `tests/billing/` count across all three subphases.
 - **Checkpoint**: review the resale-tier ceiling check specifically — this
   is the one place a bug becomes a revenue-integrity problem.
 
@@ -1417,7 +1446,20 @@ Maps mostly onto `core.billing` (Category A) plus the reseller-specific UI
   surface.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented (backend service/API layer; no UI in this
+  backend-only phase) -- `product/billing/subscriptions.py
+  ::create_resale_subscription()`/`change_subscription_plan()`/
+  `cancel_subscription()`/`get_effective_entitlements()`. A client's
+  subscription to an ancestor's `ResalePlan` validates that plan actually
+  belongs to one of the client's own ancestors
+  (`core.tenancy.get_ancestor_chain()`) before subscribing -- cross-agency
+  resale plans are rejected. Tenant isolation between sibling clients
+  under the same agency, and an agency owner's pre-existing `SUBTREE`
+  role (`product/agency/provisioning.py::provision_agency()`) correctly
+  administering (create/read/cancel) a descendant client's subscription
+  with zero additional authorization code, are both explicitly tested.
+  `product.billing` total: 23 unit tests, 31 integration tests
+  (`tests/billing/`), all passing.
 - **Checkpoint**: none beyond the isolation test.
 
 ---

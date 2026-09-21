@@ -127,10 +127,11 @@ with engine.connect() as conn:
     # websites.pages (11.1's own page-builder foundation), plus
     # reputation.review_requests, reputation.reviews, and
     # reputation.review_responses (12.1-12.3's own review-request/review/
-    # response domain).
+    # response domain), plus billing.resale_plans (13.2's own reseller
+    # catalog domain).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0046_reputation_review_responses", (
-        f"expected product migrations at head 0046_reputation_review_responses, "
+    assert product_version == "0047_billing_resale_plans", (
+        f"expected product migrations at head 0047_billing_resale_plans, "
         f"got {product_version!r}"
     )
 
@@ -152,6 +153,7 @@ with engine.connect() as conn:
                 "ai",
                 "websites",
                 "reputation",
+                "billing",
             ]
         },
     ).all()
@@ -280,6 +282,25 @@ with engine.connect() as conn:
             "'fk_reputation_review_requests_tenant_contact'"
         )
     ).all()
+    billing_table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'billing' ORDER BY tablename")
+    ).all()
+    # docs/ROADMAP.md Phase 13.2: billing.resale_plans is ordinary
+    # RLS-scoped, tenant-owned data (product/billing/models.py's own
+    # module docstring) -- assert RLS is both ENABLED and FORCED, same
+    # assertion shape as reputation.*/ai.tenant_policies above.
+    billing_resale_plans_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'billing.resale_plans'::regclass"
+        )
+    ).all()
+    billing_resale_plans_underlying_key_unique_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'uq_billing_resale_plans_underlying_plan_key'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -296,6 +317,7 @@ expected = {
     "ai",
     "websites",
     "reputation",
+    "billing",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -452,6 +474,19 @@ reputation_rls_all_enabled_and_forced = (
     and reputation_reviews_rls_rows == [(True, True)]
     and reputation_review_responses_rls_rows == [(True, True)]
 )
+billing_tables_present = {row[0] for row in billing_table_rows}
+expected_billing_tables = {"resale_plans"}
+assert billing_tables_present == expected_billing_tables, (
+    f"expected billing tables {expected_billing_tables}, got {billing_tables_present}"
+)
+assert billing_resale_plans_rls_rows == [(True, True)], (
+    "expected billing.resale_plans to have ROW LEVEL SECURITY both enabled and "
+    f"forced, got {billing_resale_plans_rls_rows}"
+)
+assert len(billing_resale_plans_underlying_key_unique_rows) == 1, (
+    "expected the unique constraint 'uq_billing_resale_plans_underlying_plan_key' "
+    "to exist on billing.resale_plans"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -475,7 +510,9 @@ print(
     f"{websites_website_rls_rows == [(False, False)]}; "
     f"websites.pages RLS enabled+forced: {websites_page_rls_rows == [(True, True)]}; "
     f"reputation tables present: {sorted(reputation_tables_present)}; "
-    f"reputation.* RLS enabled+forced (all three): {reputation_rls_all_enabled_and_forced}"
+    f"reputation.* RLS enabled+forced (all three): {reputation_rls_all_enabled_and_forced}; "
+    f"billing tables present: {sorted(billing_tables_present)}; "
+    f"billing.resale_plans RLS enabled+forced: {billing_resale_plans_rls_rows == [(True, True)]}"
 )
 PYEOF
 
