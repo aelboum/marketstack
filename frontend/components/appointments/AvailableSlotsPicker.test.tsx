@@ -3,6 +3,17 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AvailableSlotsPicker } from "./AvailableSlotsPicker";
 import { ApiError } from "@/lib/api/errors";
+import { formatTimeInTimeZone } from "@/lib/appointments/datetime";
+
+// Slot buttons are labelled with `formatTimeInTimeZone()`, which formats in
+// the *runtime's* default locale so each viewer sees their own convention.
+// That default belongs to the machine, not the project (a workstation here
+// resolves to 24-hour "09:00"; the CI runner resolves to 12-hour "9:00 AM"),
+// so these tests never hard-code a rendered label. Expressing the expected
+// label as "this wall-clock time, rendered in UTC" keeps the real assertion
+// -- that the *calendar's* zone is used, not the viewer's -- while surviving
+// any locale.
+const labelFor = (utcWallClock: string) => formatTimeInTimeZone(utcWallClock, "UTC");
 
 const { listAvailableSlotsMock } = vi.hoisted(() => ({ listAvailableSlotsMock: vi.fn() }));
 vi.mock("@/lib/api/appointments", async (importOriginal) => {
@@ -42,8 +53,8 @@ describe("AvailableSlotsPicker", () => {
       }),
     );
     // 08:00 UTC is 09:00 in Amsterdam -- the calendar's zone, not the viewer's.
-    await waitFor(() => expect(screen.getByText("09:00")).toBeInTheDocument());
-    expect(screen.getByText("09:30")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(labelFor("2026-03-02T09:00:00Z"))).toBeInTheDocument());
+    expect(screen.getByText(labelFor("2026-03-02T09:30:00Z"))).toBeInTheDocument();
     expect(screen.getByText(/Times shown in Europe\/Amsterdam/)).toBeInTheDocument();
   });
 
@@ -111,9 +122,12 @@ describe("AvailableSlotsPicker", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Find slots" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "08:00" })).toBeInTheDocument());
+    // The calendar's zone here is UTC, so the slot's own instant is also its
+    // wall-clock time.
+    const slotLabel = labelFor(slot.starts_at);
+    await waitFor(() => expect(screen.getByRole("button", { name: slotLabel })).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "08:00" }));
+    await user.click(screen.getByRole("button", { name: slotLabel }));
     expect(onSelect).toHaveBeenCalledWith(slot);
   });
 });

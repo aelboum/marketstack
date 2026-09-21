@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BookAppointmentForm } from "./BookAppointmentForm";
 import { ApiError } from "@/lib/api/errors";
+import { formatTimeInTimeZone } from "@/lib/appointments/datetime";
 
 const { listCalendarsMock, listAvailableSlotsMock, bookAppointmentMock } = vi.hoisted(() => ({
   listCalendarsMock: vi.fn(),
@@ -34,12 +35,22 @@ const CALENDAR = {
 };
 const SLOT = { starts_at: "2026-03-02T09:00:00Z", ends_at: "2026-03-02T09:30:00Z" };
 
+// The slot button is labelled with `formatTimeInTimeZone()`, which formats in
+// the *runtime's* default locale so each viewer sees their own convention.
+// That default belongs to the machine, not the project (a workstation here
+// resolves to 24-hour "09:00"; the CI runner resolves to 12-hour "9:00 AM"),
+// so the expected label is derived through the same helper rather than
+// hard-coded. CALENDAR's zone is UTC, so the slot's instant is also its
+// wall-clock time.
+const SLOT_LABEL = () => formatTimeInTimeZone(SLOT.starts_at, CALENDAR.timezone);
+
 async function pickCalendarAndSlot(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByLabelText("Calendar")).toBeInTheDocument());
   await user.selectOptions(screen.getByLabelText("Calendar"), "cal1");
   await user.click(screen.getByRole("button", { name: "Find slots" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "09:00" })).toBeInTheDocument());
-  await user.click(screen.getByRole("button", { name: "09:00" }));
+  const slotLabel = SLOT_LABEL();
+  await waitFor(() => expect(screen.getByRole("button", { name: slotLabel })).toBeInTheDocument());
+  await user.click(screen.getByRole("button", { name: slotLabel }));
 }
 
 describe("BookAppointmentForm", () => {

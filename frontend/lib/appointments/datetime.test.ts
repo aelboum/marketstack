@@ -61,8 +61,15 @@ describe("appointments datetime helpers", () => {
     const amsterdam = formatTimeInTimeZone("2026-01-15T12:00:00Z", "Europe/Amsterdam");
     const newYork = formatTimeInTimeZone("2026-01-15T12:00:00Z", "America/New_York");
     expect(amsterdam).not.toBe(newYork);
-    expect(amsterdam).toContain("13");
-    expect(newYork).toContain("7");
+    // Compared against the same formatter rendering those wall-clock times
+    // in UTC, never against a hard-coded "13"/"7": the helper deliberately
+    // formats in the *runtime's* locale, which is the machine's and not the
+    // project's -- a workstation may default to 24-hour ("13:00") while the
+    // CI runner defaults to 12-hour ("1:00 PM"). Both sides move together
+    // under any locale, and a helper that ignored `timeZone` would still
+    // fail here (it would render 12:00, not 13:00).
+    expect(amsterdam).toBe(formatTimeInTimeZone("2026-01-15T13:00:00Z", "UTC"));
+    expect(newYork).toBe(formatTimeInTimeZone("2026-01-15T07:00:00Z", "UTC"));
   });
 
   it("formatInTimeZone falls back to the viewer's locale for an unknown zone", () => {
