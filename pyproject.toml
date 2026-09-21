@@ -113,6 +113,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/telephony/routes.py" = ["B008"]
 "product/automation/routes.py" = ["B008"]
 "product/automation/durable/routes.py" = ["B008"]
+"product/websites/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
@@ -156,7 +157,6 @@ modules = [
     "product.conversations",
     "product.telephony",
     "product.reputation",
-    "product.websites",
     "product.billing",
     "product.accounting",
     "product.reporting",
@@ -347,4 +347,43 @@ forbidden_modules = [
     "product.templates",
     "product.integrations",
     "product.api",
+]
+
+# Phase 11.1 (docs/ADR/0009-websites-depends-on-white-label.md):
+# product.websites needs one narrow, one-directional read -- resolved
+# branding for a published page, via product.white_label.branding's own
+# published BrandingProvider interface -- so it is removed from the
+# blanket independence contract above (mirroring exactly how Phase
+# 6/9/10 removed product.marketing/product.appointments/product.ai/
+# product.automation for their own, separately-justified CRM edges) and
+# given its own precise pair of contracts instead. product.websites
+# remains independent from every other product module.
+[[tool.importlinter.contracts]]
+name = "Websites does not depend on any product module except White-Label"
+type = "forbidden"
+source_modules = ["product.websites"]
+forbidden_modules = [
+    "product.agency",
+    "product.crm",
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.templates",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Websites may depend on White-Label, never White-Label on Websites"
+type = "layers"
+layers = [
+    "product.websites",
+    "product.white_label",
 ]

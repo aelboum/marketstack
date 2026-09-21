@@ -7,7 +7,13 @@
 # schema/table names, by Phase 8.1-8.3's own telephony.* migrations,
 # including an empirical check that the partial unique index dedup-ing
 # telephony.calls by (tenant_id, provider_name, provider_call_id) really
-# exists, and by Phase 10.2's own automation.* migrations: proves a clean,
+# exists, by Phase 10.2's own automation.* migrations, and by Phase 11.1's
+# own websites.* migrations: `websites.websites` (0042) must have RLS
+# neither enabled nor forced (deliberately unscoped, mirroring
+# `telephony.phone_numbers`'s own precedent -- see
+# `product/websites/models.py::Website`'s own module docstring), while
+# `websites.pages` (0043) must have it both enabled and forced, same as
+# every other tenant-owned table. Proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -112,10 +118,11 @@ with engine.connect() as conn:
     # automation.durable_* tables (10.3's own production multi-step
     # workflow domain: durable_workflows, durable_workflow_versions,
     # durable_runs, durable_run_steps), plus ai.tenant_policies (9.4's
-    # own persisted, per-tenant AI policy).
+    # own persisted, per-tenant AI policy), plus websites.websites and
+    # websites.pages (11.1's own page-builder foundation).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0041_ai_tenant_policies", (
-        f"expected product migrations at head 0041_ai_tenant_policies, "
+    assert product_version == "0043_websites_pages", (
+        f"expected product migrations at head 0043_websites_pages, "
         f"got {product_version!r}"
     )
 
@@ -135,6 +142,7 @@ with engine.connect() as conn:
                 "telephony",
                 "automation",
                 "ai",
+                "websites",
             ]
         },
     ).all()
@@ -201,6 +209,37 @@ with engine.connect() as conn:
             "'uq_automation_durable_runs_tenant_workflow_dedup'"
         )
     ).all()
+    websites_table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'websites' ORDER BY tablename")
+    ).all()
+    # docs/ROADMAP.md Phase 11.1: `websites.websites` is deliberately NOT
+    # RLS-scoped (see product/websites/models.py::Website's own module
+    # docstring) -- assert RLS is neither enabled nor forced, the inverse
+    # of every other tenant-owned table's assertion in this script.
+    websites_website_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'websites.websites'::regclass"
+        )
+    ).all()
+    websites_page_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'websites.pages'::regclass"
+        )
+    ).all()
+    websites_slug_unique_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'uq_websites_websites_slug'"
+        )
+    ).all()
+    websites_page_slug_unique_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'uq_websites_pages_tenant_website_slug'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -215,6 +254,7 @@ expected = {
     "telephony",
     "automation",
     "ai",
+    "websites",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -323,6 +363,27 @@ assert ai_policy_rls_rows == [(True, True)], (
     "expected ai.tenant_policies to have ROW LEVEL SECURITY both enabled and forced, "
     f"got {ai_policy_rls_rows}"
 )
+websites_tables_present = {row[0] for row in websites_table_rows}
+expected_websites_tables = {"websites", "pages"}
+assert websites_tables_present == expected_websites_tables, (
+    f"expected websites tables {expected_websites_tables}, got {websites_tables_present}"
+)
+assert websites_website_rls_rows == [(False, False)], (
+    "expected websites.websites to have ROW LEVEL SECURITY neither enabled nor "
+    f"forced (deliberately unscoped), got {websites_website_rls_rows}"
+)
+assert websites_page_rls_rows == [(True, True)], (
+    "expected websites.pages to have ROW LEVEL SECURITY both enabled and forced, "
+    f"got {websites_page_rls_rows}"
+)
+assert len(websites_slug_unique_rows) == 1, (
+    "expected the unique constraint 'uq_websites_websites_slug' to exist on "
+    "websites.websites"
+)
+assert len(websites_page_slug_unique_rows) == 1, (
+    "expected the unique constraint 'uq_websites_pages_tenant_website_slug' to "
+    "exist on websites.pages"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -340,7 +401,11 @@ print(
     f"automation durable run dedup constraint present: "
     f"{len(automation_durable_run_dedup_index_rows) == 1}; "
     f"ai tables present: {sorted(ai_tables_present)}; "
-    f"ai.tenant_policies RLS enabled+forced: {ai_policy_rls_rows == [(True, True)]}"
+    f"ai.tenant_policies RLS enabled+forced: {ai_policy_rls_rows == [(True, True)]}; "
+    f"websites tables present: {sorted(websites_tables_present)}; "
+    f"websites.websites RLS neither enabled nor forced: "
+    f"{websites_website_rls_rows == [(False, False)]}; "
+    f"websites.pages RLS enabled+forced: {websites_page_rls_rows == [(True, True)]}"
 )
 PYEOF
 

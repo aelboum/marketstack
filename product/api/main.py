@@ -160,6 +160,22 @@ touches Phase 10.4A -- `product.automation` still never imports
 `product.ai`, and `product.ai` still never imports `product.automation`;
 `product/action_registry_composition.py` is the one module allowed to
 import both, precisely because it is neither.
+
+Phase 11.1 adds `product/websites/routes.py` (`/v1/websites`, plus one
+public, unauthenticated `/v1/websites/public/{website_slug}/{page_slug}`
+route), two new tables -- `websites.websites` (deliberately NOT RLS-scoped,
+mirroring `telephony.phone_numbers`'s own precedent: a public page request
+must resolve a website by its own global `slug` before any tenant context
+exists) and `websites.pages` (ordinary RLS-scoped, reached only once
+`websites.websites` has already resolved a `tenant_id`) -- two purge
+participants (`product/websites/purge.py`'s own scoped/unscoped split,
+mirroring `product/telephony/purge.py`'s), and a seventh
+`agency.role_provisioned` subscriber (`product/websites/event_handlers.py`).
+`product.websites` is also the one module permitted to import
+`product.white_label.branding.DbBrandingProvider`, to resolve a tenant's
+branding for a published page's own render (one-directional; `product
+.white_label` never imports `product.websites`) --
+`docs/ADR/0009-websites-depends-on-white-label.md`.
 """
 
 from __future__ import annotations
@@ -201,6 +217,9 @@ from product.marketing.routes import router as marketing_router
 from product.telephony import event_handlers as _telephony_event_handlers  # noqa: F401
 from product.telephony.purge import register as register_telephony_purge_participant
 from product.telephony.routes import router as telephony_router
+from product.websites import event_handlers as _websites_event_handlers  # noqa: F401
+from product.websites.purge import register as register_websites_purge_participant
+from product.websites.routes import router as websites_router
 from product.white_label.domains import DomainResolutionMiddleware
 from product.white_label.purge import register as register_white_label_purge_participants
 
@@ -242,6 +261,7 @@ def create_app() -> FastAPI:
     app.include_router(telephony_router)
     app.include_router(automation_router)
     app.include_router(automation_durable_router)
+    app.include_router(websites_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
@@ -251,6 +271,7 @@ def create_app() -> FastAPI:
     register_telephony_purge_participant()
     register_automation_purge_participant()
     register_ai_purge_participant()
+    register_websites_purge_participant()
     wire_production_automation_actions()
     return app
 
