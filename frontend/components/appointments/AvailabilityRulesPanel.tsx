@@ -33,6 +33,7 @@ import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { InlineNotice } from "@/components/ui/InlineNotice";
@@ -169,14 +170,13 @@ export function AvailabilityRulesPanel({
 
       <Card>
         <h3 style={{ marginTop: 0, fontSize: "var(--font-size-sm)" }}>Add a weekly rule</h3>
-        <form
+        <FormRow
           onSubmit={async (event) => {
             event.preventDefault();
             if (!timesValid) return;
             const created = await run();
             if (created) query.refetch();
           }}
-          style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}
         >
           <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
             <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>Day</span>
@@ -226,7 +226,7 @@ export function AvailabilityRulesPanel({
           <Button type="submit" disabled={state.status === "pending" || !timesValid}>
             {state.status === "pending" ? "Adding…" : "Add rule"}
           </Button>
-        </form>
+        </FormRow>
 
         {!timesValid && startValue && endValue ? (
           <p style={{ margin: "var(--space-2) 0 0", fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>

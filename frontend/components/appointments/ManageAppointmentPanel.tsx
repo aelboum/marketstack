@@ -23,6 +23,7 @@ import { cancelAppointment, type Appointment } from "@/lib/api/appointments";
 import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { InlineNotice } from "@/components/ui/InlineNotice";
@@ -44,13 +45,12 @@ export function ManageAppointmentPanel({ tenantId }: { tenantId: string }) {
           action reachable from an ID alone — rescheduling is offered on the result below, and on an
           appointment you have just booked.
         </p>
-        <form
+        <FormRow
           onSubmit={(event) => {
             event.preventDefault();
             if (!appointmentId.trim()) return;
             setConfirmOpen(true);
           }}
-          style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}
         >
           <div style={{ flex: 1, minWidth: 260 }}>
             <Input
@@ -63,7 +63,7 @@ export function ManageAppointmentPanel({ tenantId }: { tenantId: string }) {
           <Button type="submit" variant="danger" disabled={!appointmentId.trim()}>
             Cancel appointment
           </Button>
-        </form>
+        </FormRow>
 
         {state.status === "error" ? (
           <InlineNotice tone="danger">{state.error.message}</InlineNotice>

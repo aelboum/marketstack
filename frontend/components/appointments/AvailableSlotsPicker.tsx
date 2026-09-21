@@ -32,6 +32,7 @@ import {
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 
@@ -93,7 +94,7 @@ export function AvailableSlotsPicker({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      <form
+      <FormRow
         onSubmit={(event) => {
           event.preventDefault();
           if (!canSearch) return;
@@ -103,7 +104,6 @@ export function AvailableSlotsPicker({
             slot_duration_minutes: duration,
           });
         }}
-        style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}
       >
         <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
           <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>From</span>
@@ -155,7 +155,7 @@ export function AvailableSlotsPicker({
         <Button type="submit" disabled={!canSearch}>
           Find slots
         </Button>
-      </form>
+      </FormRow>
 
       {rangeInvalid && !rangeTooLong ? (
         <InlineNotice tone="warning">The end date must not be before the start date.</InlineNotice>

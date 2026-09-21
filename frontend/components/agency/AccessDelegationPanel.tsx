@@ -13,6 +13,7 @@ import type { RoleScope } from "@/lib/api/agency";
 import { createDelegation, createDeny, revokeDelegation, revokeDeny } from "@/lib/api/agency";
 import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 import { Card } from "@/components/ui/Card";
@@ -131,12 +132,11 @@ function RevokeByIdForm({
 
   return (
     <>
-      <form
+      <FormRow
         onSubmit={(event) => {
           event.preventDefault();
           if (id.trim()) setConfirmOpen(true);
         }}
-        style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}
       >
         <div style={{ flex: 1, minWidth: 220 }}>
           <Input
@@ -150,7 +150,7 @@ function RevokeByIdForm({
         <Button type="submit" variant="danger" disabled={state.status === "pending" || !id.trim()}>
           Revoke
         </Button>
-      </form>
+      </FormRow>
       {state.status === "error" ? (
         <InlineNotice tone="danger">{state.error.message}</InlineNotice>
       ) : null}

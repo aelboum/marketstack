@@ -13,13 +13,7 @@ import { LinkButton } from "@/components/ui/Button";
 export default function HomePage() {
   return (
     <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "var(--space-4)",
-      }}
+      className="full-page-center"
     >
       <Card style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
         <h1 style={{ margin: "0 0 var(--space-2)", fontSize: "var(--font-size-lg)" }}>Product</h1>

@@ -18,6 +18,7 @@ import {
 } from "@/lib/api/agency";
 import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 import { Card } from "@/components/ui/Card";
@@ -110,12 +111,11 @@ function DecideByIdForm({
 
   return (
     <>
-      <form
+      <FormRow
         onSubmit={(event) => {
           event.preventDefault();
           if (requestId.trim()) setConfirmOpen(true);
         }}
-        style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}
       >
         <div style={{ flex: 1, minWidth: 220 }}>
           <Input
@@ -129,7 +129,7 @@ function DecideByIdForm({
         <Button type="submit" disabled={state.status === "pending" || !requestId.trim()}>
           {actionLabel}
         </Button>
-      </form>
+      </FormRow>
       {state.status === "error" ? (
         <InlineNotice tone="danger">{state.error.message}</InlineNotice>
       ) : null}

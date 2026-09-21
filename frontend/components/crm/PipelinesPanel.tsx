@@ -13,6 +13,7 @@ import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 
@@ -55,7 +56,7 @@ function StagesList({ tenantId, pipeline }: { tenantId: string; pipeline: Pipeli
           )}
         </div>
       ) : null}
-      <form
+      <FormRow
         onSubmit={async (event) => {
           event.preventDefault();
           if (!name.trim()) return;
@@ -65,7 +66,6 @@ function StagesList({ tenantId, pipeline }: { tenantId: string; pipeline: Pipeli
             stagesQuery.refetch();
           }
         }}
-        style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
       >
         <div style={{ flex: 1 }}>
           <Input
@@ -78,7 +78,7 @@ function StagesList({ tenantId, pipeline }: { tenantId: string; pipeline: Pipeli
         <Button type="submit" size="sm" disabled={state.status === "pending" || !name.trim()}>
           Add stage
         </Button>
-      </form>
+      </FormRow>
       {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
     </div>
   );
@@ -112,7 +112,7 @@ export function PipelinesPanel({ tenantId }: { tenantId: string }) {
 
       <Card>
         <h2 style={{ marginTop: 0, fontSize: "var(--font-size-md)" }}>Create a pipeline</h2>
-        <form
+        <FormRow
           onSubmit={async (event) => {
             event.preventDefault();
             if (!name.trim()) return;
@@ -122,7 +122,6 @@ export function PipelinesPanel({ tenantId }: { tenantId: string }) {
               pipelinesQuery.refetch();
             }
           }}
-          style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
         >
           <div style={{ flex: 1 }}>
             <Input label="Pipeline name" value={name} onChange={(event) => setName(event.target.value)} />
@@ -130,7 +129,7 @@ export function PipelinesPanel({ tenantId }: { tenantId: string }) {
           <Button type="submit" disabled={state.status === "pending" || !name.trim()}>
             Create
           </Button>
-        </form>
+        </FormRow>
         {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
       </Card>
     </div>

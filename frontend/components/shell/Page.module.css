@@ -4,7 +4,7 @@
   padding: var(--space-5) var(--space-4);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 47.999rem) {
   .page {
     padding: var(--space-4) var(--space-3);
   }

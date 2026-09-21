@@ -19,6 +19,7 @@ import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { LoadingState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 
@@ -51,13 +52,12 @@ function FieldValueForm({
   });
 
   return (
-    <form
+    <FormRow
       onSubmit={async (event) => {
         event.preventDefault();
         const saved = await run();
         if (saved) onSaved();
       }}
-      style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
     >
       {fieldType === "boolean" ? (
         // A real <label> rather than aria-label, so the boolean field is
@@ -89,7 +89,7 @@ function FieldValueForm({
         Save
       </Button>
       {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
-    </form>
+    </FormRow>
   );
 }
 
@@ -107,7 +107,7 @@ function DefineFieldForm({
   const { state, run } = useAsyncAction(() => defineField(tenantId, { entity_type: entityType, name, field_type: fieldType }));
 
   return (
-    <form
+    <FormRow
       onSubmit={async (event) => {
         event.preventDefault();
         if (!name.trim()) return;
@@ -117,7 +117,6 @@ function DefineFieldForm({
           onDefined();
         }
       }}
-      style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}
     >
       <div style={{ flex: 1, minWidth: 160 }}>
         <Input
@@ -137,7 +136,7 @@ function DefineFieldForm({
         Define field
       </Button>
       {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
-    </form>
+    </FormRow>
   );
 }
 

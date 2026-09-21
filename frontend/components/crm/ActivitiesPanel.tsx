@@ -23,6 +23,7 @@ import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 import { Badge } from "@/components/ui/Badge";
@@ -40,7 +41,7 @@ function AddTaskForm({
   const { state, run } = useAsyncAction(() => createTask(tenantId, parent, { title }));
 
   return (
-    <form
+    <FormRow
       onSubmit={async (event) => {
         event.preventDefault();
         if (!title.trim()) return;
@@ -50,7 +51,6 @@ function AddTaskForm({
           onCreated();
         }
       }}
-      style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
     >
       <div style={{ flex: 1 }}>
         <Input
@@ -64,7 +64,7 @@ function AddTaskForm({
         Add
       </Button>
       {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
-    </form>
+    </FormRow>
   );
 }
 
@@ -81,7 +81,7 @@ function AddNoteForm({
   const { state, run } = useAsyncAction(() => createNote(tenantId, parent, body));
 
   return (
-    <form
+    <FormRow
       onSubmit={async (event) => {
         event.preventDefault();
         if (!body.trim()) return;
@@ -91,7 +91,6 @@ function AddNoteForm({
           onCreated();
         }
       }}
-      style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
     >
       <div style={{ flex: 1 }}>
         <Input
@@ -105,7 +104,7 @@ function AddNoteForm({
         Add
       </Button>
       {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
-    </form>
+    </FormRow>
   );
 }
 

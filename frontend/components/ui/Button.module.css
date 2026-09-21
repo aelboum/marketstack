@@ -9,9 +9,9 @@
   border: 1px solid transparent;
   cursor: pointer;
   transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease,
-    color 0.12s ease;
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
   white-space: nowrap;
 }
 

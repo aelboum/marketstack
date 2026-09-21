@@ -80,15 +80,59 @@
   --shell-topbar-height: 56px;
   --page-max-width: 1120px;
 
-  /* --- Focus ring (accessibility: never rely on color alone) --- */
-  --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
+  /* --- Focus ring (accessibility: never rely on color alone) ---
+   * Drawn with `outline`, not `box-shadow`: an outline follows the
+   * element's own border-radius automatically and composes with any
+   * existing shadow, where the previous box-shadow ring had to overwrite
+   * both (see the `:focus-visible` rule below for the full reasoning). */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color: var(--color-accent);
 
-  /* --- Responsive breakpoints (referenced in comments; CSS custom
-   * properties cannot be used inside @media conditions, so components
-   * repeat these as literals -- centralized here as the source of
-   * truth) ---
-   * --breakpoint-tablet: 768px
-   * --breakpoint-desktop: 1024px
+  /* --- Layers (UI-9) ---
+   * One ordered hierarchy instead of the 30/35/40/50/100 literals that
+   * had accumulated across five files. The order is the product's real
+   * stacking contract and is asserted in Layering.test.tsx:
+   *   content < menu < scrim < drawer < dialog < skip link
+   * The skip link sits on top deliberately: it is the keyboard user's
+   * escape hatch and must never be covered by chrome. Gaps of 10 leave
+   * room to insert a layer without renumbering everything. */
+  --layer-base: 0;
+  --layer-menu: 30;
+  --layer-scrim: 35;
+  --layer-drawer: 40;
+  --layer-dialog: 50;
+  --layer-skip-link: 100;
+
+  /* --- Motion (UI-9) ---
+   * Two durations cover every non-looping transition in the product:
+   * `fast` for local state feedback (hover/active colour changes),
+   * `base` for something that physically moves (the nav drawer). The
+   * looping spinner keeps its own longer duration. All of them are
+   * neutralized by the reduced-motion block at the end of this file. */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-spin: 700ms;
+  --motion-ease: ease;
+
+  /* --- Responsive breakpoint (UI-9) ---
+   * ONE breakpoint separates the narrow (drawer/stacked) arrangement
+   * from the wide (persistent sidebar) arrangement. It previously
+   * existed as two spellings of the same value -- `768px` in the shell
+   * and `48rem`/`47.999rem` in settings -- which is why it is written
+   * down here.
+   *
+   * The canonical value is 48rem. `rem` rather than `px` so the layout
+   * responds to a user's browser font-size setting: someone browsing at
+   * 24px base text gets the roomier narrow layout instead of a desktop
+   * layout squeezed into too little space.
+   *
+   * CSS custom properties are not usable inside an `@media` condition,
+   * so components still write the literal. They must use exactly:
+   *   wide   ->  @media (min-width: 48rem)
+   *   narrow ->  @media (max-width: 47.999rem)
+   * (`47.999rem` rather than `48rem` so the two never both match.)
+   * --breakpoint-wide: 48rem;
    */
 }
 
@@ -161,10 +205,47 @@ button {
   font-family: inherit;
 }
 
+/* Focus indication (UI-9 correction of a UI-8 deferral).
+ *
+ * The previous rule drew the ring with `box-shadow` and then forced
+ * `border-radius: var(--radius-sm)` so the ring would follow the
+ * element. Both halves were destructive: the shadow *replaced* whatever
+ * shadow the component already had (a focused Card, Menu panel or
+ * Dialog silently lost its elevation), and the radius *overwrote* the
+ * component's own geometry (a pill Badge at 999px and a Dialog at
+ * --radius-lg both snapped to 6px while focused).
+ *
+ * `outline` has neither problem: it follows the element's existing
+ * border-radius on its own, and it composes with `box-shadow` instead
+ * of replacing it. `outline-offset` reproduces the inset gap the old
+ * two-layer ring faked -- and reproduces it correctly, since the gap now
+ * shows the real background rather than a hardcoded `--color-surface`
+ * that read as a white halo on tinted backgrounds.
+ *
+ * Still `:focus-visible`, so the ring stays keyboard-only. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-radius: var(--radius-sm);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* A standalone (outside the app shell) page that centres a single card:
+ * the sign-in landing, the tenant-picker dashboard, invitation
+ * acceptance, and the shell's own session-loading states. It was the
+ * same nine-line inline style repeated nine times.
+ *
+ * `dvh` is the point of centring it here: with `100vh` a mobile browser
+ * measures the viewport as if its URL bar were hidden, so the card is
+ * centred inside a box taller than what the user can actually see and
+ * drifts below centre. The `100vh` line stays first as a fallback for
+ * browsers without `dvh` -- an inline style cannot express that, which
+ * is a second reason this belongs in CSS. */
+.full-page-center {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
 }
 
 .visually-hidden {

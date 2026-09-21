@@ -1,0 +1,23 @@
+/* The product's single "inline form row" layout: one or more labelled
+   controls sitting on a baseline with their submit button, wrapping onto
+   the next line when there is not enough width. */
+.row {
+  display: flex;
+  gap: var(--space-2);
+  /* Controls in this product are label-above-input, so the row aligns on
+     the bottom edge -- that is what puts a button level with the inputs
+     beside it rather than level with their labels. */
+  align-items: flex-end;
+  /* Always wraps. Seven of the rows this replaced omitted this, so on a
+     narrow screen their control + button overflowed the card instead of
+     stacking. */
+  flex-wrap: wrap;
+}
+
+/* A control that should take the leftover width, so the row's button
+   stays at its natural size. Replaces the `<div style={{flex: 1}}>`
+   wrapper that callers previously hand-rolled around an <Input>. */
+.grow {
+  flex: 1;
+  min-width: 12rem;
+}

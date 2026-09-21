@@ -19,7 +19,7 @@ export default function AcceptInvitationPage() {
     <Suspense
       fallback={
         <main
-          style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+          className="full-page-center"
         >
           <LoadingState label="Loading…" />
         </main>
@@ -43,7 +43,7 @@ function AcceptInvitationPageContent() {
   if (status === "loading" || status === "unauthenticated") {
     return (
       <main
-        style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+        className="full-page-center"
       >
         <LoadingState label={status === "loading" ? "Loading…" : "Redirecting to sign in…"} />
       </main>
@@ -52,13 +52,7 @@ function AcceptInvitationPageContent() {
 
   return (
     <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "var(--space-4)",
-      }}
+      className="full-page-center"
     >
       <Card style={{ maxWidth: 420, width: "100%" }}>
         <h1 style={{ margin: "0 0 var(--space-2)", fontSize: "var(--font-size-lg)" }}>

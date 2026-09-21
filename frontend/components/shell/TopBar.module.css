@@ -30,7 +30,7 @@
   flex-shrink: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 47.999rem) {
   .menuButton {
     display: inline-flex;
   }
@@ -49,7 +49,7 @@
   min-width: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 47.999rem) {
   .centerNav {
     display: none;
   }
@@ -89,7 +89,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 47.999rem) {
   .tenantValue {
     max-width: 96px;
   }

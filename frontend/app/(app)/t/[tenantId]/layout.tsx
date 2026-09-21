@@ -30,7 +30,7 @@ export default function TenantAppLayout({ children }: { children: React.ReactNod
   if (status === "loading") {
     return (
       <div
-        style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+        className="full-page-center"
       >
         <LoadingState label="Loading your session…" />
       </div>
@@ -40,7 +40,7 @@ export default function TenantAppLayout({ children }: { children: React.ReactNod
   if (status === "unauthenticated" || !user) {
     return (
       <div
-        style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+        className="full-page-center"
       >
         <LoadingState label="Redirecting to sign in…" />
       </div>

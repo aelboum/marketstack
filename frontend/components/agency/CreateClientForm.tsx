@@ -10,6 +10,7 @@ import { useState } from "react";
 import { createClient, type CreatedClient } from "@/lib/api/agency";
 import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { Input } from "@/components/ui/Input";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 
@@ -26,7 +27,7 @@ export function CreateClientForm({
   );
 
   return (
-    <form
+    <FormRow
       onSubmit={async (event) => {
         event.preventDefault();
         if (!name.trim()) return;
@@ -37,7 +38,6 @@ export function CreateClientForm({
           onCreated(created);
         }
       }}
-      style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexWrap: "wrap" }}
     >
       <div style={{ flex: 1, minWidth: 200 }}>
         <Input
@@ -56,6 +56,6 @@ export function CreateClientForm({
           <InlineNotice tone="danger">{state.error.message}</InlineNotice>
         </div>
       ) : null}
-    </form>
+    </FormRow>
   );
 }

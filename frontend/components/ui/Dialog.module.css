@@ -11,10 +11,12 @@
   justify-content: center;
   overflow-y: auto;
   padding: var(--space-4);
-  z-index: 50;
+  z-index: var(--layer-dialog);
 }
 
 .dialog {
+  /* Positioning context for the close button. */
+  position: relative;
   background: var(--color-surface-raised);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
@@ -29,7 +31,41 @@
   padding: var(--space-5);
 }
 
+/* Positioned rather than DOM-ordered, so initial focus still lands on
+   the dialog's first real control (see Dialog.tsx). 32px square keeps it
+   comfortably past the 24px minimum target size. */
+.close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+.close:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
 .title {
+  /* Leaves room for the close button so a long title never runs under
+     it. Matches the button's 32px box plus a gap. */
+  padding-right: var(--space-6);
   margin: 0 0 var(--space-2);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);

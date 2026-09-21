@@ -59,7 +59,7 @@ export default function DashboardEntryPage() {
   if (status === "loading" || (status === "authenticated" && !checkedLastTenant)) {
     return (
       <main
-        style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+        className="full-page-center"
       >
         <LoadingState label="Loading your workspace…" />
       </main>
@@ -69,7 +69,7 @@ export default function DashboardEntryPage() {
   if (status === "unauthenticated") {
     return (
       <main
-        style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+        className="full-page-center"
       >
         <LoadingState label="Redirecting to sign in…" />
       </main>
@@ -78,13 +78,7 @@ export default function DashboardEntryPage() {
 
   return (
     <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "var(--space-4)",
-      }}
+      className="full-page-center"
     >
       <Card style={{ maxWidth: 380, width: "100%" }}>
         <h1 style={{ margin: "0 0 var(--space-2)", fontSize: "var(--font-size-lg)" }}>

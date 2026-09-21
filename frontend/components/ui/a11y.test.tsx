@@ -99,10 +99,15 @@ describe("Dialog focus management (UI-8 regression guard)", () => {
 
     const first = screen.getByRole("button", { name: "First" });
     const last = screen.getByRole("button", { name: "Last" });
+    const close = screen.getByRole("button", { name: "Close dialog" });
     expect(first).toHaveFocus();
 
     await user.tab();
     expect(last).toHaveFocus();
+    // The close affordance is inside the dialog, so it is part of the
+    // cycle rather than an escape from it.
+    await user.tab();
+    expect(close).toHaveFocus();
     // Wrapping back to the start rather than escaping to "Outside".
     await user.tab();
     expect(first).toHaveFocus();
@@ -131,6 +136,53 @@ describe("Dialog focus management (UI-8 regression guard)", () => {
 
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("offers a named close affordance on a plain dialog (UI-9)", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Dialog open onClose={onClose} title="Editable">
+        <input aria-label="Field" />
+      </Dialog>,
+    );
+
+    // Previously a plain Dialog had no visible dismiss at all -- only
+    // Escape or a backdrop click, neither discoverable.
+    const close = screen.getByRole("button", { name: "Close dialog" });
+    await user.click(close);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("the close affordance does not steal initial focus from the content (UI-9)", () => {
+    render(
+      <Dialog open onClose={vi.fn()} title="Editable">
+        <input aria-label="Field" />
+      </Dialog>,
+    );
+
+    // It is rendered last in the DOM and positioned by CSS precisely so
+    // the user lands on the field they came to fill in.
+    expect(screen.getByLabelText("Field")).toHaveFocus();
+  });
+
+  it("ConfirmDialog does not add a second dismiss control beside Cancel (UI-9)", () => {
+    render(
+      <ConfirmDialog
+        open
+        title="Delete this?"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // Cancel is this dialog's dismiss control, and the one that carries
+    // the pending guard -- a "×" alongside it would be both duplicated
+    // and able to bypass that guard.
+    expect(screen.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
   it("ConfirmDialog disables both actions while the confirmation is pending", () => {

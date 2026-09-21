@@ -19,12 +19,29 @@ export function Dialog({
   title,
   description,
   children,
+  showClose = true,
+  closeLabel = "Close dialog",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   description?: string;
   children?: React.ReactNode;
+  /**
+   * Visible close affordance (UI-9). On by default, because a plain
+   * `<Dialog>` previously had none at all: dismissing it required
+   * knowing to press Escape or to click the backdrop, neither of which
+   * is discoverable, and neither of which a touch user is likely to try.
+   *
+   * `ConfirmDialog` turns it off. A confirmation already renders an
+   * explicit, labelled Cancel button, so a second dismiss control would
+   * be the duplicate affordance this should not become -- and because
+   * that Cancel is the control that carries the pending-state guard,
+   * leaving the "×" out is also what keeps a mid-flight confirmation
+   * from being dismissed around it.
+   */
+  showClose?: boolean;
+  closeLabel?: string;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -93,6 +110,22 @@ export function Dialog({
           </p>
         ) : null}
         {children}
+        {/* Rendered last in the DOM but positioned top-right by CSS.
+            Order matters: the open-effect above focuses the dialog's
+            *first* focusable element, so putting the close button first
+            would steal initial focus from the form field a user actually
+            came to fill in. Positioning it visually without moving it in
+            the DOM keeps both behaviors correct. */}
+        {showClose ? (
+          <button
+            type="button"
+            className={styles.close}
+            onClick={onClose}
+            aria-label={closeLabel}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -120,7 +153,15 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   return (
-    <Dialog open={open} onClose={onCancel} title={title} description={description}>
+    // `showClose={false}`: the Cancel button below is this dialog's
+    // dismiss control, and it is the one that respects `pending`.
+    <Dialog
+      open={open}
+      onClose={onCancel}
+      title={title}
+      description={description}
+      showClose={false}
+    >
       <div className={styles.actions}>
         <Button variant="secondary" onClick={onCancel} disabled={pending}>
           {cancelLabel}

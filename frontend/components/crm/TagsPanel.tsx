@@ -14,6 +14,7 @@ import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { LoadingState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { Badge } from "@/components/ui/Badge";
+import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { InlineNotice } from "@/components/ui/InlineNotice";
@@ -107,7 +108,7 @@ export function TagsPanel({
         </label>
       ) : null}
 
-      <form
+      <FormRow
         onSubmit={async (event) => {
           event.preventDefault();
           if (!newTagName.trim()) return;
@@ -118,7 +119,6 @@ export function TagsPanel({
             allTagsQuery.refetch();
           }
         }}
-        style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
       >
         <div style={{ flex: 1 }}>
           <Input
@@ -131,7 +131,7 @@ export function TagsPanel({
         <Button type="submit" size="sm" disabled={createState.status === "pending" || !newTagName.trim()}>
           Create &amp; attach
         </Button>
-      </form>
+      </FormRow>
       {createState.status === "error" ? (
         <InlineNotice tone="danger">{createState.error.message}</InlineNotice>
       ) : null}
