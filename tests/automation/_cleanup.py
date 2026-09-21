@@ -17,6 +17,14 @@ exactly this, but is not part of that package's own curated public
 other `tests/*/_cleanup.py` in this codebase already reaches into a
 `core`-owned table it has no public purge function for (a test-cleanup-
 only convention; production code never does this).
+
+Phase 10.4A's own durable Temporal tests (`tests/automation/durable
+/production/test_ai_action_execution_temporal.py`) approve tenants for
+`ai.crm.qualify_lead` via `product.ai.policy.set_tenant_ai_policy()`,
+which persists a row in `ai.tenant_policies` -- also FK'd to
+`core.tenants`, purged here the same way, mirroring
+`tests/ai/_cleanup.py`'s own identical, independently-added fix for the
+same table.
 """
 
 from __future__ import annotations
@@ -51,6 +59,10 @@ def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
                 )
             session.execute(
                 text("DELETE FROM core.idempotency_records WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            session.execute(
+                text("DELETE FROM ai.tenant_policies WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
     _cleanup_crm_tenant_tree(*tenant_ids_leaf_to_root)

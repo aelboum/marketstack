@@ -4,25 +4,39 @@ below is the *only* set of things a workflow can ever do; there is no
 path from a workflow definition to arbitrary code, an arbitrary function,
 or an arbitrary shell command (this phase's own explicit prohibition).
 
-**Registering an action from another product domain (Phase 10.3A).**
-Since 10.3A each action is one `product.foundation.workflow_actions
-.WorkflowActionSpec` in a `WorkflowActionRegistry`, rather than an entry
-in three parallel structures (`ACTIONS`, an if/elif validation chain, and
-an `_EXECUTORS` dict) that could drift apart. The registry is what makes
-Phase 10.4A's AI action reachable *without* `product.automation`
+**Registering an action from another product domain (Phase 10.3A,
+integrated in Phase 10.4A).** Since 10.3A each action is one
+`product.foundation.workflow_actions.WorkflowActionSpec` in a
+`WorkflowActionRegistry`, rather than an entry in three parallel
+structures (`ACTIONS`, an if/elif validation chain, and an `_EXECUTORS`
+dict) that could drift apart. The registry is what makes Phase 10.4A's
+`ACTION_AI_QUALIFY_LEAD` reachable *without* `product.automation`
 importing `product.ai` -- an import the import-linter contracts forbid in
 both directions (see `product/foundation/workflow_actions.py`'s own
 module docstring for the full reasoning and the inverted dependency
-diagram). A foreign domain's adapter is registered by a composition root
-through `get_action_registry()`, never by an import side effect of the
-domain package.
+diagram). This module names the action and declares it in `ACTIONS`; it
+never imports `product.ai`, never knows what the action does, and never
+implements it -- `product/ai/automation_action.py` owns the
+implementation, and `product/action_registry_composition.py` (which
+*is* allowed to import both) is the one place that connects the two, by
+an explicit function call, never an import side effect.
 
 The closed vocabulary itself is unaffected by any of that: `ACTIONS`
 below is a static constant, and `validate_action_type()` consults it
 directly, so which workflow definitions are publishable can never vary
-with import order or with what a given process has wired up. Today
-`ACTIONS` still names exactly Phase 10.2's own five actions -- 10.3A adds
-the mechanism, not a sixth action.
+with import order or with what a given process has wired up. `ACTIONS`
+now names Phase 10.2's own five actions plus `ACTION_AI_QUALIFY_LEAD` --
+six declared names -- but `_build_registry()` below only *registers*
+five of them itself; the sixth is registered later, explicitly, by a
+composition root (`get_action_registry()`'s own docstring says exactly
+who and when). `validate_action_config()`/`execute_action()` both
+defensively convert an `UnknownWorkflowActionError` (a declared name
+with no registered implementation -- the state a process that skipped
+composition would be in) into the same `AutomationValidationError` an
+unrecognized name already produces, so a misconfigured process fails
+with a familiar error type rather than leaking a
+`product.foundation.workflow_actions` exception through this module's own
+public surface.
 
 **Every action re-authorizes as the workflow's own `created_by_user_id`,
 never as a synthetic "automation" identity** -- `create_task`/
@@ -94,6 +108,15 @@ ACTION_UPDATE_CONTACT = "update_contact"
 ACTION_MOVE_OPPORTUNITY = "move_opportunity"
 ACTION_SEND_EMAIL = "send_email"
 ACTION_SEND_WEBHOOK = "send_webhook"
+# Phase 10.4A. The literal string, not an import of
+# `product.ai.tools.lead_qualification.TOOL_KEY` -- this module cannot
+# import `product.ai` at all (module docstring). The two independently
+# hardcoded literals are asserted equal by
+# `tests/ai/test_automation_action_unit.py`, and
+# `WorkflowActionRegistry.register()` itself refuses a mismatch at
+# composition time regardless (`UnknownWorkflowActionError` if the
+# adapter's own `name` is not exactly this string).
+ACTION_AI_QUALIFY_LEAD = "ai.crm.qualify_lead"
 
 ACTIONS = frozenset(
     {
@@ -102,6 +125,7 @@ ACTIONS = frozenset(
         ACTION_MOVE_OPPORTUNITY,
         ACTION_SEND_EMAIL,
         ACTION_SEND_WEBHOOK,
+        ACTION_AI_QUALIFY_LEAD,
     }
 )
 
@@ -357,17 +381,26 @@ def _validate_send_webhook_config(action_config: Mapping[str, object]) -> None:
 
 def _build_registry() -> WorkflowActionRegistry:
     """Construct this module's registry and register the five actions
-    Automation itself owns. Called exactly once, unconditionally, at this
-    module's own import -- which is *not* the import-order-dependent
-    registration this phase exists to avoid: these five actions live in
-    this very module, so importing `product.automation.actions` always
-    produces the identical, complete registry, with no dependence on what
-    else the interpreter has loaded. `require_complete()` proves it before
-    the module finishes importing.
+    Automation itself owns and implements. Called exactly once,
+    unconditionally, at this module's own import -- which is *not* the
+    import-order-dependent registration this phase exists to avoid: these
+    five actions live in this very module, so importing
+    `product.automation.actions` always registers the identical five,
+    with no dependence on what else the interpreter has loaded.
 
-    A *foreign* domain's action (Phase 10.4A's AI action being the first)
-    is registered differently and deliberately so -- see this module's own
-    "Registering an action from another product domain" note below."""
+    **Does not call `require_complete()`.** Since Phase 10.4A, `ACTIONS`
+    (used as this registry's `allowed_names`) also declares
+    `ACTION_AI_QUALIFY_LEAD`, whose implementation belongs to
+    `product.ai` and is registered separately, later, by an explicit
+    composition-root call (`get_action_registry()`'s own docstring) --
+    calling `require_complete()` here, at this module's own import time,
+    would make importing `product.automation.actions` itself fail before
+    that composition ever gets a chance to run. Completeness is instead
+    asserted by the composition root, once, after every domain's own
+    adapter has been registered -- the same "fails loudly at startup,
+    never a surprise at execution time" guarantee, just applied at the
+    point where it is actually knowable now that a second domain is
+    involved."""
     registry = WorkflowActionRegistry(allowed_names=ACTIONS)
     for spec in (
         WorkflowActionSpec(
@@ -397,7 +430,6 @@ def _build_registry() -> WorkflowActionRegistry:
         ),
     ):
         registry.register(spec)
-    registry.require_complete()
     return registry
 
 
@@ -407,18 +439,25 @@ _REGISTRY = _build_registry()
 def get_action_registry() -> WorkflowActionRegistry:
     """The process-wide Automation action registry.
 
-    Exposed so a composition root (`product/api/main.py`, the durable
-    worker entrypoints) can register an action implementation owned by
-    another product domain **without Automation importing that domain** --
-    the dependency inversion Phase 10.3A exists to establish. Registration
-    is an explicit call made by the composition root, never an import side
+    Exposed so a composition root
+    (`product/action_registry_composition.py`, imported in turn by
+    `product/api/main.py` and `product/production_worker_entrypoint.py`)
+    can register an action implementation owned by another product domain
+    **without Automation importing that domain** -- the dependency
+    inversion Phase 10.3A exists to establish. Registration is an
+    explicit call made by the composition root, never an import side
     effect of the domain package, so the wiring is visible in one place
     and cannot vary with import order.
 
-    No such foreign action is registered today: `ACTIONS` below declares
-    only Automation's own five, so `register()` would reject anything
-    else. Phase 10.4A adds its name to that declared vocabulary and wires
-    its adapter here; this phase deliberately stops at the seam."""
+    As of Phase 10.4A, exactly one foreign action is declared and wired
+    this way: `ACTION_AI_QUALIFY_LEAD`, implemented by
+    `product/ai/automation_action.py`. A process that never calls the
+    composition root (a bare import of this module alone) has a registry
+    with only the five built-in actions registered -- `ACTIONS` still
+    declares six, so `validate_action_type()` still accepts the AI action
+    name, but `validate_action_config()`/`execute_action()` will raise
+    `AutomationValidationError` for it until composition runs, exactly as
+    they already do for a genuinely unknown name."""
     return _REGISTRY
 
 
@@ -432,8 +471,18 @@ def validate_action_config(action_type: str, action_config: Mapping[str, object]
     (`validate_action_type()`) still consults the static `ACTIONS`
     constant -- so whether a given workflow definition is publishable
     never depends on which implementations happen to be registered in this
-    process."""
-    _REGISTRY.get(action_type).validate_config(action_config)
+    process. Mirrors `execute_action()`'s own defensive
+    `UnknownWorkflowActionError` -> `AutomationValidationError` conversion
+    (this module's own docstring) for the same reason: a declared name
+    with no registered implementation in *this* process (composition not
+    yet run) must fail the same familiar way an unrecognized name does,
+    never leak a `product.foundation.workflow_actions` exception type
+    through this module's own public surface."""
+    try:
+        action = _REGISTRY.get(action_type)
+    except UnknownWorkflowActionError as exc:
+        raise AutomationValidationError(f"unknown action_type: {action_type!r}") from exc
+    action.validate_config(action_config)
 
 
 def execute_action(
@@ -456,6 +505,7 @@ def execute_action(
 
 __all__ = [
     "ACTIONS",
+    "ACTION_AI_QUALIFY_LEAD",
     "ACTION_CREATE_TASK",
     "ACTION_MOVE_OPPORTUNITY",
     "ACTION_SEND_EMAIL",

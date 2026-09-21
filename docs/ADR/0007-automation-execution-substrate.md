@@ -726,10 +726,171 @@ retry semantics are untouched -- the registry maps names to
 implementations and holds nothing else: no cached actor, no tenant, no
 authorization decision, and no `__dict__` to grow one.
 
-**The remaining 10.4A integration point, deliberately not built.** A
+**The remaining 10.4A integration point, deliberately not built.**
+*(SUPERSEDED -- built; see "Phase 10.4A Implemented" below.)* A
 `product.ai` adapter satisfying `WorkflowAction` and calling
 `invoke_product_ai_tool()`, its action name added to `ACTIONS`, and one
 composition-root registration call. Wiring any of that now would be
 10.4A, and it stays blocked on 9.4 regardless. The seam is proven
 instead by a test module that `product.automation` does not import,
 supplying a working action purely by satisfying the neutral contract.
+
+## Phase 10.4A Implemented: AI Action Registered Into the Production Registry (2026-09-21)
+
+The seam the paragraph above deliberately left unbuilt is now built. The
+production Automation action registry
+(`product.automation.actions.get_action_registry()`) holds six actions:
+`create_task`, `update_contact`, `move_opportunity`, `send_email`,
+`send_webhook` (10.2's own five, unchanged), and `ai.crm.qualify_lead`
+(new). No accounting action, no second AI capability, no arbitrary
+"invoke AI" or "run prompt" action -- exactly one, the smallest Phase 9.4
+capability, matching Phase 9.4's own `PRODUCTION_CAPABILITIES` allow-list
+exactly.
+
+**The AI-owned adapter.** `product/ai/automation_action.py` implements
+`ai.crm.qualify_lead` as a `product.foundation.workflow_actions
+.WorkflowActionSpec` -- the same neutral contract every built-in action
+already satisfies, described above. It lives entirely inside
+`product.ai`; `product.automation` never imports it, and it never
+imports `product.automation` (verified twice: by the existing
+import-linter contracts, and independently by two source-level static
+tests, `tests/automation/test_action_registry_unit.py
+::test_automation_source_never_imports_product_ai`/
+`::test_ai_source_never_imports_product_automation`, which grep the
+actual `.py` files rather than trust the linter alone).
+
+**Composition, explicit and deterministic.** `product/action_registry
+_composition.py::wire_production_automation_actions()` is the one
+function allowed to import both `product.ai` and `product.automation` --
+it is neither, so the mutual import ban does not apply to it. It
+registers the adapter (skipping registration if already registered --
+idempotent, safe to call more than once in a process) and then calls
+`WorkflowActionRegistry.require_complete()`, which asserts every one of
+the six declared names has a registered implementation, failing loudly
+at that call if not. Two callers invoke it, each during its own process
+startup, never as an import side effect: `product/api/main.py
+::create_app()` (for the API process's own 10.2 synchronous path and
+publish-time validation) and `product/production_worker_entrypoint.py`
+(for the Temporal worker process -- `product/automation/durable
+/production_worker.py` itself cannot call it, being part of
+`product.automation`). Because registration depends only on which
+composition-root function ran, never on which module happened to import
+first, `product.automation.actions._build_registry()` no longer calls
+`require_complete()` at its own module-import time either (it would
+otherwise fail before composition ever gets the chance to run, since
+`ai.crm.qualify_lead` is declared in `ACTIONS` but not one of the five
+`_build_registry()` itself registers) -- completeness is asserted once,
+by the composition root, the same "fails loudly at startup, not a
+surprise at execution time" guarantee restated one layer up now that a
+second domain is involved.
+
+**Automation stays generic -- no special case.** `execute_action()`,
+`validate_action_config()`, `execute_step_action_activity()`, the 10.2
+dispatcher, and the 10.3 durable activity are all byte-for-byte unchanged
+from Phase 10.3A for this integration (`execute_action()` gained one
+defensive `UnknownWorkflowActionError` -> `AutomationValidationError`
+catch in `validate_action_config()`, mirroring the one `execute_action()`
+already had -- for a declared-but-not-yet-composed process, not
+AI-specific). There is no `if action_type == "ai.crm.qualify_lead"`
+anywhere in `product/automation/`. The AI action reaches execution
+through the identical generic registry lookup every built-in action
+already goes through.
+
+**Authorization remains entirely the AI/Control Plane's, re-evaluated at
+execution time, every call.** The adapter performs no authorization of
+its own -- no `core.rbac.can()` call, no cached decision, no
+module-level actor/tenant state. `execute()` receives
+`actor_user_id`/`tenant_id` fresh on every invocation and calls straight
+into the unmodified Phase 9.4 path
+(`product.ai.invocation.invoke_product_ai_tool()` against
+`product.ai.production.production_tool_registry()`), which in order:
+resolves the tenant's own persisted AI policy
+(`product.ai.policy.resolve_tenant_ai_policy()`), enforces caller RBAC
+and autonomy tier (`control_plane.orchestration`), enforces Data
+Authorization (tenant data-classification/purpose/provider eligibility),
+and enforces `core.tenancy`'s own tenant-lifecycle fence
+(`require_open_tenant()`, inside `control_plane.orchestration.service
+._execute_tool()`) -- a closed/suspended/deleted/purging/purged tenant is
+denied there, unchanged SaaS-OS behaviour the adapter only reacts to,
+never duplicates. A policy revoked, or a tenant purged, between one
+invocation and the next denies the next one; nothing is captured at
+workflow publish or start time. Two mapping gaps were found and closed
+during this integration, both in the new adapter, neither in Phase 9.4's
+own code: `_invoke()` was not passing the actually-configured production
+provider's own name to `invoke_product_ai_tool()` (silently defaulting to
+`"fake"` for the Data Authorization eligibility check, which would have
+made a tenant's own `allowed_providers` policy field meaningless); and
+`core.tenancy`'s own `TenantClosedError`/`TenantNotFoundError` were not
+caught at all. Both are fixed and classified as `WorkflowActionDeniedError`
+(permanent).
+
+**Bounded input, no prompt/model/provider injection surface.**
+`action_config` for this action carries no fields at all -- any key at
+all is rejected (`WorkflowActionConfigError`) -- so nothing in a
+workflow definition can select a different capability, provider, or
+prompt; the closed vocabulary, the tool definition, and the system
+prompt are all fixed by `product/ai/tools/lead_qualification.py`. The
+only dynamic input is `payload.contact_id` (a UUID), read the same way
+`_execute_update_contact()` already reads its own entity reference --
+never a raw transcript, never a copied CRM record.
+
+**Read-only, existing idempotency infrastructure, unchanged.**
+`ai.crm.qualify_lead` has no side effect to duplicate
+(`side_effect="read_only"` on its own Phase 9.1 tool definition,
+unchanged). No new idempotency mechanism was added or was needed:
+`execute_step_action_activity()`'s existing `core.idempotency` wrapper
+(keyed `f"{run_id}.{step_key}"`) already covers it, proven by direct
+duplicate-invocation the same way `test_duplicate_activity_execution
+_remains_idempotent` already proves it for `create_task`.
+
+**Audit: existing mechanisms, reused, not duplicated.** Denied executions
+produce the existing `automation.durable_run.authorization_denied` audit
+event (`business_activities.py`, unchanged); allowed executions produce
+the Control Plane's own existing allow/deny audit
+(`control_plane.orchestration.invoke_tool()`, unchanged). No parallel
+audit path was introduced. Tests assert a real contact's own email and
+surname, and the Fake provider's own completion marker, never appear in
+any audit entry's metadata.
+
+**No real production provider is enabled by this phase, and none is
+claimed to be.** `product/ai/production.py` is unmodified: no vendor
+selected, the Fake provider still structurally refused as a production
+provider by name, `get_production_llm_provider()` still raises
+`AIProviderNotConfiguredError` with nothing configured. This integration
+makes the AI action *reachable*, not the underlying model *real*.
+
+**A second, deeper provider-eligibility gap was discovered, and is
+disclosed rather than worked around.** `product.ai.policy
+.PLATFORM_PROVIDER_POLICY` hardcodes `eligible_providers={"fake"}` (no
+real vendor has been approved for this product), and `"fake"` can never
+be the *production* provider (`_NON_PRODUCTION_PROVIDER_NAMES`). The
+practical consequence: **no provider name exists today that a tenant
+policy can legally approve and that could also serve as this action's
+real production provider** -- until a real vendor's own name is added to
+`PLATFORM_PROVIDER_POLICY`, a future step this phase does not take. The
+new integration tests' own "allowed capability -> execution proceeds"
+cases prove the wiring is correct by temporarily widening that
+eligibility list with a test-scoped `pytest` `monkeypatch` (reverted
+automatically after each test, in both places the frozenset is
+independently bound -- `product.ai.policy` and `product.ai.invocation`,
+a `from ... import` copy) around a provider double named deliberately
+unlike `"fake"`/`"stub"`/`"mock"`/`"test"`. This proves the plumbing, not
+production readiness -- `product/ai/policy.py` itself was not modified,
+and no real provider became eligible in the persisted system.
+
+**The Temporal worker composition entrypoint exists, and is not yet
+deployed.** `product/production_worker_entrypoint.py` composes then runs
+`product/automation/durable/production_worker.py::main()` unchanged. It
+is not referenced by `docker-compose.yml` -- `production_worker.py`
+itself was not either before this phase (only the Phase 10.3
+infrastructure spike's own `worker.py`, serving a different task queue,
+has a compose service today). Wiring either into deployment is an
+operational follow-up, out of this phase's own scope.
+
+**Compatibility, once more, restated for the same reason 10.3A's own
+section above did.** Every existing 10.2/10.3 action, the durable engine,
+Temporal workflow/activity code, and `docker-compose.yml` are unchanged.
+`docs/ROADMAP.md` Phase 10.4A's own required validation all passed on
+this integration: default unit 187 passed, full integration 347 passed,
+Temporal/durable 18 passed, import-linter 11/11, Pyright 0 errors,
+Ruff/format clean, detect-secrets clean, pip-audit clean.

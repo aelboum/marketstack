@@ -141,10 +141,25 @@ Phase 9.4 adds `product.ai.event_handlers` for its own module-level
 `subscribe()` side effect (granting `ai.policy` to newly provisioned
 roles -- the same "registered at import time" discipline every other
 `event_handlers.py` here follows) and one more purge participant for the
-new `ai.tenant_policies` table. **No AI route and no AI execution path is
-mounted**: production AI execution stays fail-closed at
-`product/ai/production.py` because no AI vendor has been approved, and
-Phase 10.4A's Automation AI action is not implemented.
+new `ai.tenant_policies` table. **Still no AI route and no dedicated AI
+execution path is mounted**: production AI execution stays fail-closed at
+`product/ai/production.py` because no AI vendor has been approved.
+
+Phase 10.4A adds one explicit composition-root call,
+`wire_production_automation_actions()`
+(`product/action_registry_composition.py`), registering `product.ai`'s
+own `ai.crm.qualify_lead` Automation-action adapter into Automation's
+neutral action registry (`product/foundation/workflow_actions.py`,
+Phase 10.3A) -- so an Automation workflow can invoke it through the
+existing `/v1/automation`/`/v1/automation/durable` surface, still gated
+by the same fail-closed production-AI boundary above (no provider
+configured means the action still fails, safely, on execution). Pure
+in-memory, no database dependency, safe alongside every other
+registration in `create_app()` below. This is the *only* place this file
+touches Phase 10.4A -- `product.automation` still never imports
+`product.ai`, and `product.ai` still never imports `product.automation`;
+`product/action_registry_composition.py` is the one module allowed to
+import both, precisely because it is neither.
 """
 
 from __future__ import annotations
@@ -155,6 +170,7 @@ from api.platform import build_platform_app
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from product.action_registry_composition import wire_production_automation_actions
 from product.agency.routes import router as agency_router
 from product.ai import event_handlers as _ai_event_handlers  # noqa: F401
 from product.ai.purge import register as register_ai_purge_participant
@@ -235,6 +251,7 @@ def create_app() -> FastAPI:
     register_telephony_purge_participant()
     register_automation_purge_participant()
     register_ai_purge_participant()
+    wire_production_automation_actions()
     return app
 
 
