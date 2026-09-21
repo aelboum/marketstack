@@ -117,8 +117,8 @@ def test_record_review_audit_never_contains_review_body_or_author() -> None:
         matching = [e for e in entries if e.action == "reputation.review.recorded"]
         assert len(matching) == 1
         for entry in matching:
-            assert "Secret Author Name" not in str(entry.metadata)
-            assert "Secret review body text" not in str(entry.metadata)
+            assert "Secret Author Name" not in str(entry.entry_metadata)
+            assert "Secret review body text" not in str(entry.entry_metadata)
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)

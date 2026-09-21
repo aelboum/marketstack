@@ -103,7 +103,7 @@ def test_create_response_audit_entry_recorded() -> None:
         matching = [e for e in entries if e.action == "reputation.review.responded"]
         assert len(matching) == 1
         for entry in matching:
-            assert "Thanks a lot!" not in str(entry.metadata)
+            assert "Thanks a lot!" not in str(entry.entry_metadata)
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)

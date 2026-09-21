@@ -150,7 +150,7 @@ def test_review_request_audit_entries_carry_no_email_address() -> None:
         assert "reputation.review_request.created" in actions
         assert "reputation.review_request.sent" in actions
         for entry in entries:
-            assert "secret@example.test" not in str(entry.metadata)
+            assert "secret@example.test" not in str(entry.entry_metadata)
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
