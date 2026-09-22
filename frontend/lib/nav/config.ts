@@ -34,7 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "telephony", label: "Telephony", status: "planned" },
   { key: "ai", label: "AI", status: "planned" },
   { key: "automation", label: "Automation", segment: "automation", status: "available" },
-  { key: "websites", label: "Websites", status: "planned" },
+  { key: "websites", label: "Websites", segment: "websites", status: "available" },
   { key: "reputation", label: "Reputation", segment: "reputation", status: "available" },
   { key: "billing", label: "Billing", status: "planned" },
   { key: "accounting", label: "Accounting", status: "planned" },
