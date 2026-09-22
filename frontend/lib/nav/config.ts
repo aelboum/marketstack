@@ -6,147 +6,144 @@
 // a module, or changing what's available vs. planned, is a one-line edit
 // here, never a change to every place a nav item happens to be rendered.
 //
-// Restructured docs/ROADMAP.md Phase 28 (Command Center & Navigation
-// Redesign): the previous shape was a flat, ungrouped list whose labels
-// were literally the backend router names ("CRM", "Automation",
-// "Reputation", ...) -- confirmed, by this file's own prior comment, to
-// be an intentional design choice ("mirrors exactly the backend routers
-// mounted in product/api/main.py"), now superseded by the Phase 28
-// principle recorded in docs/ROADMAP.md: "the primary navigation is
-// business-oriented rather than a direct mirror of backend routers."
+// Approved IA (dashboard-design integration, navigation correction pass):
+// exactly 11 primary items, in this exact order and with these exact
+// labels, matching the approved mockup navigation:
+//   Dashboard, Inbox, Klanten, Verkoop, Agenda, Groei, Automatiseringen,
+//   Boekhouding, Reputatie, AI, Beheer
+// A primary item with `children` is an organizational parent (Groei,
+// Boekhouding, Beheer) or a real destination that also has a related
+// sub-destination (Inbox -> Telefonie) -- `Navigation.tsx` renders
+// children as an always-visible nested list under the parent, the same
+// shape the old grouped nav already used, just driven by `children`
+// instead of a separate `NavGroup[]` list.
 //
-// Every `segment` below still points at the exact same route a technical
-// module always had -- **nothing was removed, renamed at the URL level,
-// or rebuilt**. Only the grouping and the label a user sees changed. A
-// technical module that has no real screen yet keeps `status: "planned"`
-// and renders as a disabled "Coming soon" entry, exactly as before (UI-1
-// scope: "Do not create fake pages behind these entries.").
+// Real, already-shipped screens that are not one of the 11 approved
+// top-level labels are reorganized as children rather than deleted --
+// every route below already existed before this pass:
+//   Goedkeuringen, Instellingen, Klantbedrijven -> under Beheer
+//   Marketing, Websites                          -> under Groei
+//   Facturatie                                    -> under Boekhouding
+//   Telefonie                                     -> under Inbox
+//   Prospectie                                    -> under Groei (no
+//     existing route of its own either way; grouped with the other
+//     growth-oriented, not-yet-built destinations)
+// Nothing was removed, renamed at the URL level, or rebuilt. A
+// technical capability that has no real screen yet keeps
+// `status: "planned"` and renders as a disabled "Coming soon" entry
+// (UI-1 scope: "Do not create fake pages behind these entries.").
+//
+// `labelEn`: the string shown when the header's NL/EN toggle
+// (lib/i18n/locale-context.tsx) is set to English.
 
 export type NavItem = {
   key: string;
   label: string;
+  labelEn?: string;
   /** Path segment under `/t/[tenantId]/...`; omitted for a planned item
-   * with no route yet. May itself contain a `/` to point at an existing
-   * sub-route of another module (e.g. "crm/opportunities") rather than
-   * that module's own top-level page -- this is still the same real
-   * screen, reached from a different, more business-relevant place in
-   * the navigation; it does not duplicate or fork that screen. */
+   * with no route yet, or for a pure organizational parent (Groei,
+   * Boekhouding, Beheer) that is not itself a destination. May itself
+   * contain a `/` to point at an existing sub-route of another module
+   * (e.g. "crm/opportunities") rather than that module's own top-level
+   * page -- this is still the same real screen, reached from a
+   * different, more business-relevant place in the navigation; it does
+   * not duplicate or fork that screen. */
   segment?: string;
   status: "available" | "planned";
+  /** Sub-destinations rendered in an always-visible nested list under
+   * this item. Absent (not an empty array) for a plain leaf item. */
+  children?: NavItem[];
 };
 
-export type NavGroup = {
-  key: string;
-  /** The business question/job this group answers -- shown as the
-   * group's own heading. Never a backend module name. */
-  label: string;
-  items: NavItem[];
-};
-
-// Each group answers one business question a non-technical owner would
-// actually ask (docs/ROADMAP.md's own "Core product principle"). Every
-// item's `label` is business language; every item's `segment` (where one
-// exists) is an existing, real, already-shipped screen -- this file only
-// re-labels and re-groups, it never invents a route.
-export const NAV_GROUPS: NavGroup[] = [
+export const NAV_ITEMS: NavItem[] = [
+  { key: "dashboard", label: "Dashboard", labelEn: "Dashboard", segment: "dashboard", status: "available" },
   {
-    key: "vandaag",
-    label: "Vandaag",
-    items: [{ key: "dashboard", label: "Vandaag", segment: "dashboard", status: "available" }],
-  },
-  {
-    key: "inbox",
+    key: "conversations",
     label: "Inbox",
-    items: [{ key: "conversations", label: "Inbox", segment: "conversations", status: "available" }],
-  },
-  {
-    // docs/ROADMAP.md Phase 29: surfaces the real, existing SaaS-OS
-    // `control_plane.approvals` mechanism -- never its own "technical
-    // module" the way Automation/AI/Billing deliberately are not
-    // top-level items, but a business-relevant, frequently-visited
-    // destination in its own right (reviewing pending decisions),
-    // exactly like Vandaag/Inbox/Agenda above.
-    key: "goedkeuringen",
-    label: "Goedkeuringen",
-    items: [
-      { key: "approvals", label: "Goedkeuringen", segment: "approvals", status: "available" },
+    labelEn: "Inbox",
+    segment: "conversations",
+    status: "available",
+    children: [
+      // No existing telephony route -- kept honestly "planned" rather
+      // than pointing at a fake page.
+      { key: "telephony", label: "Telefonie", labelEn: "Telephony", status: "planned" },
     ],
   },
+  { key: "crm", label: "Klanten", labelEn: "Customers", segment: "crm", status: "available" },
   {
-    key: "klanten",
-    label: "Klanten",
-    items: [
-      // "Overzicht," not "Klanten" again -- this item sits directly
-      // under the "Klanten" group heading, so repeating the same word as
-      // both the heading and the one link under it said nothing twice
-      // for no reason (caught by Navigation.test.tsx).
-      { key: "crm", label: "Overzicht", segment: "crm", status: "available" },
-      { key: "reputation", label: "Reviews", segment: "reputation", status: "available" },
-    ],
-  },
-  {
-    key: "agenda",
-    label: "Agenda",
-    items: [{ key: "appointments", label: "Agenda", segment: "appointments", status: "available" }],
-  },
-  {
-    key: "verkoop",
+    key: "opportunities",
     label: "Verkoop",
-    items: [
-      // Reuses the existing CRM opportunities screen unchanged -- Verkoop
-      // is a new front door onto real, already-shipped functionality, not
-      // a new module (docs/ROADMAP.md Phase 28 scope: "do not rebuild
-      // CRM"; "Verkoop can expose existing opportunity/pipeline/revenue
-      // -related functionality").
-      { key: "opportunities", label: "Verkoop", segment: "crm/opportunities", status: "available" },
+    labelEn: "Sales",
+    segment: "crm/opportunities",
+    status: "available",
+  },
+  { key: "appointments", label: "Agenda", labelEn: "Calendar", segment: "appointments", status: "available" },
+  {
+    // Organizational parent -- no route of its own (the approved IA
+    // calls for "Groei" as a real top-level item regardless of whether
+    // a single /growth landing page exists; its real children below are
+    // what make it a genuine destination, not a placeholder).
+    key: "growth",
+    label: "Groei",
+    labelEn: "Growth",
+    status: "available",
+    children: [
+      { key: "marketing", label: "Marketing", labelEn: "Marketing", segment: "marketing", status: "available" },
+      { key: "websites", label: "Websites", labelEn: "Websites", segment: "websites", status: "available" },
+      // No existing prospecting route either -- honestly "planned".
+      { key: "prospecting", label: "Prospectie", labelEn: "Prospecting", status: "planned" },
     ],
   },
   {
-    key: "marketing",
-    label: "Marketing",
-    items: [
-      { key: "marketing", label: "Marketing", segment: "marketing", status: "available" },
-      { key: "websites", label: "Websites", segment: "websites", status: "available" },
-    ],
+    key: "automation",
+    label: "Automatiseringen",
+    labelEn: "Automations",
+    segment: "automation",
+    status: "available",
   },
   {
-    key: "geld",
-    label: "Geld",
-    items: [
-      // Neither has a screen yet -- Billing (Phase 13) shipped backend
-      // only, and Accounting (Phase 24/25) has not started. Marked
-      // "planned" honestly rather than pretending either exists
-      // (docs/ROADMAP.md Phase 28 scope: "do not pretend that the
-      // accounting system already exists").
-      { key: "billing", label: "Facturatie", status: "planned" },
-      { key: "accounting", label: "Boekhouding", status: "planned" },
-    ],
+    // Accounting (Phase 24/25) has not started -- no route of its own,
+    // and its one existing related capability (Billing, Phase 13)
+    // shipped backend only. Both honestly "planned".
+    key: "accounting",
+    label: "Boekhouding",
+    labelEn: "Accounting",
+    status: "planned",
+    children: [{ key: "billing", label: "Facturatie", labelEn: "Billing", status: "planned" }],
   },
+  { key: "reputation", label: "Reputatie", labelEn: "Reputation", segment: "reputation", status: "available" },
+  // No standalone AI product page exists yet -- honestly "planned".
+  { key: "ai", label: "AI", labelEn: "AI", status: "planned" },
   {
-    key: "instellingen",
-    label: "Instellingen",
-    items: [
-      { key: "settings", label: "Instellingen", segment: "settings", status: "available" },
+    // Organizational parent -- administrative/product-management
+    // functionality, not itself a destination.
+    key: "manage",
+    label: "Beheer",
+    labelEn: "Manage",
+    status: "available",
+    children: [
+      {
+        key: "approvals",
+        label: "Goedkeuringen",
+        labelEn: "Approvals",
+        segment: "approvals",
+        status: "available",
+      },
+      { key: "settings", label: "Instellingen", labelEn: "Settings", segment: "settings", status: "available" },
       // Agency-only tenant administration (managing client businesses),
-      // not a "Klanten" (CRM/business-customer) concept -- kept distinct
-      // so the two are never confused, and grouped under Instellingen
-      // per docs/ROADMAP.md Phase 28's own "agency/platform-owner-only
-      // configuration may remain separate where required by
-      // authorization." Visibility of this screen for a given user is
-      // decided by the backend's own authorization exactly as before
-      // (per ADR-0011, never by a frontend `tenant_type`/`user_type`
-      // check) -- a tenant with no clients simply sees an empty list.
-      { key: "clients", label: "Klantbedrijven", segment: "clients", status: "available" },
-      { key: "automation", label: "Automatisering", segment: "automation", status: "available" },
-      { key: "telephony", label: "Telefonie", status: "planned" },
-      { key: "ai", label: "AI-assistent", status: "planned" },
-      { key: "prospecting", label: "Prospectie", status: "planned" },
+      // not a "Klanten" (CRM/business-customer) concept -- kept
+      // distinct so the two are never confused. Visibility of this
+      // screen for a given user is decided by the backend's own
+      // authorization exactly as before (per ADR-0011, never by a
+      // frontend `tenant_type`/`user_type` check) -- a tenant with no
+      // clients simply sees an empty list.
+      {
+        key: "clients",
+        label: "Klantbedrijven",
+        labelEn: "Client accounts",
+        segment: "clients",
+        status: "available",
+      },
     ],
   },
 ];
-
-/** Flattened view of `NAV_GROUPS`, in the same order -- kept for any
- * caller that only needs "every item," not the grouping (e.g. a future
- * search-all-destinations feature). Prefer `NAV_GROUPS` for anything
- * that renders navigation. */
-export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((group) => group.items);
