@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import DashboardPage from "./page";
 
 vi.mock("next/navigation", () => ({
@@ -27,6 +27,8 @@ const {
   loadAutomationActivityMock,
   loadTodaysAppointmentsMock,
   loadRecentContactsMock,
+  loadDashboardKpisMock,
+  loadPipelineSummaryMock,
   listApprovalsMock,
   listInboxMock,
 } = vi.hoisted(() => ({
@@ -34,6 +36,8 @@ const {
   loadAutomationActivityMock: vi.fn(),
   loadTodaysAppointmentsMock: vi.fn(),
   loadRecentContactsMock: vi.fn(),
+  loadDashboardKpisMock: vi.fn(),
+  loadPipelineSummaryMock: vi.fn(),
   listApprovalsMock: vi.fn(),
   listInboxMock: vi.fn(),
 }));
@@ -47,6 +51,8 @@ vi.mock("@/lib/dashboard/commandCenter", () => ({
   loadAutomationActivity: loadAutomationActivityMock,
   loadTodaysAppointments: loadTodaysAppointmentsMock,
   loadRecentContacts: loadRecentContactsMock,
+  loadDashboardKpis: loadDashboardKpisMock,
+  loadPipelineSummary: loadPipelineSummaryMock,
 }));
 
 vi.mock("@/lib/api/approvals", () => ({
@@ -62,6 +68,14 @@ function setDefaultMocks() {
   loadAutomationActivityMock.mockResolvedValue({ failed: [], recentlyCompleted: [] });
   loadTodaysAppointmentsMock.mockResolvedValue([]);
   loadRecentContactsMock.mockResolvedValue([]);
+  loadDashboardKpisMock.mockResolvedValue({
+    openOpportunities: null,
+    pipelineValueDecimal: null,
+    pipelineCurrency: null,
+    appointmentsToday: 0,
+    unreadConversations: 0,
+  });
+  loadPipelineSummaryMock.mockResolvedValue(null);
   listApprovalsMock.mockResolvedValue([]);
   listInboxMock.mockResolvedValue([]);
 }
@@ -176,6 +190,63 @@ describe("DashboardPage (Vandaag / Command Center)", () => {
     await waitFor(() => expect(screen.getByTestId("recent-activity-list")).toBeInTheDocument());
     expect(screen.getByText(/Jamie Vos/)).toBeInTheDocument();
     expect(screen.getByText(/Send booking confirmation/)).toBeInTheDocument();
+  });
+
+  it("renders the KPI strip from real command-center data, not a fabricated number", async () => {
+    setDefaultMocks();
+    loadDashboardKpisMock.mockResolvedValue({
+      openOpportunities: 5,
+      pipelineValueDecimal: 12345.67,
+      pipelineCurrency: "EUR",
+      appointmentsToday: 3,
+      unreadConversations: 2,
+    });
+
+    render(<DashboardPage />);
+
+    const strip = await screen.findByTestId("kpi-strip");
+    expect(within(strip).getByText("5")).toBeInTheDocument();
+    expect(within(strip).getByText("12345.67 EUR")).toBeInTheDocument();
+    expect(within(strip).getByText("3")).toBeInTheDocument();
+    expect(within(strip).getByText("2")).toBeInTheDocument();
+  });
+
+  it("shows an honest '—' KPI, never a fabricated value, when a KPI has no data yet", async () => {
+    setDefaultMocks();
+
+    render(<DashboardPage />);
+
+    const strip = await screen.findByTestId("kpi-strip");
+    expect(within(strip).getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("shows a pipeline empty state when the tenant has no pipeline yet", async () => {
+    setDefaultMocks();
+
+    render(<DashboardPage />);
+
+    expect(await screen.findByText("Nog geen pijplijn")).toBeInTheDocument();
+  });
+
+  it("renders real pipeline stages as a table, not a fabricated summary", async () => {
+    setDefaultMocks();
+    loadPipelineSummaryMock.mockResolvedValue({
+      pipelineName: "Sales",
+      currency: "EUR",
+      stages: [
+        { stageId: "s1", stageName: "New", isWon: false, isLost: false, dealCount: 3, valueDecimal: 900 },
+        { stageId: "s2", stageName: "Won", isWon: true, isLost: false, dealCount: 1, valueDecimal: 500 },
+      ],
+      openCount: 3,
+      openValueDecimal: 900,
+    });
+
+    render(<DashboardPage />);
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("New")).toBeInTheDocument();
+    expect(within(table).getByText("900.00 EUR")).toBeInTheDocument();
+    expect(within(table).getByText("Won")).toBeInTheDocument();
   });
 
   it("keeps the real client-business list and invite-teammate flow (existing functionality, not removed)", async () => {

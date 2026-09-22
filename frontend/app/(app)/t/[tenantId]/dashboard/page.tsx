@@ -1,14 +1,22 @@
 "use client";
 
-// "Vandaag" -- the Command Center (docs/ROADMAP.md Phase 28, replacing
-// the UI-2 module-launcher grid this page used to render). Answers "if I
-// have five minutes, what should I do?" using only real data: automation
-// activity, today's appointments, and recent CRM contacts, each
-// independently loaded/empty/error-stated
-// (components/today/*). No fabricated metric, count, or activity
-// anywhere on this page -- the same restraint the page already had
-// ("renders no fabricated metrics") now extended with real sections
-// instead of a placeholder-free void.
+// "Vandaag" -- the Command Center (docs/ROADMAP.md Phase 28, extended by
+// the dashboard-design integration with a KPI strip and a real pipeline
+// widget -- visual reference: design/dashboard-design-mockup/). Answers
+// "if I have five minutes, what should I do?" using only real data:
+// automation activity, today's appointments, recent CRM contacts, and
+// now open-pipeline/KPI data, each independently loaded/empty/error-
+// stated (components/today/*, components/dashboard/*). No fabricated
+// metric, count, or activity anywhere on this page -- the same restraint
+// the page already had ("renders no fabricated metrics") now extended
+// with real sections instead of a placeholder-free void.
+//
+// The dashboard-design integration is presentation only: KpiStrip and
+// PipelineWidget (components/dashboard/) read through
+// lib/dashboard/commandCenter.ts exactly like the existing
+// components/today/* sections already do, and DashboardGrid is a plain
+// CSS Grid layout wrapper with no data or business logic of its own --
+// nothing here forks the app's data/API/shell architecture.
 //
 // The agency "Clients" (client-business) list and the "Invite teammate"
 // flow are real, pre-existing functionality (UI-2) -- kept, not removed,
@@ -28,6 +36,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { ClientsList, InviteMemberPanel } from "@/components/agency";
 import { AttentionSection, UpcomingAppointmentsSection, RecentActivitySection } from "@/components/today";
+import { KpiStrip, PipelineWidget, DashboardGrid } from "@/components/dashboard";
 
 export default function DashboardPage() {
   const { user } = useSession();
@@ -42,28 +51,56 @@ export default function DashboardPage() {
         actions={<Button onClick={() => setInviteOpen(true)}>Invite teammate</Button>}
       />
 
-      <section aria-labelledby="attention-heading" style={{ marginBottom: "var(--space-5)" }}>
-        <h2 id="attention-heading" style={{ fontSize: "var(--font-size-md)" }}>
-          Vraagt uw aandacht
+      <section aria-labelledby="summary-heading" style={{ marginBottom: "var(--space-5)" }}>
+        <h2 id="summary-heading" style={{ fontSize: "var(--font-size-md)" }}>
+          Bedrijfsoverzicht
         </h2>
-        <AttentionSection tenantId={tenantId} />
+        <KpiStrip tenantId={tenantId} />
       </section>
 
-      <section aria-labelledby="upcoming-heading" style={{ marginBottom: "var(--space-5)" }}>
-        <h2 id="upcoming-heading" style={{ fontSize: "var(--font-size-md)" }}>
-          Vandaag op de agenda
-        </h2>
-        <UpcomingAppointmentsSection tenantId={tenantId} />
-      </section>
+      <DashboardGrid>
+        <section aria-labelledby="upcoming-heading">
+          <h2 id="upcoming-heading" style={{ fontSize: "var(--font-size-md)" }}>
+            Vandaag op de agenda
+          </h2>
+          <UpcomingAppointmentsSection tenantId={tenantId} />
+        </section>
 
-      <section aria-labelledby="recent-heading" style={{ marginBottom: "var(--space-5)" }}>
-        <h2 id="recent-heading" style={{ fontSize: "var(--font-size-md)" }}>
-          Onlangs gebeurd
-        </h2>
-        <RecentActivitySection tenantId={tenantId} />
-      </section>
+        <section aria-labelledby="attention-heading">
+          <h2 id="attention-heading" style={{ fontSize: "var(--font-size-md)" }}>
+            Vraagt uw aandacht
+          </h2>
+          <AttentionSection tenantId={tenantId} />
+        </section>
 
-      <section aria-labelledby="clients-heading">
+        <section aria-labelledby="pipeline-heading">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "var(--space-2)",
+            }}
+          >
+            <h2 id="pipeline-heading" style={{ fontSize: "var(--font-size-md)", margin: 0 }}>
+              Pijplijn
+            </h2>
+            <Link href={`/t/${tenantId}/crm/opportunities`} style={{ fontSize: "var(--font-size-sm)" }}>
+              Open verkoop →
+            </Link>
+          </div>
+          <PipelineWidget tenantId={tenantId} />
+        </section>
+
+        <section aria-labelledby="recent-heading">
+          <h2 id="recent-heading" style={{ fontSize: "var(--font-size-md)" }}>
+            Onlangs gebeurd
+          </h2>
+          <RecentActivitySection tenantId={tenantId} />
+        </section>
+      </DashboardGrid>
+
+      <section aria-labelledby="clients-heading" style={{ marginTop: "var(--space-5)" }}>
         <div
           style={{
             display: "flex",
