@@ -12,14 +12,25 @@ your review of that ADR's own durable-engine recommendation).
   calls in their own already-shipped, already-tested functions), and
   `scheduled` (time-based, via `product/automation/scheduled.py`'s own
   on-demand sweep).
-- Deferred, with a concrete reason each: "form submitted" (would need a
-  new `publish()` call in `product/marketing/forms.py`, out of this
-  phase's own narrow scope of "wire the library," not "instrument every
-  remaining module"), "payment received"/"invoice overdue" (Phase 15
-  Accounting does not exist yet -- 10.4's own stated dependency),
-  "email/SMS received" (Conversations' own SMS/WhatsApp inbound path is
-  itself still PARTIAL, no real vendor -- `product/conversations/sms.py`),
-  "review received" (Phase 12 Reputation does not exist yet).
+- Wired by Phase 22 ("Lead Capture & Qualification Loop"): "form
+  submitted" -- what this docstring originally deferred, verbatim, is now
+  done: `marketing.lead_captured` (a one-line `publish()` call added to
+  the already-shipped `product/marketing/forms.py::submit_form()`) and
+  `websites.lead_captured` (published by the new
+  `product/websites/leads.py::capture_lead()`) are both real trigger
+  types now, and Phase 22 also adds one new CRM-writing action,
+  `assign_opportunity` (see `product/automation/actions.py`'s own
+  docstring), extending the `docs/ADR/0008-...` edge this module already
+  had -- no new import-linter edge was needed for either change (event
+  subscription is by string, not by import; the new action reuses the
+  same already-approved `product.automation -> product.crm` edge).
+- Still deferred, with a concrete reason each: "payment received"/
+  "invoice overdue" (Phase 15/24 Accounting does not exist yet -- 10.4's
+  own stated dependency), "email/SMS received" (Conversations' own
+  SMS/WhatsApp inbound path is itself still PARTIAL, no real vendor --
+  `product/conversations/sms.py`), "review received" (Phase 12
+  Reputation's own automation integration is itself explicitly deferred,
+  `docs/ADR/0010-...`'s own "Deferred: Automation Integration" section).
 
 **Execution is synchronous, in-process, never `infra.jobs`** -- see
 `docs/ADR/0007-automation-execution-substrate.md` for the full

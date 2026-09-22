@@ -11,6 +11,7 @@ import { listOpportunities, listPipelines, listStages, type Opportunity } from "
 import { formatMoney } from "@/lib/crm/money";
 import { useCrmList } from "@/lib/hooks/useCrmList";
 import { CrmListView } from "./CrmListView";
+import { Badge } from "@/components/ui/Badge";
 import type { DataTableColumn } from "@/components/ui/DataTable";
 
 export function OpportunitiesList({
@@ -44,6 +45,18 @@ export function OpportunitiesList({
     { key: "name", header: "Name", render: (o) => o.name },
     { key: "stage", header: "Stage", render: (o) => stageNames[o.stage_id] ?? "…" },
     { key: "amount", header: "Amount", render: (o) => formatMoney(o.amount) },
+    {
+      key: "assigned",
+      header: "Toegewezen",
+      // docs/ROADMAP.md Phase 22's own acceptance criterion: an
+      // unassigned lead must be visibly distinguishable from an
+      // assigned one.
+      render: (o) => (
+        <Badge tone={o.assigned_user_id ? "success" : "neutral"}>
+          {o.assigned_user_id ? "Toegewezen" : "Niet toegewezen"}
+        </Badge>
+      ),
+    },
   ];
 
   return (

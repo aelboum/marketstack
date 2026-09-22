@@ -69,6 +69,7 @@ from product.crm.imports import (
     get_import_job,
 )
 from product.crm.opportunities import (
+    assign_opportunity,
     change_stage,
     create_opportunity,
     delete_opportunity,
@@ -182,6 +183,10 @@ class ChangeStageRequest(BaseModel):
     stage_id: uuid.UUID
 
 
+class AssignOpportunityRequest(BaseModel):
+    assigned_user_id: uuid.UUID | None = None
+
+
 class CreateTaskRequest(BaseModel):
     title: str
     description: str | None = None
@@ -241,6 +246,7 @@ def _opportunity_dict(view) -> dict[str, object]:
         "company_id": str(view.company_id) if view.company_id else None,
         "pipeline_id": str(view.pipeline_id),
         "stage_id": str(view.stage_id),
+        "assigned_user_id": str(view.assigned_user_id) if view.assigned_user_id else None,
         "amount": str(view.amount) if view.amount else None,
         "created_at": view.created_at.isoformat(),
         "updated_at": view.updated_at.isoformat(),
@@ -611,6 +617,18 @@ def change_stage_route(
 ) -> dict[str, object]:
     return _opportunity_dict(
         _call(change_stage, actor_id, tenant_id, opportunity_id, body.stage_id)
+    )
+
+
+@router.post("/tenants/{tenant_id}/opportunities/{opportunity_id}/assign")
+def assign_opportunity_route(
+    tenant_id: uuid.UUID,
+    opportunity_id: uuid.UUID,
+    body: AssignOpportunityRequest,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> dict[str, object]:
+    return _opportunity_dict(
+        _call(assign_opportunity, actor_id, tenant_id, opportunity_id, body.assigned_user_id)
     )
 
 

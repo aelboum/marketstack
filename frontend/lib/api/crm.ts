@@ -50,6 +50,9 @@ export type Opportunity = {
   company_id: string | null;
   pipeline_id: string;
   stage_id: string;
+  /** docs/ROADMAP.md Phase 22. `null` means unassigned -- the state
+   * every opportunity is already in before this phase. */
+  assigned_user_id: string | null;
   /** `"<decimal> <CURRENCY>"` (e.g. `"1500.00 USD"`), or `null` -- see
    * lib/crm/money.ts for parsing/formatting. */
   amount: string | null;
@@ -337,6 +340,17 @@ export function changeOpportunityStage(
   return request<Opportunity>(`/v1/crm/tenants/${tenantId}/opportunities/${opportunityId}/stage`, {
     method: "POST",
     body: { stage_id: stageId },
+  });
+}
+
+export function assignOpportunity(
+  tenantId: string,
+  opportunityId: string,
+  assignedUserId: string | null,
+): Promise<Opportunity> {
+  return request<Opportunity>(`/v1/crm/tenants/${tenantId}/opportunities/${opportunityId}/assign`, {
+    method: "POST",
+    body: { assigned_user_id: assignedUserId },
   });
 }
 

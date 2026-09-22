@@ -36,6 +36,7 @@ from core.audit_log import ActorType, AuditOutcome, record
 from infra.db import select, session_scope, tenant_session_scope
 
 from product.crm.contacts import create_or_update_contact_from_trusted_source
+from product.foundation.events import Event, publish
 from product.marketing.errors import (
     MarketingFormTokenInvalidError,
     MarketingReferenceNotFoundError,
@@ -50,6 +51,9 @@ from product.marketing.models import (
 )
 from product.marketing.pagination import DEFAULT_PAGE_SIZE, clamp_limit
 from product.marketing.permissions import FORM_RESOURCE, require
+
+LEAD_CAPTURED_EVENT_TYPE = "marketing.lead_captured"
+LEAD_CAPTURED_EVENT_VERSION = 1
 
 _FORM_TOKEN_BYTES = 32  # mirrors core/identity/service.py's own invitation-token byte length
 
@@ -308,7 +312,13 @@ def submit_form(form_token: str, submitted_fields: dict[str, str]) -> FormSubmis
     `product.crm.contacts.create_or_update_contact_from_trusted_source()`
     to find-or-create the CRM contact. A form with no email field (or one
     left blank despite not being marked required) still records the
-    submission, with `contact_id=None` -- never blocked."""
+    submission, with `contact_id=None` -- never blocked.
+
+    docs/ROADMAP.md Phase 22: publishes `LEAD_CAPTURED_EVENT_TYPE` via the
+    existing plain `product.foundation.events.publish()` once a real
+    `contact_id` was matched/created -- never for a submission with no
+    contact (there is no lead to act on), and only after the submission
+    row and audit entry above have already been written."""
     form = resolve_form_by_token(form_token)
     if form is None:
         raise MarketingFormTokenInvalidError(f"unknown form token: {form_token!r}")
@@ -370,4 +380,21 @@ def submit_form(form_token: str, submitted_fields: dict[str, str]) -> FormSubmis
         # requirement.
         metadata={"form_id": str(form.id), "contact_id": str(contact_id) if contact_id else None},
     )
+    if contact_id is not None:
+        # Only when a real contact was matched/created -- a submission
+        # with no email field (or a blank one) records no lead to act on,
+        # and product.automation's own trigger keys off `contact_id`
+        # (docs/ROADMAP.md Phase 22, scope item (b)/(d)).
+        publish(
+            Event(
+                type=LEAD_CAPTURED_EVENT_TYPE,
+                version=LEAD_CAPTURED_EVENT_VERSION,
+                tenant_id=str(form.tenant_id),
+                payload={
+                    "contact_id": str(contact_id),
+                    "form_id": str(form.id),
+                    "submission_id": str(submission_id),
+                },
+            )
+        )
     return FormSubmissionResult(submission_id=submission_id, contact_id=contact_id)

@@ -1,4 +1,5 @@
-"""Opportunity CRUD and stage transitions (docs/ROADMAP.md Phase 4.2).
+"""Opportunity CRUD, stage transitions, and assignment (docs/ROADMAP.md
+Phase 4.2, extended by Phase 22).
 
 `amount`, if supplied to `create_opportunity`/`update_opportunity`, is a
 `product.foundation.values.Money` instance -- converted to
@@ -18,6 +19,14 @@ subscriber needs it). Only non-sensitive identifiers go in the audit
 metadata and event payload -- never the opportunity's own name or amount,
 which are business-record contents, not the "what happened, by whom"
 audit/event contract.
+
+`assign_opportunity()` (docs/ROADMAP.md Phase 22) publishes no event of
+its own -- unlike a stage change, the roadmap names no subscriber for an
+assignment change, and this module does not speculatively invent one
+(`docs/ROADMAP.md`'s own "no scope beyond what's specified" discipline).
+`product.automation`'s own new `assign_opportunity` action calls this
+function directly, as an *action* a workflow performs, never as a
+*reaction* to an event this function would need to publish.
 """
 
 from __future__ import annotations
@@ -27,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from core.audit_log import ActorType, AuditOutcome, record
+from core.identity import get_membership
 from infra.db import select, tenant_session_scope
 
 from product.crm.errors import CrmReferenceNotFoundError
@@ -50,6 +60,7 @@ class OpportunityView:
     company_id: uuid.UUID | None
     pipeline_id: uuid.UUID
     stage_id: uuid.UUID
+    assigned_user_id: uuid.UUID | None
     amount: Money | None
     created_at: datetime
     updated_at: datetime
@@ -69,6 +80,7 @@ def _to_view(row: Opportunity) -> OpportunityView:
         company_id=row.company_id,
         pipeline_id=row.pipeline_id,
         stage_id=row.stage_id,
+        assigned_user_id=row.assigned_user_id,
         amount=amount,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -280,5 +292,47 @@ def change_stage(
                 "to_stage_id": str(new_stage_id),
             },
         )
+    )
+    return _to_view(row)
+
+
+def assign_opportunity(
+    actor_user_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    opportunity_id: uuid.UUID,
+    assigned_user_id: uuid.UUID | None,
+) -> OpportunityView:
+    """Sets or clears an opportunity's owner (docs/ROADMAP.md Phase 22,
+    scope item (c)). An ordinary CRM mutation, gated by the same
+    `OPPORTUNITY_RESOURCE`/`"update"` permission `update_opportunity()`
+    and `change_stage()` already use -- never a new authorization path.
+
+    `assigned_user_id=None` unassigns (a supported, audited transition,
+    not an error). A non-`None` value must name a real tenant member --
+    `core.identity.get_membership()`, the identical IDOR-adjacent check
+    `product/conversations/threads.py::assign_thread()` already performs
+    for the same category of "assignee must actually be able to see this
+    tenant's data" reason -- there is no composite FK to fall back on for
+    this check (`core.users` is a global table, module docstring)."""
+    require(actor_user_id, tenant_id, resource=OPPORTUNITY_RESOURCE, action="update")
+    if assigned_user_id is not None and get_membership(tenant_id, assigned_user_id) is None:
+        raise CrmReferenceNotFoundError("assignee", assigned_user_id)
+    with tenant_session_scope(tenant_id) as session:
+        row = session.get(Opportunity, opportunity_id)
+        if row is None or row.tenant_id != tenant_id:
+            raise CrmReferenceNotFoundError("opportunity", opportunity_id)
+        row.assigned_user_id = assigned_user_id
+        session.flush()
+        session.refresh(row)
+        session.expunge(row)
+    record(
+        tenant_id=tenant_id,
+        actor_type=ActorType.USER,
+        actor_user_id=actor_user_id,
+        action="crm.opportunity.assigned",
+        resource_type="crm.opportunity",
+        resource_id=str(row.id),
+        outcome=AuditOutcome.SUCCESS,
+        metadata={"assigned_user_id": str(assigned_user_id) if assigned_user_id else None},
     )
     return _to_view(row)

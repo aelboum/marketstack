@@ -91,7 +91,7 @@ from core.email.errors import EmailConfigurationError, EmailProviderError, Inval
 from product.automation.errors import AutomationActionError, AutomationValidationError
 from product.crm.activities import create_task
 from product.crm.contacts import update_contact
-from product.crm.opportunities import change_stage
+from product.crm.opportunities import assign_opportunity, change_stage
 from product.foundation.workflow_actions import (
     UnknownWorkflowActionError,
     WorkflowActionRegistry,
@@ -106,6 +106,7 @@ WEBHOOK_TIMEOUT_SECONDS = 5.0
 ACTION_CREATE_TASK = "create_task"
 ACTION_UPDATE_CONTACT = "update_contact"
 ACTION_MOVE_OPPORTUNITY = "move_opportunity"
+ACTION_ASSIGN_OPPORTUNITY = "assign_opportunity"
 ACTION_SEND_EMAIL = "send_email"
 ACTION_SEND_WEBHOOK = "send_webhook"
 # Phase 10.4A. The literal string, not an import of
@@ -123,6 +124,7 @@ ACTIONS = frozenset(
         ACTION_CREATE_TASK,
         ACTION_UPDATE_CONTACT,
         ACTION_MOVE_OPPORTUNITY,
+        ACTION_ASSIGN_OPPORTUNITY,
         ACTION_SEND_EMAIL,
         ACTION_SEND_WEBHOOK,
         ACTION_AI_QUALIFY_LEAD,
@@ -240,6 +242,39 @@ def _execute_move_opportunity(
         raise AutomationValidationError("action_config.to_stage_id must be a valid UUID.") from exc
     view = change_stage(actor_user_id, tenant_id, opportunity_id, to_stage_id)
     return {"opportunity_id": str(view.id), "stage_id": str(view.stage_id)}
+
+
+# --- assign_opportunity (docs/ROADMAP.md Phase 22) -------------------------
+
+
+def _execute_assign_opportunity(
+    actor_user_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    action_config: Mapping[str, object],
+    payload: Mapping[str, object],
+) -> dict[str, object]:
+    """Assigns to a fixed, tenant-configured `assigned_user_id` -- the
+    same "simple deterministic rule" shape `move_opportunity`'s own
+    fixed-`to_stage_id` config already uses, never a round-robin/rotation
+    strategy (docs/ROADMAP.md Phase 22's own "assign to whoever owns the
+    pipeline... in the meantime" note names this as sufficient until
+    Phase 26's real AI vendor exists; rotation state is a materially
+    larger feature this phase does not need)."""
+    trigger_ids = _extract_trigger_ids(payload)
+    opportunity_id = trigger_ids.get("opportunity_id")
+    if opportunity_id is None:
+        raise AutomationActionError(
+            "assign_opportunity requires an opportunity_id in the triggering event's own payload."
+        )
+    assigned_user_id_raw = _config_string(action_config, "assigned_user_id", required=True)
+    try:
+        assigned_user_id = uuid.UUID(assigned_user_id_raw)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise AutomationValidationError(
+            "action_config.assigned_user_id must be a valid UUID."
+        ) from exc
+    view = assign_opportunity(actor_user_id, tenant_id, opportunity_id, assigned_user_id)
+    return {"opportunity_id": str(view.id), "assigned_user_id": str(view.assigned_user_id)}
 
 
 # --- send_email -------------------------------------------------------------
@@ -365,6 +400,16 @@ def _validate_move_opportunity_config(action_config: Mapping[str, object]) -> No
         raise AutomationValidationError("action_config.to_stage_id must be a valid UUID.") from exc
 
 
+def _validate_assign_opportunity_config(action_config: Mapping[str, object]) -> None:
+    raw = _config_string(action_config, "assigned_user_id", required=True)
+    try:
+        uuid.UUID(raw)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise AutomationValidationError(
+            "action_config.assigned_user_id must be a valid UUID."
+        ) from exc
+
+
 def _validate_send_email_config(action_config: Mapping[str, object]) -> None:
     _config_string(action_config, "to", required=True)
     _config_string(action_config, "subject", required=True)
@@ -417,6 +462,11 @@ def _build_registry() -> WorkflowActionRegistry:
             name=ACTION_MOVE_OPPORTUNITY,
             validate_config=_validate_move_opportunity_config,
             execute=_execute_move_opportunity,
+        ),
+        WorkflowActionSpec(
+            name=ACTION_ASSIGN_OPPORTUNITY,
+            validate_config=_validate_assign_opportunity_config,
+            execute=_execute_assign_opportunity,
         ),
         WorkflowActionSpec(
             name=ACTION_SEND_EMAIL,
@@ -506,6 +556,7 @@ def execute_action(
 __all__ = [
     "ACTIONS",
     "ACTION_AI_QUALIFY_LEAD",
+    "ACTION_ASSIGN_OPPORTUNITY",
     "ACTION_CREATE_TASK",
     "ACTION_MOVE_OPPORTUNITY",
     "ACTION_SEND_EMAIL",

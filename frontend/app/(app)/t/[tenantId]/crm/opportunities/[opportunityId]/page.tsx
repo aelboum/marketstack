@@ -19,7 +19,14 @@ import { ConfirmDialog } from "@/components/ui/Dialog";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 import { LoadingState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
-import { OpportunityForm, ActivitiesPanel, TagsPanel, CustomFieldsPanel } from "@/components/crm";
+import {
+  OpportunityForm,
+  AssignOpportunityForm,
+  ActivitiesPanel,
+  TagsPanel,
+  CustomFieldsPanel,
+} from "@/components/crm";
+import { Badge } from "@/components/ui/Badge";
 
 function StageChanger({
   tenantId,
@@ -117,6 +124,34 @@ export default function OpportunityDetailPage() {
               pipelineId={opportunity.pipeline_id}
               currentStageId={opportunity.stage_id}
               onChanged={query.refetch}
+            />
+          </Card>
+        </section>
+
+        <section aria-labelledby="assignment-heading">
+          <h2 id="assignment-heading" style={{ fontSize: "var(--font-size-md)" }}>
+            Toewijzing
+          </h2>
+          <Card>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                alignItems: "center",
+                marginBottom: "var(--space-3)",
+              }}
+            >
+              <Badge tone={opportunity.assigned_user_id ? "success" : "neutral"}>
+                {opportunity.assigned_user_id
+                  ? `Toegewezen aan ${opportunity.assigned_user_id}`
+                  : "Niet toegewezen"}
+              </Badge>
+            </div>
+            <AssignOpportunityForm
+              tenantId={tenantId}
+              opportunityId={opportunity.id}
+              currentAssignedUserId={opportunity.assigned_user_id}
+              onAssigned={() => query.refetch()}
             />
           </Card>
         </section>

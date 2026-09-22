@@ -97,6 +97,10 @@ MAX_WEBSITE_NAME_LENGTH = 255
 MAX_SLUG_LENGTH = 63
 MAX_CUSTOM_DOMAIN_LENGTH = 255
 MAX_PAGE_TITLE_LENGTH = 255
+MAX_LEAD_NAME_LENGTH = 255
+MAX_LEAD_EMAIL_LENGTH = 255
+MAX_LEAD_PHONE_LENGTH = 32
+MAX_LEAD_MESSAGE_LENGTH = 2000
 
 STATUS_DRAFT = "draft"
 STATUS_PUBLISHED = "published"
@@ -146,6 +150,12 @@ class Page(Base):
             name="fk_websites_pages_tenant_website",
             ondelete="CASCADE",
         ),
+        # docs/ROADMAP.md Phase 22: added so `LeadSubmission.page_id` can
+        # composite-FK against this table -- `Page` was never itself a
+        # composite-FK target before Phase 22 (nothing referenced it), so
+        # this constraint did not exist until now (migration
+        # `0050_create_websites_lead_submissions_table`).
+        UniqueConstraint("tenant_id", "id", name="uq_websites_pages_tenant_id_id"),
         UniqueConstraint(
             "tenant_id", "website_id", "slug", name="uq_websites_pages_tenant_website_slug"
         ),
@@ -174,14 +184,87 @@ class Page(Base):
     )
 
 
+class LeadSubmission(Base):
+    """A lead captured through a published page's own lead-capture form
+    (docs/ROADMAP.md Phase 22). Ordinary RLS-scoped, tenant-owned data,
+    reached only after `Website`/`Page` lookup has already established
+    `tenant_id` -- exactly `Page`'s own relationship to `Website`.
+
+    `contact_id` is the real `crm.contacts` row
+    `product/websites/leads.py::capture_lead()` finds-or-creates via
+    `product.crm.contacts.create_or_update_contact_from_trusted_source()`
+    (`docs/ADR/0015-websites-depends-on-crm.md`) -- **column-scoped**
+    `ON DELETE SET NULL (contact_id)`, mirroring
+    `product/appointments/models.py::Appointment.contact_id`'s identical,
+    correct shape (never a bare `SET NULL`, which would null every column
+    in the composite FK including the `NOT NULL` `tenant_id`): deleting a
+    contact must not destroy the lead-submission record, only unlink it.
+
+    `first_name`/`last_name`/`email`/`phone`/`message` are the raw
+    submitted values, kept here (not only inside the CRM contact) so a
+    submission's own original context survives even if the linked
+    contact's fields are later edited by staff -- mirrors
+    `product/marketing/models.py::MarketingFormSubmission.submitted_data`'s
+    identical "the submission is its own historical record" reasoning.
+    `message` is free text, bounded (`MAX_LEAD_MESSAGE_LENGTH`), never an
+    unrestricted blob.
+    """
+
+    __tablename__ = "lead_submissions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "website_id"],
+            ["websites.websites.tenant_id", "websites.websites.id"],
+            name="fk_websites_lead_submissions_tenant_website",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "page_id"],
+            ["websites.pages.tenant_id", "websites.pages.id"],
+            name="fk_websites_lead_submissions_tenant_page",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["crm.contacts.tenant_id", "crm.contacts.id"],
+            name="fk_websites_lead_submissions_tenant_contact",
+            ondelete="SET NULL (contact_id)",
+        ),
+        Index("ix_websites_lead_submissions_tenant_id", "tenant_id"),
+        Index("ix_websites_lead_submissions_website_id", "website_id"),
+        Index("ix_websites_lead_submissions_page_id", "page_id"),
+        Index("ix_websites_lead_submissions_contact_id", "contact_id"),
+        {"schema": "websites"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    website_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    page_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    first_name: Mapped[str] = mapped_column(String(MAX_LEAD_NAME_LENGTH), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(MAX_LEAD_NAME_LENGTH), nullable=False)
+    email: Mapped[str] = mapped_column(String(MAX_LEAD_EMAIL_LENGTH), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(MAX_LEAD_PHONE_LENGTH), nullable=True)
+    message: Mapped[str | None] = mapped_column(String(MAX_LEAD_MESSAGE_LENGTH), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
 __all__ = [
     "MAX_CUSTOM_DOMAIN_LENGTH",
+    "MAX_LEAD_EMAIL_LENGTH",
+    "MAX_LEAD_MESSAGE_LENGTH",
+    "MAX_LEAD_NAME_LENGTH",
+    "MAX_LEAD_PHONE_LENGTH",
     "MAX_PAGE_TITLE_LENGTH",
     "MAX_SLUG_LENGTH",
     "MAX_WEBSITE_NAME_LENGTH",
     "PAGE_STATUSES",
     "STATUS_DRAFT",
     "STATUS_PUBLISHED",
+    "LeadSubmission",
     "Page",
     "Website",
 ]

@@ -14,8 +14,10 @@ from fastapi.testclient import TestClient
 from product.agency.provisioning import provision_agency, provision_client
 from product.api.main import create_app
 from product.crm.contacts import get_contact
+from product.foundation.events import subscribe
 from product.marketing.errors import MarketingFormTokenInvalidError, MarketingValidationError
 from product.marketing.forms import (
+    LEAD_CAPTURED_EVENT_TYPE,
     FormFieldDefinition,
     create_form,
     resolve_form_by_token,
@@ -295,4 +297,52 @@ def test_full_form_flow_over_http() -> None:
     finally:
         ids = [i for i in (client_tenant_id, agency_tenant_id) if i is not None]
         cleanup_tenant_tree(*ids)
+        cleanup_users(owner.id)
+
+
+def test_submit_form_with_a_contact_publishes_lead_captured_event() -> None:
+    """docs/ROADMAP.md Phase 22, scope item (b): a real contact match/
+    create publishes `marketing.lead_captured`, with a bounded payload
+    (identifiers only, never raw name/email/phone)."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    received = []
+    subscribe(LEAD_CAPTURED_EVENT_TYPE, received.append)
+    try:
+        form = create_form(owner.id, client.tenant_id, name="Lead Form", fields=_standard_fields())
+        result = submit_form(form.form_token, {"email": "leadevent@example.com", "name": "Lea D"})
+
+        matching = [e for e in received if e.tenant_id == str(client.tenant_id)]
+        assert len(matching) == 1
+        assert matching[0].payload == {
+            "contact_id": str(result.contact_id),
+            "form_id": str(form.id),
+            "submission_id": str(result.submission_id),
+        }
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+def test_submit_form_without_a_contact_publishes_no_event() -> None:
+    """A submission with no email field yields `contact_id=None` -- no
+    lead to act on, so no event fires."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    received = []
+    subscribe(LEAD_CAPTURED_EVENT_TYPE, received.append)
+    try:
+        form = create_form(
+            owner.id,
+            client.tenant_id,
+            name="No Email Form",
+            fields=[FormFieldDefinition(name="name", field_type="text", required=False)],
+        )
+        result = submit_form(form.form_token, {"name": "No Email"})
+        assert result.contact_id is None
+
+        matching = [e for e in received if e.tenant_id == str(client.tenant_id)]
+        assert matching == []
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)

@@ -4,6 +4,7 @@ const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }));
 vi.mock("./client", () => ({ request: requestMock }));
 
 import {
+  assignOpportunity,
   attachTag,
   changeOpportunityStage,
   createCompany,
@@ -123,6 +124,24 @@ describe("crm API functions -- exact request shape sent to the real routes", () 
     expect(requestMock).toHaveBeenCalledWith("/v1/crm/tenants/t1/opportunities/o1/stage", {
       method: "POST",
       body: { stage_id: "s2" },
+    });
+  });
+
+  it("assignOpportunity() -> POST .../assign", async () => {
+    requestMock.mockResolvedValue({});
+    await assignOpportunity("t1", "o1", "u1");
+    expect(requestMock).toHaveBeenCalledWith("/v1/crm/tenants/t1/opportunities/o1/assign", {
+      method: "POST",
+      body: { assigned_user_id: "u1" },
+    });
+  });
+
+  it("assignOpportunity() with null unassigns", async () => {
+    requestMock.mockResolvedValue({});
+    await assignOpportunity("t1", "o1", null);
+    expect(requestMock).toHaveBeenCalledWith("/v1/crm/tenants/t1/opportunities/o1/assign", {
+      method: "POST",
+      body: { assigned_user_id: null },
     });
   });
 

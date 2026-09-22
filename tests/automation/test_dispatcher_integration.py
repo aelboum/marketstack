@@ -18,6 +18,9 @@ from product.automation.workflows import create_workflow, list_workflow_runs
 from product.crm.contacts import create_contact, get_contact
 from product.crm.opportunities import change_stage, create_opportunity, get_opportunity
 from product.crm.pipelines import create_pipeline, create_stage
+from product.websites.leads import capture_lead
+from product.websites.pages import create_page, publish_page
+from product.websites.websites import create_website
 
 from tests.automation._cleanup import cleanup_tenant_tree, cleanup_users, make_user
 
@@ -313,3 +316,129 @@ def test_concurrent_triggers_each_create_exactly_one_run() -> None:
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
+
+
+def _cleanup_websites_rows(tenant_id: uuid.UUID) -> None:
+    """A one-off extension for the single cross-domain test below, which
+    creates real `websites.*` rows that `tests/automation/_cleanup.py`'s
+    own `cleanup_tenant_tree()` does not know about (that module has no
+    reason to compose `tests.websites._cleanup`, and `tests.websites
+    ._cleanup` in turn has no reason to compose automation's own tables)
+    -- deleted explicitly here, leaf to root, before the shared
+    `cleanup_tenant_tree()` call handles automation/CRM/idempotency/
+    agency."""
+    from infra.db import session_scope, tenant_session_scope
+    from sqlalchemy import text
+
+    with tenant_session_scope(tenant_id) as session:
+        session.execute(
+            text("DELETE FROM websites.lead_submissions WHERE tenant_id = :t"),
+            {"t": str(tenant_id)},
+        )
+        session.execute(
+            text("DELETE FROM websites.pages WHERE tenant_id = :t"), {"t": str(tenant_id)}
+        )
+    with session_scope() as session:
+        session.execute(
+            text("DELETE FROM websites.websites WHERE tenant_id = :t"), {"t": str(tenant_id)}
+        )
+
+
+def test_website_lead_captured_trigger_fires_action_end_to_end() -> None:
+    """docs/ROADMAP.md Phase 22, scope item (d): `websites.lead_captured`
+    -> `create_task` -- a real cross-domain trigger (Websites' own new
+    capture path), not just a passing unit test for the event constant."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        workflow = create_workflow(
+            owner.id,
+            client.tenant_id,
+            name="Task on website lead",
+            trigger_type="websites.lead_captured",
+            action_type="create_task",
+            action_config={"title": "Follow up with new lead"},
+        )
+
+        website = create_website(owner.id, client.tenant_id, slug=_name("site"), name="Site")
+        page = create_page(owner.id, client.tenant_id, website.id, slug=_name("home"), title="Home")
+        publish_page(owner.id, client.tenant_id, page.id)
+        result = capture_lead(
+            client.tenant_id,
+            website.id,
+            page.id,
+            first_name="Jane",
+            last_name="Doe",
+            email="trigger@example.com",
+            phone=None,
+            message=None,
+            idempotency_key="trigger-key",
+        )
+
+        runs = list_workflow_runs(owner.id, client.tenant_id, workflow.id)
+        assert len(runs) == 1
+        assert runs[0].status == RUN_STATUS_SUCCESS
+
+        from product.crm.activities import TaskView, list_activities
+        from product.websites.leads import list_lead_submissions
+
+        submission = list_lead_submissions(owner.id, client.tenant_id, website.id)[0]
+        assert submission.id == result.submission_id
+        activities = list_activities(owner.id, client.tenant_id, contact_id=submission.contact_id)
+        assert any(
+            isinstance(a, TaskView) and a.title == "Follow up with new lead" for a in activities
+        )
+    finally:
+        _cleanup_websites_rows(client.tenant_id)
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+def test_assign_opportunity_action_end_to_end() -> None:
+    """docs/ROADMAP.md Phase 22, scope item (c)/(d): `crm.opportunity
+    .stage_changed` -> `assign_opportunity` -- the new action, exercised
+    through the real dispatcher, not called directly."""
+    owner = make_user()
+    member = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        from core.identity import add_tenant_membership
+        from core.rbac import RoleScope, assign_role
+        from product.agency.roles import ensure_client_member_role
+
+        membership = add_tenant_membership(client.tenant_id, member.id)
+        member_role = ensure_client_member_role(client.tenant_id)
+        assign_role(
+            client.tenant_id,
+            membership.id,
+            member_role.id,
+            scope=RoleScope.SELF,
+            actor_user_id=owner.id,
+        )
+
+        pipeline = create_pipeline(owner.id, client.tenant_id, name="Sales")
+        open_stage = create_stage(owner.id, client.tenant_id, pipeline.id, name="Open", position=0)
+        won_stage = create_stage(owner.id, client.tenant_id, pipeline.id, name="Won", position=1)
+        opportunity = create_opportunity(
+            owner.id,
+            client.tenant_id,
+            name="Deal",
+            pipeline_id=pipeline.id,
+            stage_id=open_stage.id,
+        )
+
+        create_workflow(
+            owner.id,
+            client.tenant_id,
+            name="Assign on won",
+            trigger_type="crm.opportunity.stage_changed",
+            action_type="assign_opportunity",
+            action_config={"assigned_user_id": str(member.id)},
+        )
+        change_stage(owner.id, client.tenant_id, opportunity.id, won_stage.id)
+
+        updated = get_opportunity(owner.id, client.tenant_id, opportunity.id)
+        assert updated.assigned_user_id == member.id
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id, member.id)

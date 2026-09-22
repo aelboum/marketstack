@@ -246,9 +246,14 @@ def create_or_update_contact_from_trusted_source(
     yet, each narrowly named/documented so no ordinary caller reaches for
     it by accident).
 
-    Reserved exclusively for `product/marketing/forms.py`'s public,
-    unauthenticated form-submission handler (docs/ROADMAP.md Phase 6.3)
-    -- the one legitimately anonymous write path in this entire product.
+    Reserved exclusively for the small, closed set of public,
+    unauthenticated capture paths this product deliberately grants an edge
+    to CRM for (`docs/ADR/0005-marketing-and-appointments-depend-on-crm.md`,
+    `docs/ADR/0015-websites-depends-on-crm.md`): `product/marketing/forms.py
+    ::submit_form()` (docs/ROADMAP.md Phase 6.3), `product/appointments
+    /booking.py::book_appointment()`'s public path (Phase 7.2), and
+    `product/websites/leads.py::capture_lead()` (Phase 22) -- each a
+    legitimately anonymous write path, never a fourth without its own ADR.
     Never call this from any authenticated route or service function that
     already has a real `actor_user_id` available; use `create_contact()`/
     `update_contact()` there instead, which correctly enforce

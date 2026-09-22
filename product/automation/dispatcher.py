@@ -76,6 +76,13 @@ TRIGGER_EVENT_TYPES = (
     "crm.contact.created",
     "appointments.appointment.booked",
     "telephony.call.completed",
+    # docs/ROADMAP.md Phase 22, scope item (d): two lead-capture events,
+    # one per capture surface (Marketing's own existing form, Websites'
+    # new one) -- both carry `contact_id`, the same resource id shape
+    # `crm.contact.created` already uses, so no new dedup-key handling is
+    # needed beyond the one line each adds below.
+    "marketing.lead_captured",
+    "websites.lead_captured",
 )
 
 _TRIGGER_ID_FIELD_BY_EVENT_TYPE: dict[str, str] = {
@@ -83,6 +90,8 @@ _TRIGGER_ID_FIELD_BY_EVENT_TYPE: dict[str, str] = {
     "crm.contact.created": "contact_id",
     "appointments.appointment.booked": "appointment_id",
     "telephony.call.completed": "call_id",
+    "marketing.lead_captured": "contact_id",
+    "websites.lead_captured": "contact_id",
 }
 
 

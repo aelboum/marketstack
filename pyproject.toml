@@ -360,12 +360,11 @@ forbidden_modules = [
 # given its own precise pair of contracts instead. product.websites
 # remains independent from every other product module.
 [[tool.importlinter.contracts]]
-name = "Websites does not depend on any product module except White-Label"
+name = "Websites does not depend on any product module except White-Label or CRM"
 type = "forbidden"
 source_modules = ["product.websites"]
 forbidden_modules = [
     "product.agency",
-    "product.crm",
     "product.marketing",
     "product.conversations",
     "product.telephony",
@@ -387,6 +386,24 @@ type = "layers"
 layers = [
     "product.websites",
     "product.white_label",
+]
+
+# Phase 22 (docs/ADR/0015-websites-depends-on-crm.md): product.websites
+# needs one narrow, one-directional write -- reusing product.crm.contacts
+# .create_or_update_contact_from_trusted_source() for its own lead-capture
+# entity, the same published "trusts its caller" function
+# product.marketing/product.appointments already call (ADR-0005). Kept as
+# its own separate layers contract, not folded into the White-Label one
+# above, for the identical reason ADR-0006's own three separate layers
+# contracts are not folded into one: a shared multi-layer form would
+# additionally permit product.white_label <-> product.crm through
+# Websites as an intermediary, which is not part of this decision.
+[[tool.importlinter.contracts]]
+name = "Websites may depend on CRM, never CRM on Websites"
+type = "layers"
+layers = [
+    "product.websites",
+    "product.crm",
 ]
 
 # Phase 12.1 (docs/ADR/0010-reputation-depends-on-crm.md): product.reputation

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 from product.automation.actions import (
+    ACTION_ASSIGN_OPPORTUNITY,
     ACTION_CREATE_TASK,
     ACTION_MOVE_OPPORTUNITY,
     ACTION_SEND_EMAIL,
@@ -46,6 +47,16 @@ def test_move_opportunity_requires_valid_stage_uuid() -> None:
         validate_action_config(ACTION_MOVE_OPPORTUNITY, {"to_stage_id": "not-a-uuid"})
     validate_action_config(
         ACTION_MOVE_OPPORTUNITY, {"to_stage_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"}
+    )
+
+
+def test_assign_opportunity_requires_valid_user_uuid() -> None:
+    with pytest.raises(AutomationValidationError):
+        validate_action_config(ACTION_ASSIGN_OPPORTUNITY, {})
+    with pytest.raises(AutomationValidationError):
+        validate_action_config(ACTION_ASSIGN_OPPORTUNITY, {"assigned_user_id": "not-a-uuid"})
+    validate_action_config(
+        ACTION_ASSIGN_OPPORTUNITY, {"assigned_user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"}
     )
 
 

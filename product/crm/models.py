@@ -213,6 +213,7 @@ class Opportunity(Base):
         Index("ix_crm_opportunities_contact_id", "contact_id"),
         Index("ix_crm_opportunities_company_id", "company_id"),
         Index("ix_crm_opportunities_stage_id", "stage_id"),
+        Index("ix_crm_opportunities_assigned_user_id", "assigned_user_id"),
         {"schema": "crm"},
     )
 
@@ -223,6 +224,15 @@ class Opportunity(Base):
     company_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     pipeline_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     stage_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    # docs/ROADMAP.md Phase 22 -- a plain FK to `core.users.id`, never a
+    # composite one: `core.users` has no `tenant_id` column of its own to
+    # compose against (mirrors `product/websites/models.py::Website
+    # .created_by_user_id`'s identical shape). Nullable: an opportunity
+    # starts unassigned, and unassigning (setting it back to NULL) is a
+    # supported transition, not a deletion.
+    assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("core.users.id"), nullable=True
+    )
     amount_minor_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
     amount_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -28,6 +28,17 @@ website/page slug pair (there is no tenant context yet to key by).
 Published pages are public by design (docs/ROADMAP.md Phase 11.1's own
 security consideration), so this route needs no authentication -- what it
 must not become is an unbounded, unrated surface.
+
+**Phase 22 adds a second public, rate-limited route** --
+`public_capture_lead_route()`, the identical shape as the page-render
+route above, plus a real CRM write via `product/websites/leads.py
+::capture_lead()` (`docs/ADR/0015-websites-depends-on-crm.md`, the one
+`websites -> crm` edge this module's imports below now include). This is
+now the third legitimately-anonymous write path in this product
+(`product/marketing/forms.py::submit_form()`,
+`product/appointments/booking.py::book_appointment()`'s public path, and
+this one) -- reviewed with the same scrutiny each prior one received, not
+a precedent for a fourth without equal review.
 """
 
 from __future__ import annotations
@@ -36,6 +47,7 @@ import uuid
 
 from api.dependencies import get_current_actor
 from api.errors import not_found, rate_limited, service_unavailable
+from core.idempotency import IdempotencyKeyInvalidError
 from fastapi import APIRouter, Depends, HTTPException, status
 from infra.ratelimit import (
     RateLimitBackendError,
@@ -51,8 +63,17 @@ from product.websites.errors import (
     WebsiteSlugTakenError,
     WebsiteValidationError,
 )
+from product.websites.leads import (
+    LeadSubmissionView,
+    capture_lead,
+    list_lead_submissions,
+)
 from product.websites.models import (
     MAX_CUSTOM_DOMAIN_LENGTH,
+    MAX_LEAD_EMAIL_LENGTH,
+    MAX_LEAD_MESSAGE_LENGTH,
+    MAX_LEAD_NAME_LENGTH,
+    MAX_LEAD_PHONE_LENGTH,
     MAX_PAGE_TITLE_LENGTH,
     MAX_WEBSITE_NAME_LENGTH,
 )
@@ -81,7 +102,10 @@ from product.white_label.branding import DbBrandingProvider
 
 router = APIRouter(prefix="/v1/websites", tags=["websites"])
 
-_VALIDATION_ERRORS: tuple[type[Exception], ...] = (WebsiteValidationError,)
+_VALIDATION_ERRORS: tuple[type[Exception], ...] = (
+    WebsiteValidationError,
+    IdempotencyKeyInvalidError,
+)
 _NOT_FOUND_ERRORS: tuple[type[Exception], ...] = (
     WebsiteAccessDeniedError,
     WebsiteReferenceNotFoundError,
@@ -145,6 +169,15 @@ class UpdatePageRequest(BaseModel):
     content_blocks: list | None = None
 
 
+class CaptureLeadRequest(BaseModel):
+    first_name: str = Field(max_length=MAX_LEAD_NAME_LENGTH)
+    last_name: str = Field(max_length=MAX_LEAD_NAME_LENGTH)
+    email: str = Field(max_length=MAX_LEAD_EMAIL_LENGTH)
+    phone: str | None = Field(default=None, max_length=MAX_LEAD_PHONE_LENGTH)
+    message: str | None = Field(default=None, max_length=MAX_LEAD_MESSAGE_LENGTH)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
 # --- Serialization -------------------------------------------------------------
 
 
@@ -174,6 +207,22 @@ def _page_dict(view: PageView) -> dict[str, object]:
         "created_by_user_id": str(view.created_by_user_id),
         "created_at": view.created_at.isoformat(),
         "updated_at": view.updated_at.isoformat(),
+    }
+
+
+def _lead_submission_dict(view: LeadSubmissionView) -> dict[str, object]:
+    return {
+        "id": str(view.id),
+        "tenant_id": str(view.tenant_id),
+        "website_id": str(view.website_id),
+        "page_id": str(view.page_id),
+        "contact_id": str(view.contact_id) if view.contact_id else None,
+        "first_name": view.first_name,
+        "last_name": view.last_name,
+        "email": view.email,
+        "phone": view.phone,
+        "message": view.message,
+        "created_at": view.created_at.isoformat(),
     }
 
 
@@ -354,6 +403,25 @@ def unpublish_page_route(
     return _page_dict(_call(unpublish_page, actor_id, tenant_id, page_id))
 
 
+# --- Lead submissions (authenticated, staff-facing read) --------------------
+
+
+@router.get("/tenants/{tenant_id}/websites/{website_id}/leads")
+def list_lead_submissions_route(
+    tenant_id: uuid.UUID,
+    website_id: uuid.UUID,
+    limit: int = 25,
+    offset: int = 0,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> list[dict[str, object]]:
+    return [
+        _lead_submission_dict(v)
+        for v in _call(
+            list_lead_submissions, actor_id, tenant_id, website_id, limit=limit, offset=offset
+        )
+    ]
+
+
 # --- Public, unauthenticated page render -----------------------------------------
 
 
@@ -396,6 +464,44 @@ async def public_get_page_route(website_slug: str, page_slug: str) -> dict[str, 
             "typography": branding.typography,
         },
     }
+
+
+@router.post("/public/{website_slug}/{page_slug}/leads", status_code=status.HTTP_201_CREATED)
+async def public_capture_lead_route(
+    website_slug: str, page_slug: str, body: CaptureLeadRequest
+) -> dict[str, object]:
+    """The public lead-capture endpoint (docs/ROADMAP.md Phase 22) --
+    mirrors `public_get_page_route()`'s own shape exactly: no
+    `get_current_actor` dependency, rate-limited by the slug pair before
+    anything else runs, non-enumerating 404 for an unknown website/page or
+    one that exists but is not published (`capture_lead()` itself treats
+    "unpublished" identically to "does not exist," never distinguishing
+    the two to an anonymous caller). Returns no internal identifier --
+    an anonymous visitor gets only a bare acknowledgement, never a
+    `contact_id`/`submission_id` it has no legitimate use for."""
+    await _enforce_public_rate_limit(f"websites_public_leads:{website_slug}/{page_slug}")
+
+    website = resolve_website_by_slug(website_slug)
+    if website is None:
+        raise not_found("resource")
+
+    page = get_published_page(website.tenant_id, website.id, page_slug)
+    if page is None:
+        raise not_found("resource")
+
+    _call(
+        capture_lead,
+        website.tenant_id,
+        website.id,
+        page.page_id,
+        first_name=body.first_name,
+        last_name=body.last_name,
+        email=body.email,
+        phone=body.phone,
+        message=body.message,
+        idempotency_key=body.idempotency_key,
+    )
+    return {"status": "received"}
 
 
 __all__ = ["router"]
