@@ -28,12 +28,14 @@ const {
   loadTodaysAppointmentsMock,
   loadRecentContactsMock,
   listApprovalsMock,
+  listInboxMock,
 } = vi.hoisted(() => ({
   listClientsMock: vi.fn(),
   loadAutomationActivityMock: vi.fn(),
   loadTodaysAppointmentsMock: vi.fn(),
   loadRecentContactsMock: vi.fn(),
   listApprovalsMock: vi.fn(),
+  listInboxMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api/agency", async (importOriginal) => {
@@ -51,12 +53,17 @@ vi.mock("@/lib/api/approvals", () => ({
   listApprovals: listApprovalsMock,
 }));
 
+vi.mock("@/lib/api/conversations", () => ({
+  listInbox: listInboxMock,
+}));
+
 function setDefaultMocks() {
   listClientsMock.mockResolvedValue([]);
   loadAutomationActivityMock.mockResolvedValue({ failed: [], recentlyCompleted: [] });
   loadTodaysAppointmentsMock.mockResolvedValue([]);
   loadRecentContactsMock.mockResolvedValue([]);
   listApprovalsMock.mockResolvedValue([]);
+  listInboxMock.mockResolvedValue([]);
 }
 
 describe("DashboardPage (Vandaag / Command Center)", () => {
@@ -124,6 +131,26 @@ describe("DashboardPage (Vandaag / Command Center)", () => {
 
     await waitFor(() => expect(screen.getByText("Alles in orde")).toBeInTheDocument());
     expect(screen.queryByText(/wachten op goedkeuring/)).not.toBeInTheDocument();
+  });
+
+  it("shows a real needs-reply inbox count with a link into the Unified Inbox (Phase 30)", async () => {
+    setDefaultMocks();
+    listInboxMock.mockResolvedValue([{ thread_id: "t1" }, { thread_id: "t2" }]);
+
+    render(<DashboardPage />);
+
+    const link = await screen.findByRole("link", { name: /2 gesprekken wachten op een reactie/ });
+    expect(link).toHaveAttribute("href", "/t/tenant-1/conversations");
+    expect(listInboxMock).toHaveBeenCalledWith("tenant-1", { needs_reply: true });
+  });
+
+  it("shows no needs-reply line when there genuinely are none -- never a fabricated count", async () => {
+    setDefaultMocks();
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText("Alles in orde")).toBeInTheDocument());
+    expect(screen.queryByText(/wachten op een reactie/)).not.toBeInTheDocument();
   });
 
   it("composes CRM and Automation data together in one real cross-domain section", async () => {

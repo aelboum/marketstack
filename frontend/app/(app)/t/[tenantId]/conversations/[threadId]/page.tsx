@@ -22,7 +22,7 @@ import { ConfirmDialog } from "@/components/ui/Dialog";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 import { LoadingState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
-import { MessageList, MessageComposer, AssignThreadForm } from "@/components/conversations";
+import { MessageList, MessageComposer, AssignThreadForm, useInboxRefresh } from "@/components/conversations";
 
 export default function ThreadDetailPage() {
   const params = useParams<{ tenantId: string; threadId: string }>();
@@ -30,6 +30,7 @@ export default function ThreadDetailPage() {
   const router = useRouter();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [messagesReloadKey, setMessagesReloadKey] = useState(0);
+  const { refresh: refreshInbox } = useInboxRefresh();
 
   const threadQuery = useApiQuery(() => getThread(tenantId, threadId), [tenantId, threadId]);
   const { run: runDelete, state: deleteState } = useAsyncAction(() => deleteThread(tenantId, threadId));
@@ -43,7 +44,7 @@ export default function ThreadDetailPage() {
   if (threadQuery.status === "loading") {
     return (
       <Page>
-        <LoadingState label="Loading conversation…" />
+        <LoadingState label="Gesprek laden…" />
       </Page>
     );
   }
@@ -65,15 +66,15 @@ export default function ThreadDetailPage() {
     <Page>
       <p style={{ marginTop: 0 }}>
         <Link href={`/t/${tenantId}/conversations`} style={{ fontSize: "var(--font-size-sm)" }}>
-          ← Back to conversations
+          ← Terug naar inbox
         </Link>
       </p>
       <PageHeader
         title={contactLabel}
-        description={`${thread.channel} conversation`}
+        description={`Gesprek via ${thread.channel}`}
         actions={
           <Button variant="danger" onClick={() => setConfirmDeleteOpen(true)}>
-            Delete
+            Verwijderen
           </Button>
         }
       />
@@ -87,35 +88,42 @@ export default function ThreadDetailPage() {
             <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "var(--space-3)" }}>
               <Badge tone="accent">{thread.channel}</Badge>
               <Badge tone={thread.assigned_to_user_id ? "success" : "neutral"}>
-                {thread.assigned_to_user_id ? `Assigned to ${thread.assigned_to_user_id}` : "Unassigned"}
+                {thread.assigned_to_user_id ? `Toegewezen aan ${thread.assigned_to_user_id}` : "Niet toegewezen"}
               </Badge>
             </div>
             <AssignThreadForm
               tenantId={tenantId}
               threadId={thread.id}
               currentAssigneeUserId={thread.assigned_to_user_id}
-              onAssigned={() => threadQuery.refetch()}
+              onAssigned={() => {
+                threadQuery.refetch();
+                refreshInbox();
+              }}
             />
           </Card>
         </section>
 
         <section aria-labelledby="messages-heading">
           <h2 id="messages-heading" style={{ fontSize: "var(--font-size-md)" }}>
-            Messages
+            Berichten
           </h2>
           <MessageList tenantId={tenantId} threadId={thread.id} reloadKey={messagesReloadKey} />
         </section>
 
         <section aria-labelledby="compose-heading">
           <h2 id="compose-heading" style={{ fontSize: "var(--font-size-md)" }}>
-            Compose
+            Nieuw bericht
           </h2>
           <Card>
             <MessageComposer
               tenantId={tenantId}
               threadId={thread.id}
               channel={thread.channel}
-              onSent={() => setMessagesReloadKey((key) => key + 1)}
+              onSent={() => {
+                setMessagesReloadKey((key) => key + 1);
+                threadQuery.refetch();
+                refreshInbox();
+              }}
             />
           </Card>
         </section>
@@ -126,13 +134,14 @@ export default function ThreadDetailPage() {
       ) : null}
       <ConfirmDialog
         open={confirmDeleteOpen}
-        title="Delete this conversation?"
-        description="This cannot be undone. The full message history is removed."
-        confirmLabel="Delete"
+        title="Dit gesprek verwijderen?"
+        description="Dit kan niet ongedaan worden gemaakt. De volledige berichtgeschiedenis wordt verwijderd."
+        confirmLabel="Verwijderen"
         danger
         pending={deleteState.status === "pending"}
         onConfirm={async () => {
           await runDelete();
+          refreshInbox();
           router.push(`/t/${tenantId}/conversations`);
         }}
         onCancel={() => setConfirmDeleteOpen(false)}

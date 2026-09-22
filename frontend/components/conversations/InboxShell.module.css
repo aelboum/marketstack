@@ -1,0 +1,43 @@
+/* The Unified Inbox's own split-view shell (docs/ROADMAP.md Phase 30) --
+   mirrors components/settings/SettingsShell.module.css's own "shell owns
+   the responsive arrangement, a page owns none of it" discipline,
+   applied to a conventional inbox list|detail layout instead of a
+   sidebar|content one. */
+
+.shell {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 48rem) {
+  .shell {
+    /* Desktop: list and detail side by side, always -- the conventional
+       inbox interaction docs/ROADMAP.md Phase 30 itself asks for. */
+    grid-template-columns: 22rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .listPane,
+  .detailPane {
+    display: block !important;
+  }
+}
+
+/* Narrow viewport: exactly one pane visible at a time -- the list, or
+   (once a thread is selected, i.e. the child route is the detail page)
+   the detail. No new mobile navigation architecture: which pane shows
+   is driven by the existing Next.js route itself (InboxShell.tsx reads
+   `usePathname()`), never a separate mobile-only state machine. */
+.shell[data-detail-open="true"] .listPane {
+  display: none;
+}
+
+.shell[data-detail-open="false"] .detailPane {
+  display: none;
+}
+
+.listPane,
+.detailPane {
+  min-width: 0;
+}

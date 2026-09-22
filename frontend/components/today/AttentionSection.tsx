@@ -1,12 +1,13 @@
 "use client";
 
 // "Needs your attention" -- the Command Center's own top section
-// (docs/ROADMAP.md Phase 28, extended by Phase 29). Real data only:
-// failed automation runs (lib/dashboard/commandCenter.ts
-// ::loadAutomationActivity()) and pending approvals
-// (lib/api/approvals.ts::listApprovals()) -- no fabricated count, no
-// placeholder severity. A tenant with neither sees an honest empty
-// state, not a hidden or invented "0".
+// (docs/ROADMAP.md Phase 28, extended by Phase 29 and Phase 30). Real
+// data only: failed automation runs (lib/dashboard/commandCenter.ts
+// ::loadAutomationActivity()), pending approvals
+// (lib/api/approvals.ts::listApprovals()), and conversations awaiting a
+// reply (lib/api/conversations.ts::listInbox()) -- no fabricated count,
+// no placeholder severity. A tenant with none of these sees an honest
+// empty state, not a hidden or invented "0".
 //
 // **Not a second approval UI** (docs/ROADMAP.md Phase 29's own scope
 // limit): this renders one concise summary line and a link into the
@@ -15,6 +16,7 @@
 import Link from "next/link";
 import { loadAutomationActivity } from "@/lib/dashboard/commandCenter";
 import { listApprovals } from "@/lib/api/approvals";
+import { listInbox } from "@/lib/api/conversations";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
@@ -54,6 +56,35 @@ function PendingApprovalsLine({ tenantId }: { tenantId: string }) {
   );
 }
 
+function NeedsReplyLine({ tenantId }: { tenantId: string }) {
+  // Bounded count, not exhaustive: `listInbox(needs_reply)` scans at most
+  // one page of recent threads (product/conversations/inbox.py), the
+  // same accepted tradeoff loadAutomationActivity() already makes above.
+  const query = useApiQuery(() => listInbox(tenantId, { needs_reply: true }), [tenantId]);
+
+  if (query.status === "error" || query.status === "loading") {
+    return null;
+  }
+  if (query.data.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <Link
+        href={`/t/${tenantId}/conversations`}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+      >
+        <span>
+          {query.data.length}{" "}
+          {query.data.length === 1 ? "gesprek wacht" : "gesprekken wachten"} op een reactie
+        </span>
+        <Badge tone="warning">Bekijken →</Badge>
+      </Link>
+    </Card>
+  );
+}
+
 export function AttentionSection({ tenantId }: { tenantId: string }) {
   const query = useApiQuery(() => loadAutomationActivity(tenantId), [tenantId]);
 
@@ -71,6 +102,7 @@ export function AttentionSection({ tenantId }: { tenantId: string }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
         <PendingApprovalsLine tenantId={tenantId} />
+      <NeedsReplyLine tenantId={tenantId} />
         <EmptyState
           title="Alles in orde"
           description="Er zijn momenteel geen automatiseringen die mislukt zijn en uw aandacht nodig hebben."
@@ -85,6 +117,7 @@ export function AttentionSection({ tenantId }: { tenantId: string }) {
       data-testid="attention-list"
     >
       <PendingApprovalsLine tenantId={tenantId} />
+      <NeedsReplyLine tenantId={tenantId} />
       {failed.map((run) => (
         <Card key={run.id}>
           <div

@@ -42,6 +42,7 @@ from product.conversations.errors import (
     ConversationReferenceNotFoundError,
     ConversationValidationError,
 )
+from product.conversations.inbox import list_inbox
 from product.conversations.messages import create_message, list_messages
 from product.conversations.models import MAX_MESSAGE_BODY_LENGTH
 from product.conversations.pagination import DEFAULT_PAGE_SIZE
@@ -135,6 +136,23 @@ def _thread_dict(view) -> dict[str, object]:
     }
 
 
+def _inbox_item_dict(view) -> dict[str, object]:
+    return {
+        "thread_id": str(view.thread_id),
+        "tenant_id": str(view.tenant_id),
+        "contact_id": str(view.contact_id) if view.contact_id else None,
+        "channel": view.channel,
+        "assigned_to_user_id": str(view.assigned_to_user_id) if view.assigned_to_user_id else None,
+        "created_at": view.created_at.isoformat(),
+        "updated_at": view.updated_at.isoformat(),
+        "last_message_preview": view.last_message_preview,
+        "last_message_at": view.last_message_at.isoformat() if view.last_message_at else None,
+        "last_message_direction": view.last_message_direction,
+        "last_message_is_internal_note": view.last_message_is_internal_note,
+        "needs_reply": view.needs_reply,
+    }
+
+
 def _message_dict(view) -> dict[str, object]:
     return {
         "id": str(view.id),
@@ -159,6 +177,39 @@ def _template_dict(view) -> dict[str, object]:
         "created_at": view.created_at.isoformat(),
         "updated_at": view.updated_at.isoformat(),
     }
+
+
+# --- Unified Inbox (docs/ROADMAP.md Phase 30) ------------------------------
+
+
+@router.get("/tenants/{tenant_id}/inbox")
+def list_inbox_route(
+    tenant_id: uuid.UUID,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+    assigned: str | None = None,
+    channel: str | None = None,
+    needs_reply: bool = False,
+    limit: int = DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    if assigned is not None and assigned not in ("me", "unassigned"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="assigned must be 'me' or 'unassigned' if provided.",
+        )
+    return [
+        _inbox_item_dict(v)
+        for v in _call(
+            list_inbox,
+            actor_id,
+            tenant_id,
+            assigned=assigned,
+            channel=channel,
+            needs_reply=needs_reply,
+            limit=limit,
+            offset=offset,
+        )
+    ]
 
 
 # --- Threads --------------------------------------------------------------

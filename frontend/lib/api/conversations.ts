@@ -5,10 +5,12 @@
 // is read directly off that router's own `_xxx_dict()` builders and
 // request models.
 //
-// Deliberately absent, because the backend has none: no `q`/search, no
-// channel/status/date filter on `GET .../threads` (only `limit`/
-// `offset`) -- see this module's own report for the full list of
-// UI-roadmap capabilities the current API does not expose.
+// `GET .../threads` still takes only `limit`/`offset` (no filter/search)
+// -- the Unified Inbox (docs/ROADMAP.md Phase 30) uses the newer
+// `GET .../inbox` below instead, which does support `assigned`/
+// `channel`/`needs_reply` filters alongside each thread's latest-message
+// summary. Deliberately still absent from both: full-text search, a
+// date filter -- no existing capability provides either.
 
 import { request } from "@/lib/api/client";
 
@@ -115,6 +117,52 @@ export function assignThread(
   return request<Thread>(`/v1/conversations/tenants/${tenantId}/threads/${threadId}/assign`, {
     method: "POST",
     body: { assignee_user_id: assigneeUserId },
+  });
+}
+
+// --- Unified Inbox (docs/ROADMAP.md Phase 30) -------------------------
+
+export type InboxItem = {
+  thread_id: string;
+  tenant_id: string;
+  contact_id: string | null;
+  channel: Channel;
+  assigned_to_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+  /** `null` for a thread with no messages yet -- a real, empty
+   * conversation, not missing data. */
+  last_message_preview: string | null;
+  last_message_at: string | null;
+  last_message_direction: Direction | null;
+  last_message_is_internal_note: boolean | null;
+  /** Derived server-side from the latest message's own direction --
+   * never a persisted "unread" flag, because this schema has none
+   * (`product/conversations/inbox.py`'s own module docstring). `true`
+   * means the customer's last message has no reply yet. */
+  needs_reply: boolean;
+};
+
+export type AssignedFilter = "me" | "unassigned";
+
+export function listInbox(
+  tenantId: string,
+  params: {
+    assigned?: AssignedFilter;
+    channel?: Channel;
+    needs_reply?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<InboxItem[]> {
+  return request<InboxItem[]>(`/v1/conversations/tenants/${tenantId}/inbox`, {
+    query: {
+      assigned: params.assigned,
+      channel: params.channel,
+      needs_reply: params.needs_reply,
+      limit: params.limit,
+      offset: params.offset,
+    },
   });
 }
 
