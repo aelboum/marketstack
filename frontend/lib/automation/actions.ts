@@ -10,7 +10,12 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   update_contact: "Update the contact",
   move_opportunity: "Move the opportunity's stage",
   send_email: "Send an email",
-  send_webhook: "Send a webhook",
+  // Not "Send a webhook" (docs/ROADMAP.md Phase 28 technical-debt item:
+  // this was the one action label with no business-language translation)
+  // -- a business owner configuring this action does not need to know
+  // the delivery mechanism is a webhook, only that it reaches some other
+  // system they've connected.
+  send_webhook: "Notify a connected app",
 };
 
 /** `update_contact` and `move_opportunity` both act on an id

@@ -12,6 +12,7 @@ import {
   deleteCalendar,
   getCalendar,
   getOrCreateBookingLink,
+  listAppointments,
   listAvailabilityRules,
   listAvailableSlots,
   listCalendars,
@@ -30,6 +31,23 @@ describe("appointments API functions -- exact request shape sent to the real rou
     const result = await listCalendars("t1", { limit: 25, offset: 0 });
     expect(requestMock).toHaveBeenCalledWith("/v1/appointments/tenants/t1/calendars", {
       query: { limit: 25, offset: 0 },
+    });
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("listAppointments() -> GET with starts_after/starts_before/limit/offset", async () => {
+    requestMock.mockResolvedValue([{ id: "a1" }]);
+    const result = await listAppointments("t1", {
+      starts_after: "2026-06-10T00:00:00Z",
+      starts_before: "2026-06-11T00:00:00Z",
+    });
+    expect(requestMock).toHaveBeenCalledWith("/v1/appointments/tenants/t1/appointments", {
+      query: {
+        starts_after: "2026-06-10T00:00:00Z",
+        starts_before: "2026-06-11T00:00:00Z",
+        limit: 25,
+        offset: 0,
+      },
     });
     expect(result.hasMore).toBe(false);
   });

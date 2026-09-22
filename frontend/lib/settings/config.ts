@@ -33,8 +33,12 @@ export type SettingsArea = {
 export const SETTINGS_AREAS: SettingsArea[] = [
   {
     key: "general",
-    label: "General",
-    description: "Tenant identity and workspace details.",
+    // "Bedrijf" (business), not "General" -- docs/ROADMAP.md Phase 28's
+    // own business-language rule, applied here without adding, removing,
+    // or restructuring any settings page (section 11 scope: "do not
+    // rebuild the settings system").
+    label: "Bedrijf",
+    description: "Your business identity and workspace details.",
     status: "available",
   },
   {
@@ -57,7 +61,7 @@ export const SETTINGS_AREAS: SettingsArea[] = [
   },
   {
     key: "access",
-    label: "Access",
+    label: "Toegang",
     segment: "access",
     description: "Teammates and delegated administration.",
     status: "available",

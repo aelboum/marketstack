@@ -26,8 +26,8 @@ export default function AutomationPage() {
   return (
     <Page>
       <PageHeader
-        title="Automation"
-        description="Automatically act when something happens in your tenant."
+        title="Automatisering"
+        description="Automatically act when something happens in your business."
         actions={<Button onClick={() => setCreateOpen(true)}>New automation</Button>}
       />
       <WorkflowsList

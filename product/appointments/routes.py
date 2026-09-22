@@ -60,6 +60,7 @@ from product.appointments.availability import (
 from product.appointments.booking import (
     AppointmentView,
     book_appointment,
+    list_appointments,
     public_book_appointment,
     public_cancel_appointment,
     public_reschedule_appointment,
@@ -391,6 +392,29 @@ def book_appointment_route(
             actor_user_id=actor_id,
         )
     )
+
+
+@router.get("/tenants/{tenant_id}/appointments")
+def list_appointments_route(
+    tenant_id: uuid.UUID,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+    starts_after: datetime | None = None,
+    starts_before: datetime | None = None,
+    limit: int = DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    return [
+        _appointment_dict(v)
+        for v in _call(
+            list_appointments,
+            actor_id,
+            tenant_id,
+            starts_after=starts_after,
+            starts_before=starts_before,
+            limit=limit,
+            offset=offset,
+        )
+    ]
 
 
 @router.post("/tenants/{tenant_id}/appointments/{appointment_id}/cancel")

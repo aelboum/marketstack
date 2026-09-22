@@ -70,7 +70,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from core.audit_log import ActorType, AuditOutcome, record
-from infra.db import IntegrityError, session_scope, tenant_session_scope
+from infra.db import IntegrityError, select, session_scope, tenant_session_scope
 
 from product.appointments.errors import (
     AppointmentReferenceNotFoundError,
@@ -86,6 +86,7 @@ from product.appointments.models import (
     BookingLink,
     Calendar,
 )
+from product.appointments.pagination import DEFAULT_PAGE_SIZE, clamp_limit
 from product.appointments.permissions import APPOINTMENT_RESOURCE, require
 from product.crm.contacts import create_or_update_contact_from_trusted_source
 from product.foundation.events import Event, publish
@@ -369,6 +370,56 @@ def public_reschedule_appointment(
     return _to_view(row)
 
 
+# --- Authenticated staff read -------------------------------------------------
+
+
+def list_appointments(
+    actor_user_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    *,
+    starts_after: datetime | None = None,
+    starts_before: datetime | None = None,
+    limit: int = DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+) -> list[AppointmentView]:
+    """The staff-facing appointment list this module never had (Phase 28
+    "Command Center" audit finding: no authenticated way existed to list
+    appointments at all -- an appointment was only ever visible through
+    the public manage-token read, or as the direct return value of
+    booking/cancel/reschedule). Mirrors `list_calendars()`'s own shape
+    exactly. `starts_after`/`starts_before` are optional, inclusive-lower/
+    exclusive-upper bounds on `Appointment.starts_at` -- e.g. "today's
+    appointments" is `starts_after=<midnight local>,
+    starts_before=<next midnight local>`; the caller resolves "today" in
+    its own timezone, this function does no timezone reasoning of its
+    own, mirroring `_validate_time_range()`'s own "the caller sends
+    timezone-aware datetimes" contract. Ordered chronologically
+    (`starts_at` ascending, not `created_at` descending like every other
+    list in this module) -- the only sensible reading order for "what's
+    coming up," not "what was most recently created."
+    """
+    require(actor_user_id, tenant_id, resource=APPOINTMENT_RESOURCE, action="read")
+    bounded_limit = clamp_limit(limit)
+    with tenant_session_scope(tenant_id) as session:
+        stmt = select(Appointment).where(Appointment.tenant_id == tenant_id)
+        if starts_after is not None:
+            stmt = stmt.where(Appointment.starts_at >= starts_after)
+        if starts_before is not None:
+            stmt = stmt.where(Appointment.starts_at < starts_before)
+        rows = (
+            session.execute(
+                stmt.order_by(Appointment.starts_at.asc())
+                .limit(bounded_limit)
+                .offset(max(offset, 0))
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            session.expunge(row)
+    return [_to_view(row) for row in rows]
+
+
 # --- Authenticated staff cancel/reschedule -----------------------------------
 
 
@@ -451,6 +502,7 @@ __all__ = [
     "AppointmentView",
     "BookingLinkView",
     "book_appointment",
+    "list_appointments",
     "public_book_appointment",
     "public_cancel_appointment",
     "public_reschedule_appointment",

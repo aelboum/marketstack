@@ -9,18 +9,13 @@
 // Deliberately absent, because the backend has none -- verified by
 // grepping every `def` in `product/appointments/*.py`, not just the
 // router:
-//   - **no authenticated appointment list endpoint** (no
-//     `GET /tenants/{t}/appointments`) and no `list_appointments()`
-//     service function anywhere. An appointment can only be read back
-//     by the *contact* who booked it, through the public
-//     `GET /manage/{manage_token}` route; staff have no read path at
-//     all;
 //   - **no authenticated appointment detail endpoint** (no
 //     `GET /tenants/{t}/appointments/{id}`) and no `get_appointment()`
 //     service function. `POST .../appointments` returns the row it just
-//     created, and cancel/reschedule return the row they just changed --
-//     those three responses are the *only* way this app ever sees an
-//     appointment;
+//     created, and cancel/reschedule return the row they just changed;
+//     `listAppointments()` below (added docs/ROADMAP.md Phase 28) is the
+//     first authenticated read path, but it is a list, not a
+//     by-id lookup;
 //   - no calendar-sync/provider endpoint: `product/appointments/
 //     calendar_sync.py` exists but is not imported by `routes.py` at
 //     all, so no provider/credential state is API-readable;
@@ -239,6 +234,34 @@ export function bookAppointment(
     method: "POST",
     body: input,
   });
+}
+
+/** `starts_after`/`starts_before` are timezone-aware ISO-8601 bounds on
+ * `Appointment.starts_at` (inclusive lower, exclusive upper) -- build
+ * "today" from the caller's own local timezone, same rule as
+ * `bookAppointment()`'s own `starts_at`/`ends_at`. Results are ordered
+ * chronologically (`starts_at` ascending), not newest-first like every
+ * other list endpoint in this product -- the right order for "what's
+ * coming up." Added docs/ROADMAP.md Phase 28 -- see this file's own
+ * module docstring for what still has no read path. */
+export function listAppointments(
+  tenantId: string,
+  params: {
+    starts_after?: string;
+    starts_before?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Page<Appointment>> {
+  const limit = params.limit ?? DEFAULT_LIMIT;
+  return request<Appointment[]>(`/v1/appointments/tenants/${tenantId}/appointments`, {
+    query: {
+      starts_after: params.starts_after,
+      starts_before: params.starts_before,
+      limit,
+      offset: params.offset ?? 0,
+    },
+  }).then((results) => toPage(results, limit));
 }
 
 export function cancelAppointment(tenantId: string, appointmentId: string): Promise<Appointment> {

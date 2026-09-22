@@ -53,12 +53,12 @@ describe("SettingsNavigation", () => {
     usePathnameMock.mockReturnValue("/t/t1/settings/access");
     render(<SettingsNavigation tenantId="t1" />);
 
-    const access = screen.getByRole("link", { name: /Access/ });
+    const access = screen.getByRole("link", { name: /Toegang/ });
     expect(access).toHaveAttribute("data-active", "true");
     expect(access).toHaveAttribute("aria-current", "page");
     expect(access).toHaveAttribute("href", "/t/t1/settings/access");
 
-    expect(screen.getByRole("link", { name: /General/ })).toHaveAttribute("data-active", "false");
+    expect(screen.getByRole("link", { name: /Bedrijf/ })).toHaveAttribute("data-active", "false");
     expect(screen.getByRole("link", { name: /Profile/ })).toHaveAttribute(
       "href",
       "/t/t1/settings/profile",
@@ -69,11 +69,11 @@ describe("SettingsNavigation", () => {
     );
   });
 
-  it("does not mark General active on a deeper settings route", () => {
+  it("does not mark Bedrijf active on a deeper settings route", () => {
     usePathnameMock.mockReturnValue("/t/t1/settings/branding");
     render(<SettingsNavigation tenantId="t1" />);
 
-    expect(screen.getByRole("link", { name: /General/ })).toHaveAttribute("data-active", "false");
+    expect(screen.getByRole("link", { name: /Bedrijf/ })).toHaveAttribute("data-active", "false");
     expect(screen.getByRole("link", { name: /Branding/ })).toHaveAttribute("data-active", "true");
   });
 

@@ -17,6 +17,46 @@
   overflow-x: auto;
 }
 
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.list[data-orientation="horizontal"] .group {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.groupLabel {
+  padding: var(--space-2) var(--space-3) 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+}
+
+.list[data-orientation="horizontal"] .groupLabel {
+  padding: 0;
+}
+
+.groupList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+.list[data-orientation="vertical"] .groupList {
+  flex-direction: column;
+}
+
+.list[data-orientation="horizontal"] .groupList {
+  flex-direction: row;
+  align-items: center;
+}
+
 .link,
 .disabled {
   display: flex;
