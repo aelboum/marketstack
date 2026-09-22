@@ -193,6 +193,8 @@ from product.ai.purge import register as register_ai_purge_participant
 from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
 from product.appointments.purge import register as register_appointments_purge_participant
 from product.appointments.routes import router as appointments_router
+from product.approvals import event_handlers as _approvals_event_handlers  # noqa: F401
+from product.approvals.routes import router as approvals_router
 from product.automation import dispatcher as _automation_dispatcher  # noqa: F401
 from product.automation import event_handlers as _automation_event_handlers  # noqa: F401
 from product.automation.durable import triggers as _automation_durable_triggers  # noqa: F401
@@ -268,6 +270,7 @@ def create_app() -> FastAPI:
     app.include_router(websites_router)
     app.include_router(reputation_router)
     app.include_router(templates_router)
+    app.include_router(approvals_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()

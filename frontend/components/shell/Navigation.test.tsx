@@ -62,6 +62,13 @@ describe("Navigation", () => {
     expect(screen.getAllByText("Coming soon").length).toBeGreaterThan(1);
   });
 
+  it("exposes the Approval Inbox as a business-oriented top-level destination (Phase 29)", () => {
+    render(<Navigation tenantId="tenant-1" />);
+
+    const link = screen.getByRole("link", { name: "Goedkeuringen" });
+    expect(link).toHaveAttribute("href", "/t/tenant-1/approvals");
+  });
+
   it("does not expose technical module names (Automation, Billing, AI) as top-level items", () => {
     render(<Navigation tenantId="tenant-1" />);
 

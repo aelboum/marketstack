@@ -22,13 +22,19 @@ vi.mock("@/lib/tenant/tenant-context", () => ({
   useTenant: () => ({ tenantId: "tenant-1" }),
 }));
 
-const { listClientsMock, loadAutomationActivityMock, loadTodaysAppointmentsMock, loadRecentContactsMock } =
-  vi.hoisted(() => ({
-    listClientsMock: vi.fn(),
-    loadAutomationActivityMock: vi.fn(),
-    loadTodaysAppointmentsMock: vi.fn(),
-    loadRecentContactsMock: vi.fn(),
-  }));
+const {
+  listClientsMock,
+  loadAutomationActivityMock,
+  loadTodaysAppointmentsMock,
+  loadRecentContactsMock,
+  listApprovalsMock,
+} = vi.hoisted(() => ({
+  listClientsMock: vi.fn(),
+  loadAutomationActivityMock: vi.fn(),
+  loadTodaysAppointmentsMock: vi.fn(),
+  loadRecentContactsMock: vi.fn(),
+  listApprovalsMock: vi.fn(),
+}));
 
 vi.mock("@/lib/api/agency", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/agency")>();
@@ -41,11 +47,16 @@ vi.mock("@/lib/dashboard/commandCenter", () => ({
   loadRecentContacts: loadRecentContactsMock,
 }));
 
+vi.mock("@/lib/api/approvals", () => ({
+  listApprovals: listApprovalsMock,
+}));
+
 function setDefaultMocks() {
   listClientsMock.mockResolvedValue([]);
   loadAutomationActivityMock.mockResolvedValue({ failed: [], recentlyCompleted: [] });
   loadTodaysAppointmentsMock.mockResolvedValue([]);
   loadRecentContactsMock.mockResolvedValue([]);
+  listApprovalsMock.mockResolvedValue([]);
 }
 
 describe("DashboardPage (Vandaag / Command Center)", () => {
@@ -94,6 +105,25 @@ describe("DashboardPage (Vandaag / Command Center)", () => {
     await waitFor(() => expect(screen.getByTestId("attention-list")).toBeInTheDocument());
     expect(screen.getByText("Follow up with new leads")).toBeInTheDocument();
     expect(screen.getByText("The email provider rejected the message.")).toBeInTheDocument();
+  });
+
+  it("shows a real pending-approvals count with a link into the Approval Inbox (Phase 29)", async () => {
+    setDefaultMocks();
+    listApprovalsMock.mockResolvedValue([{ id: "a1" }, { id: "a2" }]);
+
+    render(<DashboardPage />);
+
+    const link = await screen.findByRole("link", { name: /2 acties wachten op goedkeuring/ });
+    expect(link).toHaveAttribute("href", "/t/tenant-1/approvals");
+  });
+
+  it("shows no pending-approvals line when there genuinely are none -- never a fabricated count", async () => {
+    setDefaultMocks();
+
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(screen.getByText("Alles in orde")).toBeInTheDocument());
+    expect(screen.queryByText(/wachten op goedkeuring/)).not.toBeInTheDocument();
   });
 
   it("composes CRM and Automation data together in one real cross-domain section", async () => {

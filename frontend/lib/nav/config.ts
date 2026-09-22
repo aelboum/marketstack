@@ -60,6 +60,19 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [{ key: "conversations", label: "Inbox", segment: "conversations", status: "available" }],
   },
   {
+    // docs/ROADMAP.md Phase 29: surfaces the real, existing SaaS-OS
+    // `control_plane.approvals` mechanism -- never its own "technical
+    // module" the way Automation/AI/Billing deliberately are not
+    // top-level items, but a business-relevant, frequently-visited
+    // destination in its own right (reviewing pending decisions),
+    // exactly like Vandaag/Inbox/Agenda above.
+    key: "goedkeuringen",
+    label: "Goedkeuringen",
+    items: [
+      { key: "approvals", label: "Goedkeuringen", segment: "approvals", status: "available" },
+    ],
+  },
+  {
     key: "klanten",
     label: "Klanten",
     items: [
