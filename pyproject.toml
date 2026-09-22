@@ -116,6 +116,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/websites/routes.py" = ["B008"]
 "product/reputation/routes.py" = ["B008"]
 "product/billing/routes.py" = ["B008"]
+"product/templates/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
@@ -162,7 +163,6 @@ modules = [
     "product.accounting",
     "product.reporting",
     "product.white_label",
-    "product.templates",
     "product.integrations",
 ]
 
@@ -426,5 +426,45 @@ name = "Reputation may depend on CRM, never CRM on Reputation"
 type = "layers"
 layers = [
     "product.reputation",
+    "product.crm",
+]
+
+# Phase 14.1 (docs/ADR/0013-templates-snapshot-scope-and-crm-dependency.md):
+# product.templates needs one narrow, one-directional edge -- exporting/
+# applying `crm.pipelines`/`crm.pipeline_stages` via product.crm.pipelines'
+# own published functions (list_pipelines/list_stages/create_pipeline/
+# create_stage) -- so it is removed from the blanket independence contract
+# above (mirroring exactly how Phase 6/7/9/10/11/12 removed
+# product.marketing/product.appointments/product.ai/product.automation/
+# product.websites/product.reputation for their own, separately-justified
+# single-module edges) and given its own precise pair of contracts instead.
+# product.templates remains independent from every other product module.
+[[tool.importlinter.contracts]]
+name = "Templates does not depend on any product module except CRM"
+type = "forbidden"
+source_modules = ["product.templates"]
+forbidden_modules = [
+    "product.agency",
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Templates may depend on CRM, never CRM on Templates"
+type = "layers"
+layers = [
+    "product.templates",
     "product.crm",
 ]

@@ -128,10 +128,11 @@ with engine.connect() as conn:
     # reputation.review_requests, reputation.reviews, and
     # reputation.review_responses (12.1-12.3's own review-request/review/
     # response domain), plus billing.resale_plans (13.2's own reseller
-    # catalog domain).
+    # catalog domain), plus templates.snapshots (14.1's own snapshot
+    # capture/apply domain).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0047_billing_resale_plans", (
-        f"expected product migrations at head 0047_billing_resale_plans, "
+    assert product_version == "0048_templates_snapshots", (
+        f"expected product migrations at head 0048_templates_snapshots, "
         f"got {product_version!r}"
     )
 
@@ -154,6 +155,7 @@ with engine.connect() as conn:
                 "websites",
                 "reputation",
                 "billing",
+                "templates",
             ]
         },
     ).all()
@@ -301,6 +303,25 @@ with engine.connect() as conn:
             "'uq_billing_resale_plans_underlying_plan_key'"
         )
     ).all()
+    templates_table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'templates' ORDER BY tablename")
+    ).all()
+    # docs/ROADMAP.md Phase 14.1: templates.snapshots is ordinary
+    # RLS-scoped, tenant-owned data (product/templates/models.py's own
+    # module docstring) -- assert RLS is both ENABLED and FORCED, same
+    # assertion shape as billing.resale_plans/reputation.* above.
+    templates_snapshots_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'templates.snapshots'::regclass"
+        )
+    ).all()
+    templates_snapshots_payload_size_check_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'ck_templates_snapshots_payload_size'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -318,6 +339,7 @@ expected = {
     "websites",
     "reputation",
     "billing",
+    "templates",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -487,6 +509,19 @@ assert len(billing_resale_plans_underlying_key_unique_rows) == 1, (
     "expected the unique constraint 'uq_billing_resale_plans_underlying_plan_key' "
     "to exist on billing.resale_plans"
 )
+templates_tables_present = {row[0] for row in templates_table_rows}
+expected_templates_tables = {"snapshots"}
+assert templates_tables_present == expected_templates_tables, (
+    f"expected templates tables {expected_templates_tables}, got {templates_tables_present}"
+)
+assert templates_snapshots_rls_rows == [(True, True)], (
+    "expected templates.snapshots to have ROW LEVEL SECURITY both enabled and "
+    f"forced, got {templates_snapshots_rls_rows}"
+)
+assert len(templates_snapshots_payload_size_check_rows) == 1, (
+    "expected the check constraint 'ck_templates_snapshots_payload_size' to exist "
+    "on templates.snapshots"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -512,7 +547,9 @@ print(
     f"reputation tables present: {sorted(reputation_tables_present)}; "
     f"reputation.* RLS enabled+forced (all three): {reputation_rls_all_enabled_and_forced}; "
     f"billing tables present: {sorted(billing_tables_present)}; "
-    f"billing.resale_plans RLS enabled+forced: {billing_resale_plans_rls_rows == [(True, True)]}"
+    f"billing.resale_plans RLS enabled+forced: {billing_resale_plans_rls_rows == [(True, True)]}; "
+    f"templates tables present: {sorted(templates_tables_present)}; "
+    f"templates.snapshots RLS enabled+forced: {templates_snapshots_rls_rows == [(True, True)]}"
 )
 PYEOF
 
