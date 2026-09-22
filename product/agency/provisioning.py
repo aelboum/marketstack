@@ -18,6 +18,30 @@ authenticated before ever calling this product's own signup/provisioning
 endpoints): tenant -> activation -> role (created, permissions granted,
 still unassigned) -> membership -> role assignment (authority appears
 here, and only here).
+
+**Phase 21 (Agency Provisioning Loop)** extends `provision_client()` with
+an optional `snapshot_id`: when supplied, the newly-created client
+immediately receives that business-setup snapshot's configuration via
+`product.templates.snapshots.apply_snapshot()` -- the existing Phase 14
+capability, called, never re-implemented (`docs/ADR/0013-templates-
+snapshot-scope-and-crm-dependency.md`'s scope is unchanged by this
+phase). The snapshot's `source_tenant_id` is always `agency_tenant_id`:
+an agency's business-setup library lives on its own tenant, exactly like
+every other agency-owned configuration. This is the one, narrow,
+one-directional `product.agency -> product.templates` edge
+`pyproject.toml`'s import-linter contracts grant for this phase (mirrors
+every previous single-module cross-domain edge: Marketing/Appointments ->
+CRM, AI -> CRM/Conversations/Telephony, Automation -> CRM, Websites ->
+White-Label, Reputation -> CRM, Templates -> CRM).
+
+**Not transactional across the whole call** -- `apply_snapshot()` is
+itself not fully transactional (its own module docstring), and the
+client tenant this function creates is not rolled back if applying the
+chosen snapshot fails. This is disclosed, not hidden:
+`ClientProvisioningSetupFailedError` carries the already-created
+`Client` so a caller can represent "the client exists and is usable, the
+chosen setup was not applied" honestly, per this phase's own "do not
+fake atomicity" requirement.
 """
 
 from __future__ import annotations
@@ -35,8 +59,33 @@ from core.tenancy import (
     transition_tenant_status,
 )
 
-from product.agency.errors import AgencyAccessDeniedError
+from product.agency.errors import AgencyAccessDeniedError, ClientProvisioningSetupFailedError
 from product.agency.roles import AGENCY_CLIENT_RESOURCE, ensure_agency_owner_role
+from product.foundation.events import Event, publish
+from product.templates.errors import (
+    SnapshotApplyError,
+    SnapshotNotFoundError,
+    TemplatesAccessDeniedError,
+    TemplatesValidationError,
+)
+from product.templates.snapshots import apply_snapshot
+
+CLIENT_PROVISIONED_EVENT_TYPE = "agency.client_provisioned"
+CLIENT_PROVISIONED_EVENT_VERSION = 1
+
+# Every exception `apply_snapshot()` documents itself as able to raise --
+# see `product/templates/snapshots.py` and `product/templates/schema.py`.
+# Caught here, uniformly, because by the time any of these can occur the
+# client tenant has already been created: the distinction between "bad
+# snapshot_id" and "a genuine infrastructure fault mid-apply" does not
+# change the one fact this function's caller actually needs -- the client
+# exists, the chosen setup was not applied.
+_SNAPSHOT_APPLY_ERRORS: tuple[type[Exception], ...] = (
+    SnapshotNotFoundError,
+    TemplatesAccessDeniedError,
+    TemplatesValidationError,
+    SnapshotApplyError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +140,28 @@ def provision_agency(actor_user_id: uuid.UUID, name: str) -> Agency:
     )
 
 
-def provision_client(actor_user_id: uuid.UUID, agency_tenant_id: uuid.UUID, name: str) -> Client:
+def provision_client(
+    actor_user_id: uuid.UUID,
+    agency_tenant_id: uuid.UUID,
+    name: str,
+    *,
+    snapshot_id: uuid.UUID | None = None,
+) -> Client:
     """An agency creates a client tenant beneath it.
+
+    `snapshot_id` is optional (docs/ROADMAP.md Phase 21): when supplied,
+    it must name a snapshot owned by `agency_tenant_id` itself (the
+    agency's own business-setup library) and is applied to the new
+    client tenant via `apply_snapshot()` before this function returns.
+    Omitting it reproduces this function's exact pre-Phase-21 behavior --
+    strictly additive, per the phase's own acceptance criteria. On
+    success (with or without a snapshot), publishes
+    `CLIENT_PROVISIONED_EVENT_TYPE` for future phases to subscribe to. If
+    applying the snapshot fails, this function raises
+    `ClientProvisioningSetupFailedError` instead -- the client tenant is
+    NOT rolled back, and no `CLIENT_PROVISIONED_EVENT_TYPE` event is
+    published for it, since the client is not yet in the state that event
+    is meant to signal.
 
     `core.tenancy.create_tenant()` performs no authorization check of
     its own (module docstring; confirmed by reading its source directly
@@ -130,8 +199,26 @@ def provision_client(actor_user_id: uuid.UUID, agency_tenant_id: uuid.UUID, name
 
     tenant = create_tenant(name, parent_id=agency_tenant_id)
     transition_tenant_status(tenant.id, TenantStatus.ACTIVE)
+    client = Client(tenant_id=tenant.id, name=tenant.name, agency_tenant_id=agency_tenant_id)
 
-    return Client(tenant_id=tenant.id, name=tenant.name, agency_tenant_id=agency_tenant_id)
+    if snapshot_id is not None:
+        try:
+            apply_snapshot(actor_user_id, agency_tenant_id, snapshot_id, tenant.id)
+        except _SNAPSHOT_APPLY_ERRORS as exc:
+            raise ClientProvisioningSetupFailedError(client, type(exc).__name__) from exc
+
+    publish(
+        Event(
+            type=CLIENT_PROVISIONED_EVENT_TYPE,
+            version=CLIENT_PROVISIONED_EVENT_VERSION,
+            tenant_id=str(tenant.id),
+            payload={
+                "agency_tenant_id": str(agency_tenant_id),
+                "snapshot_id": str(snapshot_id) if snapshot_id is not None else None,
+            },
+        )
+    )
+    return client
 
 
 def list_clients(actor_user_id: uuid.UUID, agency_tenant_id: uuid.UUID) -> list[Client]:

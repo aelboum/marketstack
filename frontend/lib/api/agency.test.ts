@@ -38,7 +38,16 @@ describe("agency API functions -- exact request shape sent to the real routes", 
     await createClient("agency-1", "Client A");
     expect(requestMock).toHaveBeenCalledWith("/v1/agency/agencies/agency-1/clients", {
       method: "POST",
-      body: { name: "Client A" },
+      body: { name: "Client A", snapshot_id: null },
+    });
+  });
+
+  it("createClient() with a chosen business setup passes snapshot_id", async () => {
+    requestMock.mockResolvedValue({});
+    await createClient("agency-1", "Client A", "snap-1");
+    expect(requestMock).toHaveBeenCalledWith("/v1/agency/agencies/agency-1/clients", {
+      method: "POST",
+      body: { name: "Client A", snapshot_id: "snap-1" },
     });
   });
 

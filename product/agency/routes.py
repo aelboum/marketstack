@@ -60,7 +60,11 @@ from product.agency.delegation import (
     revoke_client_delegation,
     revoke_client_deny,
 )
-from product.agency.errors import AgencyAccessDeniedError, UnknownDelegatablePermissionError
+from product.agency.errors import (
+    AgencyAccessDeniedError,
+    ClientProvisioningSetupFailedError,
+    UnknownDelegatablePermissionError,
+)
 from product.agency.onboarding import accept_client_invitation, invite_client_member
 from product.agency.provisioning import list_clients as _list_clients
 from product.agency.provisioning import provision_agency, provision_client
@@ -80,7 +84,12 @@ router = APIRouter(prefix="/v1/agency", tags=["agency"])
 # NOT in this tuple -- it means "you named a permission that does not
 # exist at all," a client input error, not an access-control question
 # (the permission catalog itself is not secret), so it keeps its own,
-# distinct 400 below.
+# distinct 400 below. `ClientProvisioningSetupFailedError` (Phase 21) is
+# ALSO deliberately not in this tuple -- it does not mean "you may not
+# see/do this," it means "the client tenant you asked for now exists,
+# but the setup you chose for it did not apply" -- `create_client()`
+# below catches it itself and returns a 201 with that fact stated
+# honestly in the body, never a 404.
 _NOT_FOUND_ERRORS: tuple[type[Exception], ...] = (
     AgencyAccessDeniedError,
     TenantNotFoundError,
@@ -125,6 +134,7 @@ class CreateAgencyRequest(BaseModel):
 
 class CreateClientRequest(BaseModel):
     name: str
+    snapshot_id: uuid.UUID | None = None
 
 
 class InviteMemberRequest(BaseModel):
@@ -174,11 +184,31 @@ def create_client(
     body: CreateClientRequest,
     actor_id: uuid.UUID = Depends(get_current_actor),
 ) -> dict[str, object]:
-    client = _call(provision_client, actor_id, agency_tenant_id, body.name)
+    """docs/ROADMAP.md Phase 21: `snapshot_id` is optional. When applying
+    it fails, the client tenant was still created -- represented honestly
+    here as `provisioning_status: "setup_failed"` with a bounded
+    `setup_error` reason, still a 201 (a real client tenant now exists),
+    never a 4xx/5xx that would suggest nothing happened. Omitting
+    `snapshot_id` reproduces the pre-Phase-21 response body exactly plus
+    the two new, always-present fields."""
+    try:
+        client = _call(
+            provision_client, actor_id, agency_tenant_id, body.name, snapshot_id=body.snapshot_id
+        )
+    except ClientProvisioningSetupFailedError as exc:
+        return {
+            "tenant_id": str(exc.client.tenant_id),
+            "name": exc.client.name,
+            "agency_tenant_id": str(agency_tenant_id),
+            "provisioning_status": "setup_failed",
+            "setup_error": exc.reason,
+        }
     return {
         "tenant_id": str(client.tenant_id),
         "name": client.name,
         "agency_tenant_id": str(agency_tenant_id),
+        "provisioning_status": "completed",
+        "setup_error": None,
     }
 
 

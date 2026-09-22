@@ -13,6 +13,10 @@ SaaS-OS error type.
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from product.agency.provisioning import Client
 
 
 class AgencyAccessDeniedError(Exception):
@@ -31,6 +35,28 @@ class AgencyAccessDeniedError(Exception):
         super().__init__(
             f"{actor_user_id} is not authorized to manage clients under agency tenant "
             f"{agency_tenant_id}."
+        )
+
+
+class ClientProvisioningSetupFailedError(Exception):
+    """Raised by `product.agency.provisioning.provision_client()`
+    (docs/ROADMAP.md Phase 21) when the client tenant itself was created
+    successfully but applying the chosen business-setup snapshot failed.
+    Carries the already-created `client` so a caller can represent this
+    honestly as a partial result -- "the client exists and is usable, the
+    chosen setup was not applied" -- rather than receiving a bare
+    `templates.errors.SnapshotApplyError`/`SnapshotNotFoundError`/
+    `TemplatesAccessDeniedError` with no way to know the tenant exists.
+    `reason` is always a bounded exception-class name, never a raw
+    message, mirroring `SnapshotApplyError`'s own "never echo internal
+    detail" discipline."""
+
+    def __init__(self, client: Client, reason: str) -> None:
+        self.client = client
+        self.reason = reason
+        super().__init__(
+            f"client {client.tenant_id} was created but applying the chosen "
+            f"business setup failed: {reason}."
         )
 
 

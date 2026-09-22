@@ -156,7 +156,6 @@ include_external_packages = true
 name = "Product modules do not depend on each other directly"
 type = "independence"
 modules = [
-    "product.agency",
     "product.crm",
     "product.conversations",
     "product.telephony",
@@ -468,4 +467,51 @@ type = "layers"
 layers = [
     "product.templates",
     "product.crm",
+]
+
+# Phase 21 (docs/ROADMAP.md "Agency Provisioning Loop"): product.agency
+# needs one narrow, one-directional edge -- applying an agency's own
+# business-setup snapshot to a newly-provisioned client tenant, via
+# product.templates.snapshots.apply_snapshot() -- so it is removed from
+# the blanket independence contract above (mirroring exactly how Phase
+# 6/7/9/10/11/12/14 removed product.marketing/product.appointments/
+# product.ai/product.automation/product.websites/product.reputation/
+# product.templates for their own, separately-justified single-module
+# edges) and given its own precise pair of contracts instead.
+# product.agency remains independent from every other product module.
+#
+# `product.crm` is deliberately absent from `forbidden_modules` below,
+# not a second permitted direct edge: import-linter's "forbidden" check
+# is transitive, and product.templates -> product.crm is itself an
+# already-approved edge (the "Templates may depend on CRM" contract
+# above) -- product.agency reaches product.crm only *through*
+# product.templates, never directly, which is exactly what the "Agency
+# may depend on Templates" layers contract below still enforces.
+[[tool.importlinter.contracts]]
+name = "Agency does not depend on any product module except Templates"
+type = "forbidden"
+source_modules = ["product.agency"]
+forbidden_modules = [
+    "product.marketing",
+    "product.conversations",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Agency may depend on Templates, never Templates on Agency"
+type = "layers"
+layers = [
+    "product.agency",
+    "product.templates",
 ]

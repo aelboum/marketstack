@@ -32,8 +32,16 @@ export type ClientSummary = {
   name: string;
 };
 
+/** docs/ROADMAP.md Phase 21: the client tenant is created either way --
+ * "setup_failed" means the chosen business setup did not apply, never
+ * that no client was created (`product/agency/routes.py::create_client()`
+ * still returns 201 in that case). */
+export type ProvisioningStatus = "completed" | "setup_failed";
+
 export type CreatedClient = ClientSummary & {
   agency_tenant_id: string;
+  provisioning_status: ProvisioningStatus;
+  setup_error: string | null;
 };
 
 export type InvitationSent = {
@@ -114,10 +122,14 @@ export function createAgency(name: string): Promise<Agency> {
   return request<Agency>("/v1/agency/agencies", { method: "POST", body: { name } });
 }
 
-export function createClient(agencyTenantId: string, name: string): Promise<CreatedClient> {
+export function createClient(
+  agencyTenantId: string,
+  name: string,
+  snapshotId?: string,
+): Promise<CreatedClient> {
   return request<CreatedClient>(`/v1/agency/agencies/${agencyTenantId}/clients`, {
     method: "POST",
-    body: { name },
+    body: { name, snapshot_id: snapshotId ?? null },
   });
 }
 
