@@ -755,6 +755,63 @@ receive through it.
 - **Outcome**: not started.
 - **Checkpoint**: none beyond the OAuth-security review.
 
+### 7.5 Calendar Foundation
+- **Objective**: establish a generic calendar-event abstraction so the
+  calendar can represent both an internal/general scheduled block and a
+  business appointment, without turning `Appointment` itself into a
+  generic event or duplicating `Calendar`.
+- **Dependencies**: 7.1–7.2 (calendars, availability, booking).
+- **Scope**: `appointments.calendar_events` table/model
+  (`product/appointments/models.py::CalendarEvent`) and its service layer
+  (`product/appointments/calendar_events.py`) -- create/get/list/update/
+  delete, gated by the existing `appointments.calendar` permission (no
+  new resource provisioned, no `event_handlers.py` change needed). A
+  `CalendarEvent` row is either a generic event (`title` required,
+  `appointment_id` NULL) or an appointment-backed event
+  (`appointment_id` set, referencing an existing `Appointment` on the
+  same calendar) -- Option A of the two relational directions considered
+  (`CalendarEvent.appointment_id` nullable, rather than adding a
+  `calendar_event_id` onto `Appointment`), chosen because it requires zero
+  changes to `Appointment`'s own table, service functions, lifecycle, or
+  automation/reputation triggers. No backfill: existing `Appointment` rows
+  are not retroactively given a `CalendarEvent` row -- the relationship is
+  optional from day one, per this phase's own smallest-viable-model
+  mandate. No HTTP routes added this pass -- no current consumer requires
+  API exposure yet; the domain/service layer alone establishes the
+  boundary.
+- **Tests**: `tests/appointments/test_calendar_events_lifecycle.py` --
+  generic and appointment-backed creation, title-required-unless-
+  appointment-backed validation, time-range validation, calendar/
+  appointment reference resolution, appointment-must-match-calendar
+  validation, tenant isolation (service-layer non-enumerating 404 and a
+  direct DB-constraint proof), and the `ON DELETE SET NULL
+  (appointment_id)` unlink-not-destroy behavior.
+- **Security considerations**: identical structural tenant isolation to
+  every other `appointments.*` table -- composite FKs against
+  `(tenant_id, id)`, RLS via `tenant_rls_statements()`, the existing
+  `require()` chokepoint. No new isolation boundary introduced (reuses
+  `appointments.calendar`'s permission checks).
+- **Acceptance criteria**: matches the tests above; the full
+  `tests/appointments`, `tests/automation`, and `tests/reputation`
+  integration suites remain green (146 passed against a disposable
+  Postgres, this pass).
+- **Rollback**: `downgrade()` drops `appointments.calendar_events`
+  cleanly; nothing else in this phase touches an existing table.
+- **Non-goals** (explicitly deferred, not silently narrowed): external
+  calendar providers (unchanged from 7.4, still not started); Day/Month/
+  Agenda-list calendar UI; drag-and-drop; recurrence; conferencing;
+  attendees/invitations; `Opportunity` → `Appointment` (not required by
+  this abstraction -- `CalendarEvent` needed no relation to `Opportunity`
+  to satisfy its own scope); accounting.
+- **Outcome**: implemented -- `product/appointments/models.py::CalendarEvent`,
+  `product/appointments/calendar_events.py`, migration
+  `0051_create_appointments_calendar_events_table`. `Appointment` itself
+  is unmodified.
+- **Checkpoint**: revisit before any Day/Month/Agenda-list UI work
+  begins -- that phase is the first real consumer of
+  `list_calendar_events()` and may surface API-exposure needs this pass
+  deliberately deferred.
+
 ---
 
 ## Phase 8 — Telephony

@@ -82,7 +82,7 @@ product/
 ├── conversations/       # unified inbox: email/SMS/WhatsApp/chat threads
 ├── telephony/            # calls, recordings, routing, provider adapters
 ├── ai/                     # product's own AI Control Plane tool registrations
-├── appointments/            # calendars, booking, availability
+├── appointments/            # calendars, availability, booking, calendar events
 ├── automation/               # trigger/condition/action workflow engine
 ├── reputation/                 # review requests, tracking, responses
 ├── websites/                    # website/funnel builder, published pages

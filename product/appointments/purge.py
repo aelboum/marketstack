@@ -6,14 +6,16 @@ from `product/api/main.py::create_app()`.
 /purge.py`'s own docstring:
 
 - `AppointmentsDataPurgeParticipant` covers every ordinary, RLS-scoped
-  `appointments.*` table (`appointments`, `availability_rules`,
-  `calendars`) via the normal `tenant_session_scope()` path. Deletion
-  order: leaves (`appointments`, `availability_rules`) before the root
-  (`calendars`) -- correct regardless of what `ON DELETE` behavior each
-  individual FK happens to carry, defense-in-depth (see
-  `product/appointments/models.py`'s own module docstring on
-  `appointments.calendar_id` having no `ON DELETE` decided -- purge order
-  must not depend on it).
+  `appointments.*` table (`calendar_events`, `appointments`,
+  `availability_rules`, `calendars`) via the normal `tenant_session_scope()`
+  path. Deletion order: leaves (`calendar_events`, `appointments`,
+  `availability_rules`) before the root (`calendars`) -- correct
+  regardless of what `ON DELETE` behavior each individual FK happens to
+  carry, defense-in-depth (see `product/appointments/models.py`'s own
+  module docstring on `appointments.calendar_id` having no `ON DELETE`
+  decided -- purge order must not depend on it). `calendar_events` goes
+  first of all: it references both `calendars` (same undecided-`RESTRICT`
+  shape) and `appointments` (`SET NULL`, order-independent).
 - `AppointmentsUnscopedDataPurgeParticipant` covers `booking_links` and
   `appointment_manage_tokens` -- deliberately NOT RLS-scoped (see
   `product/appointments/models.py`'s own docstrings on `BookingLink`/
@@ -42,9 +44,14 @@ from product.appointments.models import (
     AvailabilityRule,
     BookingLink,
     Calendar,
+    CalendarEvent,
 )
 
 _SCOPED_PURGE_ORDER = (
+    # CalendarEvent first -- it references both Appointment (SET NULL,
+    # order-independent) and Calendar (no ON DELETE decided, RESTRICT by
+    # default), so it must be gone before Calendar regardless.
+    CalendarEvent,
     Appointment,
     AvailabilityRule,
     Calendar,

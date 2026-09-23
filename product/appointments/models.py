@@ -106,6 +106,8 @@ VALID_APPOINTMENT_STATUSES = (STATUS_CONFIRMED, STATUS_CANCELLED)
 MINUTES_PER_DAY = 24 * 60  # 1440 -- the exclusive upper bound for start_time/end_time.
 
 MAX_CALENDAR_NAME_LENGTH = 255
+MAX_CALENDAR_EVENT_TITLE_LENGTH = 255
+MAX_CALENDAR_EVENT_DESCRIPTION_LENGTH = 2000
 
 
 class Calendar(Base):
@@ -236,6 +238,95 @@ class Appointment(Base):
     )
     # Deliberately NOT mapped here: the generated `time_range` column and
     # the EXCLUDE constraint that references it -- see module docstring.
+
+
+class CalendarEvent(Base):
+    """The generic scheduling representation (Calendar Foundation,
+    docs/ROADMAP.md Phase 7.5) -- deliberately NOT a replacement for, or a
+    generalization of, `Appointment` above. A row here is either:
+
+    - a **generic event** (`appointment_id IS NULL`, `title` required) --
+      an internal/personal block with no customer/business context, or
+    - an **appointment-backed event** (`appointment_id` set) -- the
+      calendar-grid representation of a real `Appointment`; its `title`
+      may be left `NULL`, since the appointment (and the contact it
+      references) is the actual source of truth for what to display, not
+      a second, independently-editable copy of that text.
+
+    The "title required unless appointment-backed" rule is enforced at
+    the service layer (`product/appointments/calendar_events.py
+    ::_validate_title()`) only, deliberately **not** a DB `CHECK`
+    constraint -- the same shape `Appointment.status`'s own validity
+    already takes (this module's own docstring on `VALID_APPOINTMENT
+    _STATUSES`), and for a second, concrete reason specific to this
+    table: `appointment_id` is `ON DELETE SET NULL`, so a `CHECK`
+    requiring `title IS NOT NULL OR appointment_id IS NOT NULL` would
+    make that `SET NULL` itself fail (`CheckViolation`) for any
+    appointment-backed row left with no `title` -- silently turning a
+    routine unlink into a blocked delete. No code path exercises that
+    today (`Appointment` rows are never hard-deleted outside
+    `product/appointments/purge.py`, and purge deletes `CalendarEvent`
+    rows first -- see `product/appointments/purge.py`'s own module
+    docstring), but a service-layer-only rule leaves it merely a display
+    edge case (an unlinked event with no title) rather than a future
+    integrity-constraint deadlock.
+
+    This table has no bearing on `Appointment`'s own lifecycle,
+    automation triggers, or reputation integration -- those all remain
+    keyed on `Appointment` alone (see `product/appointments/booking.py`/
+    `product/reputation/event_handlers.py`). Nothing here publishes an
+    event or fires automation; `CalendarEvent` rows are purely a read/
+    write scheduling projection.
+
+    `appointment_id` is column-scoped `ON DELETE SET NULL
+    (appointment_id)`, the identical shape `Appointment.contact_id`
+    already uses and for the same reason: losing the appointment must not
+    destroy the calendar event, only unlink it. `calendar_id` carries no
+    `ON DELETE` behavior decided (default `RESTRICT`), mirroring
+    `Appointment.calendar_id`'s own disclosed, undecided shape exactly --
+    see this module's own docstring, "Deletion behavior"."""
+
+    __tablename__ = "calendar_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_appointments_calendar_events_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "calendar_id"],
+            ["appointments.calendars.tenant_id", "appointments.calendars.id"],
+            name="fk_appointments_calendar_events_tenant_calendar",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "appointment_id"],
+            ["appointments.appointments.tenant_id", "appointments.appointments.id"],
+            name="fk_appointments_calendar_events_tenant_appointment",
+            ondelete="SET NULL (appointment_id)",
+        ),
+        CheckConstraint(
+            "ends_at > starts_at", name="ck_appointments_calendar_events_ends_after_starts"
+        ),
+        Index("ix_appointments_calendar_events_tenant_id", "tenant_id"),
+        Index("ix_appointments_calendar_events_calendar_id", "calendar_id"),
+        Index("ix_appointments_calendar_events_appointment_id", "appointment_id"),
+        {"schema": "appointments"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    calendar_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    appointment_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    title: Mapped[str | None] = mapped_column(
+        String(MAX_CALENDAR_EVENT_TITLE_LENGTH), nullable=True
+    )
+    description: Mapped[str | None] = mapped_column(
+        String(MAX_CALENDAR_EVENT_DESCRIPTION_LENGTH), nullable=True
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now(), onupdate=now()
+    )
 
 
 class BookingLink(Base):
