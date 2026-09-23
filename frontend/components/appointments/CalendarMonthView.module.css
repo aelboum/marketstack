@@ -1,0 +1,113 @@
+.wrapper {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+.headerRow,
+.grid {
+  min-width: 560px;
+}
+
+.headerRow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--color-border);
+}
+
+.headerCell {
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(76px, auto);
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 0;
+  border-left: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.cell:hover {
+  background: var(--color-bg);
+}
+
+.cell[data-in-month="false"] {
+  background: var(--color-bg);
+}
+
+.cell[data-in-month="false"] .cellDate {
+  color: var(--color-text-faint);
+}
+
+.cellDate {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+}
+
+.cellDate[data-today="true"] {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+.dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.toneInfo {
+  background: var(--color-accent);
+}
+
+.toneSuccess {
+  background: var(--color-success);
+}
+
+.toneWarning {
+  background: var(--color-warning);
+}
+
+.toneNeutral {
+  background: var(--color-text-faint);
+}
+
+.dotsOverflow {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.filterNote {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+}
