@@ -17,18 +17,28 @@ vi.mock("@/lib/tenant/tenant-context", () => ({
   useTenant: () => ({ tenantId: "tenant-1" }),
 }));
 
-const { listAppointmentsMock, listCalendarsMock, cancelAppointmentMock } = vi.hoisted(() => ({
+const {
+  listAppointmentsMock,
+  listCalendarEventsMock,
+  listCalendarsMock,
+  cancelAppointmentMock,
+  createCalendarEventMock,
+} = vi.hoisted(() => ({
   listAppointmentsMock: vi.fn(),
+  listCalendarEventsMock: vi.fn(),
   listCalendarsMock: vi.fn(),
   cancelAppointmentMock: vi.fn(),
+  createCalendarEventMock: vi.fn(),
 }));
 vi.mock("@/lib/api/appointments", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/appointments")>();
   return {
     ...actual,
     listAppointments: listAppointmentsMock,
+    listCalendarEvents: listCalendarEventsMock,
     listCalendars: listCalendarsMock,
     cancelAppointment: cancelAppointmentMock,
+    createCalendarEvent: createCalendarEventMock,
   };
 });
 
@@ -37,6 +47,7 @@ vi.mock("@/lib/api/crm", () => ({ getContact: getContactMock }));
 
 function setDefaultMocks() {
   listAppointmentsMock.mockResolvedValue({ results: [], hasMore: false });
+  listCalendarEventsMock.mockResolvedValue({ results: [], hasMore: false });
   listCalendarsMock.mockResolvedValue({ results: [], hasMore: false });
 }
 
@@ -88,7 +99,7 @@ describe("AppointmentsWeekPage", () => {
   });
 
   it("opens the real booking form in a dialog titled 'Afspraak inplannen' from the header action", async () => {
-    listAppointmentsMock.mockResolvedValue({ results: [], hasMore: false });
+    setDefaultMocks();
     listCalendarsMock.mockResolvedValue({
       results: [{ id: "cal1", tenant_id: "t1", name: "Hoofdagenda", owner_user_id: "u1", timezone: "Europe/Amsterdam", created_at: "", updated_at: "" }],
       hasMore: false,
@@ -106,24 +117,77 @@ describe("AppointmentsWeekPage", () => {
     expect(dialog).toBeInTheDocument();
   });
 
-  it("'+ Nieuw evenement' opens an honest not-yet-available notice, not a fake create flow", async () => {
+  it("'+ Nieuw evenement' opens a real create dialog wired to the CalendarEvent API", async () => {
     setDefaultMocks();
+    listCalendarsMock.mockResolvedValue({
+      results: [{ id: "cal1", tenant_id: "t1", name: "Hoofdagenda", owner_user_id: "u1", timezone: "UTC", created_at: "", updated_at: "" }],
+      hasMore: false,
+    });
+    createCalendarEventMock.mockResolvedValue({
+      id: "e1",
+      tenant_id: "tenant-1",
+      calendar_id: "cal1",
+      appointment_id: null,
+      title: "Team meeting",
+      description: null,
+      starts_at: "2026-10-07T09:00:00.000Z",
+      ends_at: "2026-10-07T10:00:00.000Z",
+      created_at: "",
+      updated_at: "",
+    });
     const user = userEvent.setup();
     render(<AppointmentsWeekPage />);
     await waitFor(() => expect(listAppointmentsMock).toHaveBeenCalled());
 
     await user.click(screen.getByRole("button", { name: "+ Nieuw evenement" }));
-
     const dialog = await screen.findByRole("dialog", { name: "Nieuw evenement" });
-    expect(dialog).toHaveTextContent(/volgende fase/i);
-    // No form fields are offered -- nothing here can actually be submitted.
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(dialog).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Sluiten" }));
+    await user.type(screen.getByLabelText("Titel"), "Team meeting");
+    await user.click(screen.getByRole("button", { name: "Aanmaken" }));
+
+    await waitFor(() => expect(createCalendarEventMock).toHaveBeenCalled());
+    const [calledTenantId, input] = createCalendarEventMock.mock.calls[0];
+    expect(calledTenantId).toBe("tenant-1");
+    expect(input.title).toBe("Team meeting");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Nieuw evenement" })).not.toBeInTheDocument());
+    // Reloads the active view's data after a successful create.
+    expect(listAppointmentsMock.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("clicking a real calendar event in the Agenda/List view opens it for editing", async () => {
+    setDefaultMocks();
+    listCalendarEventsMock.mockResolvedValue({
+      results: [
+        {
+          id: "e1",
+          tenant_id: "tenant-1",
+          calendar_id: "cal1",
+          appointment_id: null,
+          title: "Team meeting",
+          description: null,
+          starts_at: new Date().toISOString(),
+          ends_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+          created_at: "",
+          updated_at: "",
+        },
+      ],
+      hasMore: false,
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsWeekPage />);
+
+    await user.click(screen.getByRole("button", { name: "Agenda" }));
+    await waitFor(() => expect(screen.getByText("Team meeting")).toBeInTheDocument());
+    await user.click(screen.getByText("Team meeting"));
+
+    const dialog = await screen.findByRole("dialog", { name: "Evenement bewerken" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByLabelText("Titel")).toHaveValue("Team meeting");
   });
 
   it("opens the real AppointmentCard in a manage dialog when a real event is clicked", async () => {
+    setDefaultMocks();
     listCalendarsMock.mockResolvedValue({
       results: [{ id: "cal1", tenant_id: "t1", name: "Hoofdagenda", owner_user_id: "u1", timezone: "Europe/Amsterdam", created_at: "", updated_at: "" }],
       hasMore: false,
@@ -162,7 +226,7 @@ describe("AppointmentsWeekPage", () => {
   });
 
   it("offers a real calendar selector once more than one calendar exists", async () => {
-    listAppointmentsMock.mockResolvedValue({ results: [], hasMore: false });
+    setDefaultMocks();
     listCalendarsMock.mockResolvedValue({
       results: [
         { id: "cal1", tenant_id: "t1", name: "Hoofdagenda", owner_user_id: "u1", timezone: "UTC", created_at: "", updated_at: "" },

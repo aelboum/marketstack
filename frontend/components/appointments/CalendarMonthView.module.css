@@ -83,6 +83,14 @@
   border-radius: 999px;
 }
 
+/* Generic calendar event -- an outlined dot rather than a filled one, so
+   it reads as "internal/general" next to an appointment's solid status
+   colour, without a second visual language. */
+.dotEvent {
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-faint);
+}
+
 .toneInfo {
   background: var(--color-accent);
 }

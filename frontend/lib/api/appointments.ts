@@ -74,6 +74,25 @@ export type Appointment = {
   updated_at: string;
 };
 
+/** `product/appointments/routes.py::_calendar_event_dict()` (Calendar
+ * Event API, docs/ROADMAP.md Phase 7.5). `appointment_id` set means this
+ * row is a read-only projection of a real `Appointment` -- this API
+ * never accepts it on create/update (see `createCalendarEvent()`'s own
+ * comment), so the frontend only ever creates/edits the generic
+ * (`appointment_id === null`) kind. */
+export type CalendarEvent = {
+  id: string;
+  tenant_id: string;
+  calendar_id: string;
+  appointment_id: string | null;
+  title: string | null;
+  description: string | null;
+  starts_at: string;
+  ends_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ReminderSweepResult = {
   reminded_count: number;
   appointment_ids: string[];
@@ -280,6 +299,80 @@ export function rescheduleAppointment(
     `/v1/appointments/tenants/${tenantId}/appointments/${appointmentId}/reschedule`,
     { method: "POST", body: input },
   );
+}
+
+// --- Calendar events (generic, non-appointment scheduled items) ------------
+
+export type CreateCalendarEventInput = {
+  calendar_id: string;
+  title?: string | null;
+  description?: string | null;
+  /** Must be timezone-aware ISO-8601, same rule as `bookAppointment()`'s
+   * own `starts_at`/`ends_at` -- build these with
+   * `lib/appointments/datetime.ts::localInputToIso()`. */
+  starts_at: string;
+  ends_at: string;
+};
+
+export type UpdateCalendarEventInput = {
+  title?: string | null;
+  description?: string | null;
+  starts_at?: string;
+  ends_at?: string;
+};
+
+export function createCalendarEvent(
+  tenantId: string,
+  input: CreateCalendarEventInput,
+): Promise<CalendarEvent> {
+  return request<CalendarEvent>(`/v1/appointments/tenants/${tenantId}/calendar-events`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** `starts_after`/`starts_before` are required (never defaulted) --
+ * mirrors `product/appointments/routes.py::list_calendar_events_route()`'s
+ * own "no unbounded query" requirement. `calendar_id` omitted lists
+ * every calendar in the tenant ("Alle agenda's"); given, it scopes to
+ * that one calendar. */
+export function listCalendarEvents(
+  tenantId: string,
+  params: {
+    starts_after: string;
+    starts_before: string;
+    calendar_id?: string | null;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<Page<CalendarEvent>> {
+  const limit = params.limit ?? DEFAULT_LIMIT;
+  return request<CalendarEvent[]>(`/v1/appointments/tenants/${tenantId}/calendar-events`, {
+    query: {
+      starts_after: params.starts_after,
+      starts_before: params.starts_before,
+      calendar_id: params.calendar_id ?? undefined,
+      limit,
+      offset: params.offset ?? 0,
+    },
+  }).then((results) => toPage(results, limit));
+}
+
+export function updateCalendarEvent(
+  tenantId: string,
+  eventId: string,
+  input: UpdateCalendarEventInput,
+): Promise<CalendarEvent> {
+  return request<CalendarEvent>(
+    `/v1/appointments/tenants/${tenantId}/calendar-events/${eventId}`,
+    { method: "PATCH", body: input },
+  );
+}
+
+export function deleteCalendarEvent(tenantId: string, eventId: string): Promise<void> {
+  return request<void>(`/v1/appointments/tenants/${tenantId}/calendar-events/${eventId}`, {
+    method: "DELETE",
+  });
 }
 
 // --- Reminders --------------------------------------------------------------

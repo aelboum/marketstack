@@ -3,14 +3,22 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CalendarAgendaListView } from "./CalendarAgendaListView";
 
-const { listAppointmentsMock, listCalendarsMock, getContactMock } = vi.hoisted(() => ({
-  listAppointmentsMock: vi.fn(),
-  listCalendarsMock: vi.fn(),
-  getContactMock: vi.fn(),
-}));
+const { listAppointmentsMock, listCalendarEventsMock, listCalendarsMock, getContactMock } = vi.hoisted(
+  () => ({
+    listAppointmentsMock: vi.fn(),
+    listCalendarEventsMock: vi.fn(),
+    listCalendarsMock: vi.fn(),
+    getContactMock: vi.fn(),
+  }),
+);
 vi.mock("@/lib/api/appointments", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/appointments")>();
-  return { ...actual, listAppointments: listAppointmentsMock, listCalendars: listCalendarsMock };
+  return {
+    ...actual,
+    listAppointments: listAppointmentsMock,
+    listCalendarEvents: listCalendarEventsMock,
+    listCalendars: listCalendarsMock,
+  };
 });
 vi.mock("@/lib/api/crm", () => ({ getContact: getContactMock }));
 vi.mock("@/lib/auth/session-context", () => ({
@@ -34,12 +42,30 @@ function appointment(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+function calendarEvent(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "e1",
+    tenant_id: "t1",
+    calendar_id: "cal1",
+    appointment_id: null,
+    title: "Team meeting",
+    description: null,
+    starts_at: new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate(), 8, 0).toISOString(),
+    ends_at: new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate(), 8, 30).toISOString(),
+    created_at: "2026-09-01T00:00:00Z",
+    updated_at: "2026-09-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function setDefaultMocks() {
   listCalendarsMock.mockResolvedValue({
     results: [{ id: "cal1", tenant_id: "t1", name: "Hoofdagenda", owner_user_id: "u1", timezone: "UTC", created_at: "", updated_at: "" }],
     hasMore: false,
   });
   getContactMock.mockResolvedValue({ id: "c1", first_name: "Jane", last_name: "Doe" });
+  listCalendarEventsMock.mockResolvedValue({ results: [], hasMore: false });
+  listAppointmentsMock.mockResolvedValue({ results: [], hasMore: false });
 }
 
 describe("CalendarAgendaListView", () => {
@@ -51,7 +77,7 @@ describe("CalendarAgendaListView", () => {
       <CalendarAgendaListView
         tenantId="t1"
         anchorDate={TODAY}
-        onEventClick={vi.fn()}
+        onItemClick={vi.fn()}
         onNewAppointment={vi.fn()}
       />,
     );
@@ -60,18 +86,41 @@ describe("CalendarAgendaListView", () => {
     expect(screen.getByText("Vandaag")).toBeInTheDocument();
   });
 
-  it("calls onEventClick with the real appointment object when a row is clicked", async () => {
+  it("shows appointments and calendar events together, in chronological order", async () => {
+    setDefaultMocks();
+    listAppointmentsMock.mockResolvedValue({ results: [appointment()], hasMore: false });
+    listCalendarEventsMock.mockResolvedValue({ results: [calendarEvent()], hasMore: false });
+
+    render(
+      <CalendarAgendaListView
+        tenantId="t1"
+        anchorDate={TODAY}
+        onItemClick={vi.fn()}
+        onNewAppointment={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    const rows = screen.getAllByRole("button").map((row) => row.textContent ?? "");
+    const meetingIndex = rows.findIndex((text) => text.includes("Team meeting"));
+    const appointmentIndex = rows.findIndex((text) => text.includes("Jane Doe"));
+    expect(meetingIndex).toBeGreaterThanOrEqual(0);
+    expect(meetingIndex).toBeLessThan(appointmentIndex);
+    expect(screen.getByText(/Agendapunt/)).toBeInTheDocument();
+  });
+
+  it("calls onItemClick with an appointment-kind item when a row is clicked", async () => {
     setDefaultMocks();
     const theAppointment = appointment();
     listAppointmentsMock.mockResolvedValue({ results: [theAppointment], hasMore: false });
-    const onEventClick = vi.fn();
+    const onItemClick = vi.fn();
     const user = userEvent.setup();
 
     render(
       <CalendarAgendaListView
         tenantId="t1"
         anchorDate={TODAY}
-        onEventClick={onEventClick}
+        onItemClick={onItemClick}
         onNewAppointment={vi.fn()}
       />,
     );
@@ -79,12 +128,35 @@ describe("CalendarAgendaListView", () => {
     await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
     await user.click(screen.getByText("Jane Doe"));
 
-    expect(onEventClick).toHaveBeenCalledWith(theAppointment);
+    expect(onItemClick).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "appointment", appointment: theAppointment }),
+    );
+  });
+
+  it("calls onItemClick with an event-kind item when a calendar event row is clicked", async () => {
+    setDefaultMocks();
+    const theEvent = calendarEvent();
+    listCalendarEventsMock.mockResolvedValue({ results: [theEvent], hasMore: false });
+    const onItemClick = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <CalendarAgendaListView
+        tenantId="t1"
+        anchorDate={TODAY}
+        onItemClick={onItemClick}
+        onNewAppointment={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Team meeting")).toBeInTheDocument());
+    await user.click(screen.getByText("Team meeting"));
+
+    expect(onItemClick).toHaveBeenCalledWith(expect.objectContaining({ kind: "event", event: theEvent }));
   });
 
   it("shows an honest empty state with a real 'Nieuwe afspraak' action when the window has nothing", async () => {
     setDefaultMocks();
-    listAppointmentsMock.mockResolvedValue({ results: [], hasMore: false });
     const onNewAppointment = vi.fn();
     const user = userEvent.setup();
 
@@ -92,7 +164,7 @@ describe("CalendarAgendaListView", () => {
       <CalendarAgendaListView
         tenantId="t1"
         anchorDate={TODAY}
-        onEventClick={vi.fn()}
+        onItemClick={vi.fn()}
         onNewAppointment={onNewAppointment}
       />,
     );

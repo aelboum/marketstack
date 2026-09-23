@@ -87,17 +87,6 @@
   box-shadow: var(--shadow-sm);
 }
 
-.newEventNotice {
-  margin: 0 0 var(--space-4);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.newEventActions {
-  display: flex;
-  justify-content: flex-end;
-}
-
 .toast {
   position: fixed;
   left: 50%;

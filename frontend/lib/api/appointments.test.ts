@@ -8,17 +8,21 @@ import {
   cancelAppointment,
   createAvailabilityRule,
   createCalendar,
+  createCalendarEvent,
   deleteAvailabilityRule,
   deleteCalendar,
+  deleteCalendarEvent,
   getCalendar,
   getOrCreateBookingLink,
   listAppointments,
   listAvailabilityRules,
   listAvailableSlots,
+  listCalendarEvents,
   listCalendars,
   rescheduleAppointment,
   sweepReminders,
   updateCalendar,
+  updateCalendarEvent,
 } from "./appointments";
 
 describe("appointments API functions -- exact request shape sent to the real routes", () => {
@@ -189,6 +193,75 @@ describe("appointments API functions -- exact request shape sent to the real rou
     await sweepReminders("t1");
     expect(requestMock).toHaveBeenCalledWith("/v1/appointments/tenants/t1/reminders/sweep", {
       method: "POST",
+    });
+  });
+
+  it("createCalendarEvent() -> POST /calendar-events with the generic-event fields", async () => {
+    requestMock.mockResolvedValue({ id: "e1" });
+    await createCalendarEvent("t1", {
+      calendar_id: "cal1",
+      title: "Team meeting",
+      description: "Weekly sync",
+      starts_at: "2026-10-07T09:00:00Z",
+      ends_at: "2026-10-07T10:00:00Z",
+    });
+    expect(requestMock).toHaveBeenCalledWith("/v1/appointments/tenants/t1/calendar-events", {
+      method: "POST",
+      body: {
+        calendar_id: "cal1",
+        title: "Team meeting",
+        description: "Weekly sync",
+        starts_at: "2026-10-07T09:00:00Z",
+        ends_at: "2026-10-07T10:00:00Z",
+      },
+    });
+  });
+
+  it("listCalendarEvents() -> GET with required starts_after/starts_before, calendar_id omitted", async () => {
+    requestMock.mockResolvedValue([{ id: "e1" }]);
+    const result = await listCalendarEvents("t1", {
+      starts_after: "2026-10-01T00:00:00Z",
+      starts_before: "2026-10-02T00:00:00Z",
+    });
+    expect(requestMock).toHaveBeenCalledWith("/v1/appointments/tenants/t1/calendar-events", {
+      query: {
+        starts_after: "2026-10-01T00:00:00Z",
+        starts_before: "2026-10-02T00:00:00Z",
+        calendar_id: undefined,
+        limit: 25,
+        offset: 0,
+      },
+    });
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("listCalendarEvents() -> passes calendar_id through when a specific calendar is selected", async () => {
+    requestMock.mockResolvedValue([]);
+    await listCalendarEvents("t1", {
+      starts_after: "2026-10-01T00:00:00Z",
+      starts_before: "2026-10-02T00:00:00Z",
+      calendar_id: "cal1",
+    });
+    expect(requestMock).toHaveBeenCalledWith(
+      "/v1/appointments/tenants/t1/calendar-events",
+      expect.objectContaining({ query: expect.objectContaining({ calendar_id: "cal1" }) }),
+    );
+  });
+
+  it("updateCalendarEvent() -> PATCH /calendar-events/{id}", async () => {
+    requestMock.mockResolvedValue({ id: "e1" });
+    await updateCalendarEvent("t1", "e1", { title: "New title" });
+    expect(requestMock).toHaveBeenCalledWith("/v1/appointments/tenants/t1/calendar-events/e1", {
+      method: "PATCH",
+      body: { title: "New title" },
+    });
+  });
+
+  it("deleteCalendarEvent() -> DELETE /calendar-events/{id} with no body", async () => {
+    requestMock.mockResolvedValue(undefined);
+    await deleteCalendarEvent("t1", "e1");
+    expect(requestMock).toHaveBeenCalledWith("/v1/appointments/tenants/t1/calendar-events/e1", {
+      method: "DELETE",
     });
   });
 });

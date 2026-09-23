@@ -104,3 +104,12 @@
   background: var(--color-border);
   color: var(--color-text-muted);
 }
+
+/* Generic calendar event -- outlined/dashed rather than filled, so it
+   reads as "internal/general" next to an appointment's solid status
+   colour, without a second card design. */
+.toneEvent {
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-strong);
+  color: var(--color-text);
+}

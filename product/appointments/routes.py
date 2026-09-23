@@ -68,6 +68,13 @@ from product.appointments.booking import (
     staff_cancel_appointment,
     staff_reschedule_appointment,
 )
+from product.appointments.calendar_events import (
+    CalendarEventView,
+    create_calendar_event,
+    delete_calendar_event,
+    list_calendar_events,
+    update_calendar_event,
+)
 from product.appointments.calendars import (
     CalendarView,
     create_calendar,
@@ -84,7 +91,12 @@ from product.appointments.errors import (
     AppointmentTokenInvalidError,
     AppointmentValidationError,
 )
-from product.appointments.models import MAX_CALENDAR_NAME_LENGTH, MINUTES_PER_DAY
+from product.appointments.models import (
+    MAX_CALENDAR_EVENT_DESCRIPTION_LENGTH,
+    MAX_CALENDAR_EVENT_TITLE_LENGTH,
+    MAX_CALENDAR_NAME_LENGTH,
+    MINUTES_PER_DAY,
+)
 from product.appointments.pagination import DEFAULT_PAGE_SIZE
 from product.appointments.reminders import send_due_reminders
 
@@ -176,6 +188,21 @@ class RescheduleAppointmentRequest(BaseModel):
     new_ends_at: datetime
 
 
+class CreateCalendarEventRequest(BaseModel):
+    calendar_id: uuid.UUID
+    title: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_TITLE_LENGTH)
+    description: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_DESCRIPTION_LENGTH)
+    starts_at: datetime
+    ends_at: datetime
+
+
+class UpdateCalendarEventRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_TITLE_LENGTH)
+    description: str | None = Field(default=None, max_length=MAX_CALENDAR_EVENT_DESCRIPTION_LENGTH)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
 # --- Serialization -------------------------------------------------------------
 
 
@@ -216,6 +243,21 @@ def _appointment_dict(view: AppointmentView) -> dict[str, object]:
         "starts_at": view.starts_at.isoformat(),
         "ends_at": view.ends_at.isoformat(),
         "status": view.status,
+        "created_at": view.created_at.isoformat(),
+        "updated_at": view.updated_at.isoformat(),
+    }
+
+
+def _calendar_event_dict(view: CalendarEventView) -> dict[str, object]:
+    return {
+        "id": str(view.id),
+        "tenant_id": str(view.tenant_id),
+        "calendar_id": str(view.calendar_id),
+        "appointment_id": str(view.appointment_id) if view.appointment_id else None,
+        "title": view.title,
+        "description": view.description,
+        "starts_at": view.starts_at.isoformat(),
+        "ends_at": view.ends_at.isoformat(),
         "created_at": view.created_at.isoformat(),
         "updated_at": view.updated_at.isoformat(),
     }
@@ -367,6 +409,108 @@ def available_slots_route(
             slot_duration_minutes=slot_duration_minutes,
         )
     ]
+
+
+# --- Calendar events (authenticated: generic + appointment-backed) --------------
+# Calendar Foundation API phase (docs/ROADMAP.md Phase 7.5's own "No HTTP
+# routes added this pass" deferral, closed here). `CalendarEvent`
+# (`product/appointments/calendar_events.py`) is a read/write scheduling
+# projection, never a trigger source -- these routes never call into
+# `product/appointments/booking.py`, so they can never create/cancel/
+# reschedule an `Appointment`, publish an `appointments.appointment.*`
+# automation event, or fire the reputation `.completed` integration. An
+# appointment-backed event's `appointment_id` is exposed read-only; it is
+# never accepted on create/update here (see `create_calendar_event()`'s
+# own docstring for why an appointment relationship is deliberately not
+# a client-settable field on this API -- it is a future, separate
+# concern, not silently narrowed).
+
+
+@router.post("/tenants/{tenant_id}/calendar-events", status_code=status.HTTP_201_CREATED)
+def create_calendar_event_route(
+    tenant_id: uuid.UUID,
+    body: CreateCalendarEventRequest,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> dict[str, object]:
+    return _calendar_event_dict(
+        _call(
+            create_calendar_event,
+            actor_id,
+            tenant_id,
+            calendar_id=body.calendar_id,
+            starts_at=body.starts_at,
+            ends_at=body.ends_at,
+            title=body.title,
+            description=body.description,
+        )
+    )
+
+
+@router.get("/tenants/{tenant_id}/calendar-events")
+def list_calendar_events_route(
+    tenant_id: uuid.UUID,
+    starts_after: datetime,
+    starts_before: datetime,
+    calendar_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+    limit: int = DEFAULT_PAGE_SIZE,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    """`starts_after`/`starts_before` are required (never defaulted) --
+    an explicit, bounded window, mirroring `available_slots_route`'s own
+    required `date_from`/`date_to` rather than `list_appointments_route`'s
+    optional bounds. `calendar_id` omitted lists every calendar in
+    `tenant_id` (the Agenda UI's "every calendar" view); given, it scopes
+    to that one calendar."""
+    return [
+        _calendar_event_dict(v)
+        for v in _call(
+            list_calendar_events,
+            actor_id,
+            tenant_id,
+            calendar_id=calendar_id,
+            date_from=starts_after,
+            date_to=starts_before,
+            limit=limit,
+            offset=offset,
+        )
+    ]
+
+
+@router.patch("/tenants/{tenant_id}/calendar-events/{event_id}")
+def update_calendar_event_route(
+    tenant_id: uuid.UUID,
+    event_id: uuid.UUID,
+    body: UpdateCalendarEventRequest,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> dict[str, object]:
+    return _calendar_event_dict(
+        _call(
+            update_calendar_event,
+            actor_id,
+            tenant_id,
+            event_id,
+            title=body.title,
+            description=body.description,
+            starts_at=body.starts_at,
+            ends_at=body.ends_at,
+        )
+    )
+
+
+@router.delete(
+    "/tenants/{tenant_id}/calendar-events/{event_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_calendar_event_route(
+    tenant_id: uuid.UUID,
+    event_id: uuid.UUID,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> None:
+    """Deletes only the `CalendarEvent` projection row -- see
+    `delete_calendar_event()`'s own docstring. An appointment-backed
+    event's underlying `Appointment` is never touched: this is not a
+    cancellation."""
+    _call(delete_calendar_event, actor_id, tenant_id, event_id)
 
 
 # --- Appointments (authenticated: staff booking, reschedule, cancel) ------------

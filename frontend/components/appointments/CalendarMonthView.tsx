@@ -6,8 +6,16 @@
 // line for a month view. Selecting a day hands the date back to the
 // caller (AppointmentsWeekPage switches to Day view for it), the same
 // "click a day to drill in" pattern a business calendar is expected to
-// have -- not a second, competing navigation model.
-import { listAppointments, listCalendars, type Appointment } from "@/lib/api/appointments";
+// have -- not a second, competing navigation model. Combines
+// `listAppointments()` with `listCalendarEvents()` (Calendar Event API,
+// docs/ROADMAP.md Phase 7.5) so a generic event contributes to the same
+// density dots as an appointment, with its own dot style.
+import {
+  listAppointments,
+  listCalendarEvents,
+  listCalendars,
+  type Appointment,
+} from "@/lib/api/appointments";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import {
   addDays,
@@ -15,7 +23,7 @@ import {
   groupItemsByDay,
   monthGridDays,
 } from "@/lib/appointments/calendarMonth";
-import { appointmentsToAgendaItems } from "@/lib/appointments/agendaItems";
+import { combineAgendaItems } from "@/lib/appointments/agendaItems";
 import { STATUS_TONE } from "@/lib/appointments/calendarWeek";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
@@ -66,25 +74,40 @@ export function CalendarMonthView({
     [tenantId, gridStart.getTime(), reloadKey],
   );
 
+  const calendarEventsQuery = useApiQuery(
+    () =>
+      listCalendarEvents(tenantId, {
+        starts_after: gridStart.toISOString(),
+        starts_before: gridEndExclusive.toISOString(),
+        calendar_id: calendarId ?? undefined,
+        limit: APPOINTMENT_SAMPLE_SIZE,
+      }).then((page) => page.results),
+    [tenantId, gridStart.getTime(), calendarId, reloadKey],
+  );
+
   const calendarsQuery = useApiQuery(() => listCalendars(tenantId, { limit: 100 }), [tenantId]);
   const hasMultipleCalendars =
     calendarsQuery.status === "success" && calendarsQuery.data.results.length > 1;
 
-  if (appointmentsQuery.status === "loading") {
-    return <LoadingState label="Afspraken laden…" />;
+  if (appointmentsQuery.status === "loading" || calendarEventsQuery.status === "loading") {
+    return <LoadingState label="Agenda laden…" />;
   }
   if (appointmentsQuery.status === "error") {
     return <ApiErrorPanel error={appointmentsQuery.error} onRetry={appointmentsQuery.refetch} />;
+  }
+  if (calendarEventsQuery.status === "error") {
+    return <ApiErrorPanel error={calendarEventsQuery.error} onRetry={calendarEventsQuery.refetch} />;
   }
 
   const allAppointments: Appointment[] = appointmentsQuery.data;
   const appointments = calendarId
     ? allAppointments.filter((a) => a.calendar_id === calendarId)
     : allAppointments;
-  const groups = groupItemsByDay(appointmentsToAgendaItems(appointments));
+  const items = combineAgendaItems(appointments, calendarEventsQuery.data);
+  const groups = groupItemsByDay(items);
   const today = new Date();
 
-  if (appointments.length === 0) {
+  if (items.length === 0) {
     return (
       <EmptyState
         title="Geen activiteiten gepland"
@@ -134,7 +157,9 @@ export function CalendarMonthView({
                   {dayItems.slice(0, MAX_DOTS_PER_DAY).map((item) => (
                     <span
                       key={item.id}
-                      className={`${styles.dot} ${TONE_CLASS[STATUS_TONE[item.appointment.status]]}`}
+                      className={`${styles.dot} ${
+                        item.kind === "appointment" ? TONE_CLASS[STATUS_TONE[item.appointment.status]] : styles.dotEvent
+                      }`}
                     />
                   ))}
                   {dayItems.length > MAX_DOTS_PER_DAY ? (

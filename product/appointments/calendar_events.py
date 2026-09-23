@@ -190,16 +190,21 @@ def list_calendar_events(
     actor_user_id: uuid.UUID,
     tenant_id: uuid.UUID,
     *,
-    calendar_id: uuid.UUID,
+    calendar_id: uuid.UUID | None = None,
     date_from: datetime,
     date_to: datetime,
     limit: int = DEFAULT_PAGE_SIZE,
     offset: int = 0,
 ) -> list[CalendarEventView]:
     """Every row whose `[starts_at, ends_at)` overlaps `[date_from,
-    date_to)` on `calendar_id` -- generic and appointment-backed rows
-    alike, in the same result set (the whole point of the Calendar
-    Foundation: one query surfaces both kinds on a calendar)."""
+    date_to)`, tenant-wide -- generic and appointment-backed rows alike,
+    in the same result set (the whole point of the Calendar Foundation:
+    one query surfaces both kinds on a calendar). `calendar_id` narrows
+    to one calendar when given, optional as of the HTTP API this function
+    now backs (docs/ROADMAP.md Phase 7.5's own "No HTTP routes added
+    this pass" deferral) -- the Agenda UI's "every calendar" view needs a
+    tenant-wide query, not a per-calendar one; the original signature
+    required it, since nothing called this across calendars yet."""
     require(actor_user_id, tenant_id, resource=CALENDAR_RESOURCE, action="read")
     if date_from.tzinfo is None or date_to.tzinfo is None:
         raise AppointmentValidationError("date_from/date_to must be timezone-aware.")
@@ -207,18 +212,20 @@ def list_calendar_events(
         raise AppointmentValidationError("date_to must be after date_from.")
     bounded_limit = clamp_limit(limit)
     with tenant_session_scope(tenant_id) as session:
-        calendar = session.get(Calendar, calendar_id)
-        if calendar is None or calendar.tenant_id != tenant_id:
-            raise AppointmentReferenceNotFoundError("calendar", calendar_id)
+        conditions = [
+            CalendarEvent.tenant_id == tenant_id,
+            CalendarEvent.starts_at < date_to,
+            CalendarEvent.ends_at > date_from,
+        ]
+        if calendar_id is not None:
+            calendar = session.get(Calendar, calendar_id)
+            if calendar is None or calendar.tenant_id != tenant_id:
+                raise AppointmentReferenceNotFoundError("calendar", calendar_id)
+            conditions.append(CalendarEvent.calendar_id == calendar_id)
         rows = (
             session.execute(
                 select(CalendarEvent)
-                .where(
-                    CalendarEvent.tenant_id == tenant_id,
-                    CalendarEvent.calendar_id == calendar_id,
-                    CalendarEvent.starts_at < date_to,
-                    CalendarEvent.ends_at > date_from,
-                )
+                .where(*conditions)
                 .order_by(CalendarEvent.starts_at.asc())
                 .limit(bounded_limit)
                 .offset(max(offset, 0))

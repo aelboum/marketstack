@@ -3,6 +3,7 @@ export { CalendarWeekView } from "./CalendarWeekView";
 export { CalendarDayView } from "./CalendarDayView";
 export { CalendarMonthView } from "./CalendarMonthView";
 export { CalendarAgendaListView } from "./CalendarAgendaListView";
+export { CalendarEventForm } from "./CalendarEventForm";
 export { CalendarsList } from "./CalendarsList";
 export { CalendarForm } from "./CalendarForm";
 export { AvailabilityRulesPanel } from "./AvailabilityRulesPanel";

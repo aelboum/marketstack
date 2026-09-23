@@ -3,13 +3,19 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CalendarMonthView } from "./CalendarMonthView";
 
-const { listAppointmentsMock, listCalendarsMock } = vi.hoisted(() => ({
+const { listAppointmentsMock, listCalendarEventsMock, listCalendarsMock } = vi.hoisted(() => ({
   listAppointmentsMock: vi.fn(),
+  listCalendarEventsMock: vi.fn(),
   listCalendarsMock: vi.fn(),
 }));
 vi.mock("@/lib/api/appointments", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/appointments")>();
-  return { ...actual, listAppointments: listAppointmentsMock, listCalendars: listCalendarsMock };
+  return {
+    ...actual,
+    listAppointments: listAppointmentsMock,
+    listCalendarEvents: listCalendarEventsMock,
+    listCalendars: listCalendarsMock,
+  };
 });
 vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({ markSessionExpired: vi.fn() }),
@@ -32,8 +38,26 @@ function appointment(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+function calendarEvent(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "e1",
+    tenant_id: "t1",
+    calendar_id: "cal1",
+    appointment_id: null,
+    title: "Team meeting",
+    description: null,
+    starts_at: new Date(2026, 8, 12, 9, 0).toISOString(),
+    ends_at: new Date(2026, 8, 12, 9, 30).toISOString(),
+    created_at: "2026-09-01T00:00:00Z",
+    updated_at: "2026-09-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function setDefaultMocks() {
   listCalendarsMock.mockResolvedValue({ results: [], hasMore: false });
+  listCalendarEventsMock.mockResolvedValue({ results: [], hasMore: false });
+  listAppointmentsMock.mockResolvedValue({ results: [], hasMore: false });
 }
 
 describe("CalendarMonthView", () => {
@@ -94,6 +118,23 @@ describe("CalendarMonthView", () => {
     );
 
     const cell = await screen.findByRole("button", { name: /10 september/i });
+    await waitFor(() => expect(cell.querySelector("span")).toBeTruthy());
+  });
+
+  it("shows a real density dot for a day with only a generic calendar event", async () => {
+    setDefaultMocks();
+    listCalendarEventsMock.mockResolvedValue({ results: [calendarEvent()], hasMore: false });
+
+    render(
+      <CalendarMonthView
+        tenantId="t1"
+        monthDate={MONTH_DATE}
+        onSelectDay={vi.fn()}
+        onNewAppointment={vi.fn()}
+      />,
+    );
+
+    const cell = await screen.findByRole("button", { name: /12 september/i });
     await waitFor(() => expect(cell.querySelector("span")).toBeTruthy());
   });
 

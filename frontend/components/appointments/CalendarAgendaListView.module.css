@@ -59,6 +59,13 @@
   flex-shrink: 0;
 }
 
+/* Generic calendar event -- an outlined dot rather than a filled one,
+   matching the same distinction Day/Month use. */
+.toneEvent {
+  background: var(--color-surface);
+  border: 1px solid var(--color-text-faint);
+}
+
 .toneInfo {
   background: var(--color-accent);
 }

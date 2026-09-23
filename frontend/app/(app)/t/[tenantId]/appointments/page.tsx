@@ -2,32 +2,37 @@
 
 // Agenda: the business calendar workspace (mockup layout parity for the
 // Week view specifically: design/Calendar.dc.html). Day/Week/Month/
-// Agenda-list share one real data source (`listAppointments()`,
-// docs/ROADMAP.md Phase 28) and one calendar filter. Booking reuses the
-// existing, already-correct `BookAppointmentForm` unchanged inside a
-// dialog; clicking an event opens the existing `AppointmentCard`
-// (cancel/reschedule/complete/no-show) for the appointment already in
-// hand -- no separate lookup needed.
+// Agenda-list share one real data source: `listAppointments()`
+// (docs/ROADMAP.md Phase 28) combined with `listCalendarEvents()`
+// (Calendar Event API, docs/ROADMAP.md Phase 7.5) via
+// `lib/appointments/agendaItems.ts::combineAgendaItems()`, plus one
+// calendar filter. Booking reuses the existing, already-correct
+// `BookAppointmentForm` unchanged inside a dialog; clicking an
+// appointment opens the existing `AppointmentCard` (cancel/reschedule/
+// complete/no-show) for the appointment already in hand; clicking a
+// generic calendar event opens `CalendarEventForm` in edit mode.
 //
-// Week view itself is untouched (`CalendarWeekView`) -- this file only
-// adds the workspace around it (header, toolbar, the other three
-// views), per this phase's own "do not rewrite working appointment
-// logic unnecessarily."
-//
-// "+ Nieuw evenement" is a real, disclosed gap, not a fabricated create
-// flow: a generic calendar event (`product/appointments
-// /calendar_events.py`, Calendar Foundation, docs/ROADMAP.md Phase 7.5)
-// has a domain/service layer but no HTTP route yet, so there is nothing
-// for this UI to list or POST to. The dialog says so plainly instead of
-// pretending to save something. See this phase's own report for the
-// exact backend dependency.
+// Week view itself is untouched (`CalendarWeekView`) -- integrating
+// CalendarEvents into it would mean reworking its self-contained data
+// fetching and `lib/appointments/calendarWeek.ts`'s own
+// `Appointment`-typed bucketing/layout math (shared with, and tested by,
+// that component alone), a substantially larger change than the other
+// three views needed. Per this phase's own "STOP and report" allowance
+// for exactly this case, Week does not show generic calendar events yet
+// -- see this phase's own report.
 import { useRef, useState } from "react";
 import { useTenant } from "@/lib/tenant/tenant-context";
-import { cancelAppointment, listCalendars, type Appointment } from "@/lib/api/appointments";
+import {
+  cancelAppointment,
+  listCalendars,
+  type Appointment,
+  type CalendarEvent,
+} from "@/lib/api/appointments";
 import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { getWeekStart, isSameDay } from "@/lib/appointments/calendarWeek";
 import { addDays, addMonths } from "@/lib/appointments/calendarMonth";
+import type { AgendaItem } from "@/lib/appointments/agendaItems";
 import { Page } from "@/components/shell/Page";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -36,6 +41,7 @@ import {
   AppointmentsSubNav,
   BookAppointmentForm,
   AppointmentCard,
+  CalendarEventForm,
   CalendarWeekView,
   CalendarDayView,
   CalendarMonthView,
@@ -45,6 +51,9 @@ import styles from "./page.module.css";
 
 type Toast = { id: string; text: string; appointmentId: string };
 type AgendaView = "day" | "week" | "month" | "agenda";
+/** `undefined` = closed; `{event: undefined}` = create; `{event: X}` =
+ * edit an existing generic calendar event. */
+type EventDialogState = { event?: CalendarEvent } | undefined;
 
 const VIEW_OPTIONS: { key: AgendaView; label: string }[] = [
   { key: "day", label: "Dag" },
@@ -73,7 +82,7 @@ export default function AppointmentsWeekPage() {
   const [cursor, setCursor] = useState(() => new Date());
   const [calendarId, setCalendarId] = useState<string>("all");
   const [bookOpen, setBookOpen] = useState(false);
-  const [newEventOpen, setNewEventOpen] = useState(false);
+  const [eventDialog, setEventDialog] = useState<EventDialogState>(undefined);
   const [manageAppointment, setManageAppointment] = useState<Appointment | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -113,6 +122,14 @@ export default function AppointmentsWeekPage() {
     return isSameDay(day, today);
   }
 
+  function handleItemClick(item: AgendaItem) {
+    if (item.kind === "appointment") {
+      setManageAppointment(item.appointment);
+    } else {
+      setEventDialog({ event: item.event });
+    }
+  }
+
   function handleBooked(booked: Appointment) {
     setBookOpen(false);
     setReloadKey((key) => key + 1);
@@ -135,7 +152,7 @@ export default function AppointmentsWeekPage() {
         description="Afspraken en andere geplande activiteiten op één plek."
         actions={
           <div className={styles.headerActions}>
-            <Button variant="secondary" onClick={() => setNewEventOpen(true)}>
+            <Button variant="secondary" onClick={() => setEventDialog({})}>
               + Nieuw evenement
             </Button>
             <Button onClick={() => setBookOpen(true)}>+ Nieuwe afspraak</Button>
@@ -220,7 +237,7 @@ export default function AppointmentsWeekPage() {
           day={cursor}
           calendarId={activeCalendarId}
           reloadKey={reloadKey}
-          onEventClick={setManageAppointment}
+          onItemClick={handleItemClick}
           onNewAppointment={() => setBookOpen(true)}
         />
       ) : view === "month" ? (
@@ -241,7 +258,7 @@ export default function AppointmentsWeekPage() {
           anchorDate={cursor}
           calendarId={activeCalendarId}
           reloadKey={reloadKey}
-          onEventClick={setManageAppointment}
+          onItemClick={handleItemClick}
           onNewAppointment={() => setBookOpen(true)}
         />
       )}
@@ -272,19 +289,28 @@ export default function AppointmentsWeekPage() {
       </Dialog>
 
       <Dialog
-        open={newEventOpen}
-        onClose={() => setNewEventOpen(false)}
-        title="Nieuw evenement"
-        description="Losse agenda-items die geen afspraak zijn (zoals een interne bespreking of blok) komen in een volgende fase beschikbaar."
+        open={eventDialog !== undefined}
+        onClose={() => setEventDialog(undefined)}
+        title={eventDialog?.event ? "Evenement bewerken" : "Nieuw evenement"}
       >
-        <p className={styles.newEventNotice}>
-          Voor nu kun je afspraken met klanten inplannen via <strong>Nieuwe afspraak</strong>.
-        </p>
-        <div className={styles.newEventActions}>
-          <Button variant="secondary" onClick={() => setNewEventOpen(false)}>
-            Sluiten
-          </Button>
-        </div>
+        {eventDialog !== undefined ? (
+          <CalendarEventForm
+            tenantId={tenantId}
+            calendars={calendars}
+            event={eventDialog.event}
+            defaultCalendarId={activeCalendarId ?? undefined}
+            defaultDate={cursor}
+            onCancel={() => setEventDialog(undefined)}
+            onSaved={() => {
+              setEventDialog(undefined);
+              setReloadKey((key) => key + 1);
+            }}
+            onDeleted={() => {
+              setEventDialog(undefined);
+              setReloadKey((key) => key + 1);
+            }}
+          />
+        ) : null}
       </Dialog>
 
       {toast ? (
