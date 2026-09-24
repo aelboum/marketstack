@@ -39,12 +39,21 @@
 # and `product/api/main.py` never imports the durable adapter at all, so
 # neither existing (this phase's own required outcome 7/14).
 #
-# Unlike saas-os's own `backend` service (which publishes no host port,
-# behind its own Caddy ingress -- out of scope for this product's Phase
-# 1), `backend` here publishes 8000 directly: this frontend's browser-side
-# code calls the backend directly (NEXT_PUBLIC_API_URL, the OIDC redirect
-# and /auth/me fetch both happen from the browser, not server-side), and
-# no reverse proxy exists yet in this repository.
+# `backend` still publishes 8000 directly (direct API access for existing
+# developer tooling -- curl, migrations, etc.) even though the browser no
+# longer talks to it there. As of the local single-origin routing phase,
+# a minimal `edge` service (Caddy, emitted by the installed saas-os
+# dependency's own `saas-os-edge-config` console script -- ADR-0024's
+# reusable single-origin application runtime, mirroring saas-os's own
+# Caddy ingress pattern for its `backend`) is the one browser-facing
+# origin: NEXT_PUBLIC_API_URL, the OIDC redirect (now derived from
+# PUBLIC_APP_ORIGIN, see .env.example), and the /auth/me fetch all
+# happen from the browser (unchanged), but now against `edge`
+# (http://localhost:${EDGE_LOCAL_PORT:-8080}), which forwards /auth,
+# /v1, /healthz, /readyz to `backend` and everything else to `frontend`
+# (deploy/caddy/Caddyfile.local -- this project's own copy of that
+# emitted file, per ADR-0015 rules 9/10). `frontend` no longer publishes
+# a host port -- see that service's own comment below.
 
 services:
   db:
@@ -96,12 +105,41 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* must be present at build time (Next.js
+        # convention) -- a container ENV set later at `up` would be too
+        # late, the client bundle is already compiled. Never a secret
+        # (frontend/lib/api/config.ts's own docstring).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     env_file:
       - .env
-    ports:
-      - "3000:3000"
+    # No host port published: the browser now reaches this only through
+    # `edge` (below), on the compose network by service name -- see
+    # docker-compose.yml's own top-of-file comment (this was the
+    # "frontend :3000, backend :8000, no reverse proxy" state before this
+    # phase). Also sidesteps port 3000 already being held by another,
+    # unrelated local process (out of this phase's scope -- reported
+    # separately, not fixed here).
     depends_on:
       - backend
+
+  edge:
+    # Local single-origin browser routing (ADR-0024, saas-os's own
+    # reusable `infra.edge` single-origin application runtime -- see
+    # docs/ROADMAP.md UI Track routing phase). `deploy/caddy/Caddyfile.local`
+    # is emitted by that dependency's own `saas-os-edge-config` console
+    # script (never hand-authored/copied here -- ADR-0015 rules 9/10);
+    # once emitted it is this repository's own file to maintain. Its
+    # listener is always :8080 inside the container -- only the
+    # published host port is this project's own concern.
+    image: caddy:2-alpine
+    volumes:
+      - ./deploy/caddy/Caddyfile.local:/etc/caddy/Caddyfile:ro
+    ports:
+      - "${EDGE_LOCAL_PORT:-8080}:8080"
+    depends_on:
+      - backend
+      - frontend
 
   # --- Local self-hosted identity (saas-os docs/LOCAL-IDENTITY.md,
   # "Downstream product development") ---------------------------------
@@ -243,6 +281,11 @@ services:
       # Same URL a browser on the host would use (see the `zitadel`
       # service's own `networks.default.aliases` comment above).
       ZITADEL_INTERNAL_URL: http://zitadel.localhost:${ZITADEL_LOCAL_PORT}
+      # ADR-0024: PUBLIC_APP_ORIGIN is this project's single source for the
+      # callback the bootstrap tool registers with ZITADEL; OIDC_REDIRECT_URI
+      # stays supported as the escape hatch (infra.edge.resolve_callback_url
+      # rejects the two disagreeing rather than picking one silently).
+      PUBLIC_APP_ORIGIN: ${PUBLIC_APP_ORIGIN}
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI}
       OIDC_LOCAL_PROJECT_NAME: ${OIDC_LOCAL_PROJECT_NAME}
       OIDC_LOCAL_APPLICATION_NAME: ${OIDC_LOCAL_APPLICATION_NAME}

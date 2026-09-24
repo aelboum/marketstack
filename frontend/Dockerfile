@@ -22,6 +22,14 @@ RUN npm ci
 
 COPY --chown=node:node . .
 
+# NEXT_PUBLIC_* is inlined into the client bundle at this build step
+# (Next.js convention -- lib/api/config.ts's own docstring), so it must
+# be a build ARG, not a container ENV set later at `docker compose up`.
+# Never a secret. docker-compose.yml's `frontend.build.args` supplies
+# this from the local single-origin edge's origin.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN npm run build
 
 CMD ["npm", "start"]
