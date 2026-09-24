@@ -78,6 +78,44 @@ bash scripts/check-docker.sh        # docker build + runtime smoke test (needs D
 bash scripts/check-all.sh           # backend + frontend + security (fast checks only)
 ```
 
+### Local identity (ZITADEL)
+
+Development-only. `docker compose up` also runs a real, local, self-hosted
+ZITADEL instance -- no ZITADEL Cloud account or external OIDC provider is
+needed to exercise `/auth/login` locally. This reuses the `saas-os`
+dependency's own local-identity tooling (`saas-os` docs/LOCAL-IDENTITY.md,
+"Downstream product development"): this repository's `docker-compose.yml`
+declares the `zitadel`/`zitadel-db`/`zitadel-bootstrap` services, but the
+bootstrap tool itself (`saas-os-local-identity`) is a console script
+installed with the `saas-os` package -- no SaaS-OS Python source is copied
+into this repository.
+
+```bash
+cp .env.example .env   # first time only
+docker compose up -d
+docker compose logs zitadel-bootstrap
+```
+
+The last command prints a line like:
+
+```
+Set this in your .env (only if it changed):  OIDC_CLIENT_ID=392029046428401671
+```
+
+Copy that value into `.env`'s `OIDC_CLIENT_ID`, then
+`docker compose up -d backend` to pick it up (only needed the first time, or
+after `docker compose down -v`). The client is a public PKCE client --
+`OIDC_CLIENT_SECRET` stays empty. Re-running `zitadel-bootstrap` is safe:
+it lists before creating, so nothing is duplicated.
+
+Then visit the existing frontend login (`/auth/login`), authenticate through
+the local ZITADEL instance, and confirm the redirect back through
+`/auth/callback` leaves `/auth/me` returning the authenticated user.
+
+This is local development infrastructure only -- not a production identity
+deployment. See the `saas-os` dependency's own `docs/LOCAL-IDENTITY.md` for
+the full configuration reference and production-identity boundary.
+
 ## Governing principle
 
 ```

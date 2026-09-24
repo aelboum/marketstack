@@ -33,7 +33,7 @@ license = { text = "UNLICENSED" }
 # install on this repository's `python:3.13-slim` image or this Windows
 # dev machine).
 dependencies = [
-    "saas-os @ git+https://github.com/aelboum/saas-os@1d6fd07a0c3ce2dd8a12c09dac86b019781ee6c6",
+    "saas-os @ git+https://github.com/aelboum/saas-os@04e29675968dbf972228ae80504aea6a3e2a357e",
     "temporalio==1.33.0",
 ]
 
