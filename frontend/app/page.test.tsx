@@ -14,31 +14,25 @@ vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({ status: statusMock() }),
 }));
 
-vi.mock("@/lib/auth/api", () => ({
-  loginUrl: () => "/auth/login",
-}));
-
 describe("HomePage", () => {
-  it("shows the public landing page when unauthenticated", () => {
-    statusMock.mockReturnValue("unauthenticated");
-    render(<HomePage />);
-    expect(screen.getByText("Sign in to continue to your workspace.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/auth/login");
-    expect(replaceMock).not.toHaveBeenCalled();
-  });
-
-  it("shows a loading state, not the landing page, while session status is loading", () => {
+  it("shows a loading state while session status is loading, without dispatching anywhere", () => {
     statusMock.mockReturnValue("loading");
     render(<HomePage />);
-    expect(screen.queryByText("Sign in to continue to your workspace.")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
-  it("hands an authenticated session off to the existing tenant-resolution entry point, without flashing the landing page", () => {
+  it("hands an authenticated session off to the existing tenant-resolution entry point", () => {
     statusMock.mockReturnValue("authenticated");
     render(<HomePage />);
-    expect(screen.queryByText("Sign in to continue to your workspace.")).not.toBeInTheDocument();
     expect(replaceMock).toHaveBeenCalledTimes(1);
     expect(replaceMock).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("hands an unauthenticated session off to the product-owned sign-in page", () => {
+    statusMock.mockReturnValue("unauthenticated");
+    render(<HomePage />);
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 });
