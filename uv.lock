@@ -1023,7 +1023,7 @@ requires-dist = [
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "saas-os", git = "https://github.com/aelboum/saas-os?rev=8b7ebc0d825b3b17b949ade14f8ef8ad75af14a9" },
+    { name = "saas-os", git = "https://github.com/aelboum/saas-os?rev=78f03b33cab90d0b5d0a06606288f861c5cf46f7" },
     { name = "temporalio", specifier = "==1.33.0" },
 ]
 provides-extras = ["dev", "security"]
@@ -1386,7 +1386,7 @@ wheels = [
 [[package]]
 name = "saas-os"
 version = "0.1.0"
-source = { git = "https://github.com/aelboum/saas-os?rev=8b7ebc0d825b3b17b949ade14f8ef8ad75af14a9#8b7ebc0d825b3b17b949ade14f8ef8ad75af14a9" }
+source = { git = "https://github.com/aelboum/saas-os?rev=78f03b33cab90d0b5d0a06606288f861c5cf46f7#78f03b33cab90d0b5d0a06606288f861c5cf46f7" }
 dependencies = [
     { name = "alembic" },
     { name = "arq" },
