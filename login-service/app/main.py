@@ -63,6 +63,7 @@ logger = logging.getLogger("login_service")
 
 _AUTH_REQUEST_ID_RE = re.compile(r"^V2_[A-Za-z0-9_-]{1,200}$")
 
+
 def _read_private_key(path: str) -> str:
     with open(path, encoding="utf-8") as f:
         return f.read()
@@ -330,7 +331,9 @@ async def webauthn_verify(request: Request) -> Response:
     assertion = await request.json()
     try:
         updated = session_api.set_session(
-            zitadel, session_id=ceremony.session_id, session_token=ceremony.session_token,
+            zitadel,
+            session_id=ceremony.session_id,
+            session_token=ceremony.session_token,
             webauthn_assertion=assertion,
         )
     except ZitadelApiError:

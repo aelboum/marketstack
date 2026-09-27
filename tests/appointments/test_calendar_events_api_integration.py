@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from core.identity.sessions import issue_session
 from fastapi.testclient import TestClient
+from infra.db import tenant_session_scope
 from product.agency.provisioning import provision_agency, provision_client
 from product.api.main import create_app
 from product.appointments.booking import book_appointment
@@ -23,7 +24,6 @@ from product.appointments.calendar_events import (
 )
 from product.appointments.calendars import create_calendar
 from product.appointments.models import STATUS_CONFIRMED, Appointment
-from infra.db import tenant_session_scope
 
 from tests.appointments._cleanup import cleanup_tenant_tree, cleanup_users, make_user
 
@@ -64,7 +64,10 @@ def test_list_returns_empty_when_nothing_scheduled() -> None:
         response = _api().get(
             f"/v1/appointments/tenants/{client.tenant_id}/calendar-events",
             headers=_auth_headers(owner.id),
-            params={"starts_after": "2026-10-01T00:00:00Z", "starts_before": "2026-10-02T00:00:00Z"},
+            params={
+                "starts_after": "2026-10-01T00:00:00Z",
+                "starts_before": "2026-10-02T00:00:00Z",
+            },
         )
         assert response.status_code == 200
         assert response.json() == []
@@ -83,16 +86,29 @@ def test_list_returns_events_in_window_deterministically_ordered() -> None:
         starts_1, ends_1 = _slot(5, 14)
         starts_2, ends_2 = _slot(5, 9)
         event_late = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_1, ends_at=ends_1, title="Later"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_1,
+            ends_at=ends_1,
+            title="Later",
         )
         event_early = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_2, ends_at=ends_2, title="Earlier"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_2,
+            ends_at=ends_2,
+            title="Earlier",
         )
 
         response = _api().get(
             f"/v1/appointments/tenants/{client.tenant_id}/calendar-events",
             headers=_auth_headers(owner.id),
-            params={"starts_after": "2026-10-05T00:00:00Z", "starts_before": "2026-10-06T00:00:00Z"},
+            params={
+                "starts_after": "2026-10-05T00:00:00Z",
+                "starts_before": "2026-10-06T00:00:00Z",
+            },
         )
 
         assert response.status_code == 200
@@ -116,16 +132,29 @@ def test_list_excludes_events_outside_the_requested_window() -> None:
         inside_start, inside_end = _slot(5)
         outside_start, outside_end = _slot(20)
         create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=inside_start, ends_at=inside_end, title="In"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=inside_start,
+            ends_at=inside_end,
+            title="In",
         )
         create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=outside_start, ends_at=outside_end, title="Out"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=outside_start,
+            ends_at=outside_end,
+            title="Out",
         )
 
         response = _api().get(
             f"/v1/appointments/tenants/{client.tenant_id}/calendar-events",
             headers=_auth_headers(owner.id),
-            params={"starts_after": "2026-10-01T00:00:00Z", "starts_before": "2026-10-10T00:00:00Z"},
+            params={
+                "starts_after": "2026-10-01T00:00:00Z",
+                "starts_before": "2026-10-10T00:00:00Z",
+            },
         )
 
         body = response.json()
@@ -148,10 +177,20 @@ def test_list_filters_by_calendar_id_and_defaults_to_every_calendar() -> None:
         starts_a, ends_a = _slot(5)
         starts_b, ends_b = _slot(6)
         create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar_a.id, starts_at=starts_a, ends_at=ends_a, title="A event"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar_a.id,
+            starts_at=starts_a,
+            ends_at=ends_a,
+            title="A event",
         )
         create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar_b.id, starts_at=starts_b, ends_at=ends_b, title="B event"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar_b.id,
+            starts_at=starts_b,
+            ends_at=ends_b,
+            title="B event",
         )
         params = {"starts_after": "2026-10-01T00:00:00Z", "starts_before": "2026-10-10T00:00:00Z"}
         headers = _auth_headers(owner.id)
@@ -164,7 +203,9 @@ def test_list_filters_by_calendar_id_and_defaults_to_every_calendar() -> None:
         assert [row["title"] for row in filtered.json()] == ["A event"]
 
         unfiltered = _api().get(
-            f"/v1/appointments/tenants/{client.tenant_id}/calendar-events", headers=headers, params=params
+            f"/v1/appointments/tenants/{client.tenant_id}/calendar-events",
+            headers=headers,
+            params=params,
         )
         assert {row["title"] for row in unfiltered.json()} == {"A event", "B event"}
     finally:
@@ -183,13 +224,21 @@ def test_list_is_tenant_isolated() -> None:
         )
         starts_at, ends_at = _slot(5)
         create_calendar_event(
-            owner_a.id, client_a.tenant_id, calendar_id=calendar_a.id, starts_at=starts_at, ends_at=ends_at, title="A only"
+            owner_a.id,
+            client_a.tenant_id,
+            calendar_id=calendar_a.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="A only",
         )
 
         response = _api().get(
             f"/v1/appointments/tenants/{client_b.tenant_id}/calendar-events",
             headers=_auth_headers(owner_b.id),
-            params={"starts_after": "2026-10-01T00:00:00Z", "starts_before": "2026-10-10T00:00:00Z"},
+            params={
+                "starts_after": "2026-10-01T00:00:00Z",
+                "starts_before": "2026-10-10T00:00:00Z",
+            },
         )
         assert response.status_code == 200
         assert response.json() == []
@@ -206,7 +255,10 @@ def test_list_requires_authentication() -> None:
     try:
         response = _api().get(
             f"/v1/appointments/tenants/{client.tenant_id}/calendar-events",
-            params={"starts_after": "2026-10-01T00:00:00Z", "starts_before": "2026-10-02T00:00:00Z"},
+            params={
+                "starts_after": "2026-10-01T00:00:00Z",
+                "starts_before": "2026-10-02T00:00:00Z",
+            },
         )
         assert response.status_code == 401
     finally:
@@ -404,7 +456,12 @@ def test_update_title_and_description_over_http() -> None:
         )
         starts_at, ends_at = _slot(8)
         event = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_at, ends_at=ends_at, title="Old"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="Old",
         )
 
         response = _api().patch(
@@ -430,7 +487,12 @@ def test_update_time_over_http() -> None:
         )
         starts_at, ends_at = _slot(8)
         event = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_at, ends_at=ends_at, title="Old"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="Old",
         )
         new_starts_at, new_ends_at = _slot(8, 14)
 
@@ -456,7 +518,12 @@ def test_update_with_invalid_date_range_is_rejected() -> None:
         )
         starts_at, ends_at = _slot(8)
         event = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_at, ends_at=ends_at, title="Old"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="Old",
         )
 
         response = _api().patch(
@@ -481,7 +548,12 @@ def test_update_is_cross_tenant_protected() -> None:
         )
         starts_at, ends_at = _slot(8)
         event = create_calendar_event(
-            owner_a.id, client_a.tenant_id, calendar_id=calendar_a.id, starts_at=starts_at, ends_at=ends_at, title="A only"
+            owner_a.id,
+            client_a.tenant_id,
+            calendar_id=calendar_a.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="A only",
         )
 
         response = _api().patch(
@@ -522,7 +594,12 @@ def test_update_requires_authentication() -> None:
         )
         starts_at, ends_at = _slot(8)
         event = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_at, ends_at=ends_at, title="Old"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="Old",
         )
         response = _api().patch(
             f"/v1/appointments/tenants/{client.tenant_id}/calendar-events/{event.id}",
@@ -546,7 +623,12 @@ def test_delete_generic_event_over_http() -> None:
         )
         starts_at, ends_at = _slot(9)
         event = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_at, ends_at=ends_at, title="Gone soon"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="Gone soon",
         )
 
         response = _api().delete(
@@ -592,7 +674,12 @@ def test_delete_requires_authentication() -> None:
         )
         starts_at, ends_at = _slot(9)
         event = create_calendar_event(
-            owner.id, client.tenant_id, calendar_id=calendar.id, starts_at=starts_at, ends_at=ends_at, title="Untouched"
+            owner.id,
+            client.tenant_id,
+            calendar_id=calendar.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="Untouched",
         )
         response = _api().delete(
             f"/v1/appointments/tenants/{client.tenant_id}/calendar-events/{event.id}"
@@ -614,7 +701,12 @@ def test_delete_is_tenant_isolated() -> None:
         )
         starts_at, ends_at = _slot(9)
         event = create_calendar_event(
-            owner_a.id, client_a.tenant_id, calendar_id=calendar_a.id, starts_at=starts_at, ends_at=ends_at, title="A only"
+            owner_a.id,
+            client_a.tenant_id,
+            calendar_id=calendar_a.id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title="A only",
         )
 
         response = _api().delete(

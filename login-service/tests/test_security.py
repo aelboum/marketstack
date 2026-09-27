@@ -217,5 +217,5 @@ def test_browser_cannot_supply_redirect_target():
     from app import main as login_app
 
     source = inspect.getsource(login_app)
-    assert "request.query_params.get(\"redirect" not in source
+    assert 'request.query_params.get("redirect' not in source
     assert "Form(...)" in source  # forms are used, but never for a redirect target

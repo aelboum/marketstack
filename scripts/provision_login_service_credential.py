@@ -301,9 +301,7 @@ def provision(*, output_dir: str, transport: httpx.BaseTransport | None = None) 
     key_id_path = os.path.join(output_dir, "key_id.txt")
 
     if os.path.exists(key_path) and os.path.exists(user_id_path) and os.path.exists(key_id_path):
-        print(
-            f"[provision-login-service] already provisioned ({output_dir}) -- no action taken."
-        )
+        print(f"[provision-login-service] already provisioned ({output_dir}) -- no action taken.")
         return
 
     zitadel_url = _env("ZITADEL_INTERNAL_URL")
@@ -330,8 +328,7 @@ def provision(*, output_dir: str, transport: httpx.BaseTransport | None = None) 
             print(f"[provision-login-service] created machine user {username!r}: {user_id}")
         else:
             print(
-                f"[provision-login-service] reusing existing machine user "
-                f"{username!r}: {user_id}"
+                f"[provision-login-service] reusing existing machine user {username!r}: {user_id}"
             )
 
         # F-02: required authorization must be confirmed before any key

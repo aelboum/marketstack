@@ -75,9 +75,7 @@ def upgrade() -> None:
         sa.Column(
             "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
-        sa.UniqueConstraint(
-            "tenant_id", "id", name="uq_appointments_calendar_events_tenant_id_id"
-        ),
+        sa.UniqueConstraint("tenant_id", "id", name="uq_appointments_calendar_events_tenant_id_id"),
         sa.ForeignKeyConstraint(
             ["tenant_id", "calendar_id"],
             ["appointments.calendars.tenant_id", "appointments.calendars.id"],

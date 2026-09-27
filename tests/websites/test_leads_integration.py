@@ -250,6 +250,7 @@ def test_capture_lead_records_bounded_audit_entry() -> None:
         matching = [e for e in entries if e.action == "websites.lead.submitted"]
         assert len(matching) == 1
         metadata = matching[0].entry_metadata
+        assert metadata is not None
         assert set(metadata) == {"website_id", "page_id", "contact_id"}
         # Never the raw name/email/phone/message.
         assert "secret operational detail" not in str(metadata)

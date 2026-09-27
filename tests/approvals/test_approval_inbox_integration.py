@@ -68,9 +68,7 @@ def _propose(tenant_id, proposer_id, tool_key: str = "ai.crm.qualify_lead"):
     return propose_action(tenant_id, proposer_id, tool_key, payload={"note": "test"})
 
 
-async def _test_handler(
-    context: object, payload: Mapping[str, object]
-) -> dict[str, object]:
+async def _test_handler(context: object, payload: Mapping[str, object]) -> dict[str, object]:
     return {"echoed": dict(payload)}
 
 

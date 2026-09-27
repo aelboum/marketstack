@@ -118,9 +118,7 @@ def test_unknown_snapshot_id_leaves_client_usable_but_reports_setup_failed() -> 
     created_tenant_id = None
     try:
         with pytest.raises(ClientProvisioningSetupFailedError) as excinfo:
-            provision_client(
-                owner.id, agency.tenant_id, _name("client"), snapshot_id=uuid.uuid4()
-            )
+            provision_client(owner.id, agency.tenant_id, _name("client"), snapshot_id=uuid.uuid4())
         failure = excinfo.value
         created_tenant_id = failure.client.tenant_id
         assert failure.reason == "SnapshotNotFoundError"
@@ -170,10 +168,14 @@ def test_agency_cannot_apply_another_agencys_snapshot() -> None:
         created_tenant_id = excinfo.value.client.tenant_id
         assert excinfo.value.reason == "SnapshotNotFoundError"
     finally:
-        ids = [agency_a.tenant_id] if created_tenant_id is None else [
-            created_tenant_id,
-            agency_a.tenant_id,
-        ]
+        ids = (
+            [agency_a.tenant_id]
+            if created_tenant_id is None
+            else [
+                created_tenant_id,
+                agency_a.tenant_id,
+            ]
+        )
         cleanup_tenant_tree(*ids)
         cleanup_tenant_tree(agency_b.tenant_id)
         cleanup_users(owner_a.id, owner_b.id)

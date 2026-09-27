@@ -33,6 +33,7 @@ import pytest
 from product.action_registry_composition import wire_production_automation_actions
 from product.automation.actions import (
     ACTION_AI_QUALIFY_LEAD,
+    ACTION_ASSIGN_OPPORTUNITY,
     ACTION_CREATE_TASK,
     ACTION_MOVE_OPPORTUNITY,
     ACTION_SEND_EMAIL,
@@ -63,7 +64,7 @@ _PHASE_10_2_ACTIONS = frozenset(
         ACTION_SEND_WEBHOOK,
     }
 )
-_PRODUCTION_ACTIONS = _PHASE_10_2_ACTIONS | {ACTION_AI_QUALIFY_LEAD}
+_PRODUCTION_ACTIONS = _PHASE_10_2_ACTIONS | {ACTION_AI_QUALIFY_LEAD, ACTION_ASSIGN_OPPORTUNITY}
 
 
 @pytest.fixture(autouse=True, scope="module")

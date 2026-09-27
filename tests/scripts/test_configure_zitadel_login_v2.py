@@ -25,8 +25,14 @@ _APPLICATION_NAME = "product-backend"
 _CLIENT_ID = "client-1"
 
 
-def _application(*, client_id=_CLIENT_ID, application_id=_APPLICATION_ID, project_id=_PROJECT_ID,
-                  name=_APPLICATION_NAME, base_uri: str | None = None) -> dict:
+def _application(
+    *,
+    client_id=_CLIENT_ID,
+    application_id=_APPLICATION_ID,
+    project_id=_PROJECT_ID,
+    name=_APPLICATION_NAME,
+    base_uri: str | None = None,
+) -> dict:
     oidc_configuration: dict = {
         "clientId": client_id,
         "redirectUris": ["http://localhost:8080/auth/callback"],
@@ -233,10 +239,13 @@ def test_unrelated_oidc_fields_preserved_in_request_body(monkeypatch):
     _run(fake)
 
     [(_, _, update_body)] = fake.update_calls()
+    assert update_body is not None
     assert update_body == {
         "applicationId": _APPLICATION_ID,
         "projectId": _PROJECT_ID,
-        "oidcConfiguration": {"loginVersion": {"loginV2": {"baseUri": "https://login.example.test/"}}},
+        "oidcConfiguration": {
+            "loginVersion": {"loginV2": {"baseUri": "https://login.example.test/"}}
+        },
     }
     # Explicitly not present: redirectUris/responseTypes/grantTypes/etc.
     assert "redirectUris" not in update_body["oidcConfiguration"]

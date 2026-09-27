@@ -131,8 +131,8 @@ with engine.connect() as conn:
     # catalog domain), plus templates.snapshots (14.1's own snapshot
     # capture/apply domain).
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0048_templates_snapshots", (
-        f"expected product migrations at head 0048_templates_snapshots, "
+    assert product_version == "0051_appointments_cal_events", (
+        f"expected product migrations at head 0051_appointments_cal_events, "
         f"got {product_version!r}"
     )
 
@@ -171,6 +171,16 @@ with engine.connect() as conn:
     appointments_table_rows = conn.execute(
         text(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'appointments' ORDER BY tablename"
+        )
+    ).all()
+    # docs/ROADMAP.md Phase 7.5: appointments.calendar_events is ordinary
+    # RLS-scoped, tenant-owned data (product/appointments/models.py's own
+    # CalendarEvent docstring) -- assert RLS is both ENABLED and FORCED,
+    # same assertion shape as billing.resale_plans/reputation.* above.
+    appointments_calendar_events_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'appointments.calendar_events'::regclass"
         )
     ).all()
     telephony_table_rows = conn.execute(
@@ -224,6 +234,15 @@ with engine.connect() as conn:
     ).all()
     websites_table_rows = conn.execute(
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'websites' ORDER BY tablename")
+    ).all()
+    # docs/ROADMAP.md Phase 11.x: websites.lead_submissions is ordinary
+    # RLS-scoped, tenant-owned data -- assert RLS is both ENABLED and
+    # FORCED, same assertion shape as websites.pages above.
+    websites_lead_submissions_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'websites.lead_submissions'::regclass"
+        )
     ).all()
     # docs/ROADMAP.md Phase 11.1: `websites.websites` is deliberately NOT
     # RLS-scoped (see product/websites/models.py::Website's own module
@@ -386,10 +405,15 @@ expected_appointments_tables = {
     "appointments",
     "booking_links",
     "appointment_manage_tokens",
+    "calendar_events",
 }
 assert appointments_tables_present == expected_appointments_tables, (
     f"expected appointments tables {expected_appointments_tables}, "
     f"got {appointments_tables_present}"
+)
+assert appointments_calendar_events_rls_rows == [(True, True)], (
+    "expected appointments.calendar_events to have ROW LEVEL SECURITY both "
+    f"enabled and forced, got {appointments_calendar_events_rls_rows}"
 )
 telephony_tables_present = {row[0] for row in telephony_table_rows}
 expected_telephony_tables = {
@@ -449,7 +473,7 @@ assert ai_policy_rls_rows == [(True, True)], (
     f"got {ai_policy_rls_rows}"
 )
 websites_tables_present = {row[0] for row in websites_table_rows}
-expected_websites_tables = {"websites", "pages"}
+expected_websites_tables = {"websites", "pages", "lead_submissions"}
 assert websites_tables_present == expected_websites_tables, (
     f"expected websites tables {expected_websites_tables}, got {websites_tables_present}"
 )
@@ -468,6 +492,10 @@ assert len(websites_slug_unique_rows) == 1, (
 assert len(websites_page_slug_unique_rows) == 1, (
     "expected the unique constraint 'uq_websites_pages_tenant_website_slug' to "
     "exist on websites.pages"
+)
+assert websites_lead_submissions_rls_rows == [(True, True)], (
+    "expected websites.lead_submissions to have ROW LEVEL SECURITY both enabled "
+    f"and forced, got {websites_lead_submissions_rls_rows}"
 )
 reputation_tables_present = {row[0] for row in reputation_table_rows}
 expected_reputation_tables = {"review_requests", "reviews", "review_responses"}

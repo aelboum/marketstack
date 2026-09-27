@@ -174,8 +174,9 @@ def render_totp_page(
     )
 
 
-def render_webauthn_page(*, brand_name: str, csrf_token: str, options_url: str, verify_url: str,
-                          error: str | None = None) -> str:
+def render_webauthn_page(
+    *, brand_name: str, csrf_token: str, options_url: str, verify_url: str, error: str | None = None
+) -> str:
     if error:
         error_html = f'<div class="error" role="alert" id="webauthn-error">{_escape(error)}</div>'
     else:
