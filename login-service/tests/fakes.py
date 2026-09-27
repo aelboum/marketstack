@@ -24,6 +24,8 @@ class FakeZitadel:
         self.calls: list[tuple[str, str, dict | None, dict | None]] = []
         self.valid_totp_code = "123456"
         self.valid_webauthn_credential_id = "valid-credential"
+        self.password_reset_codes: dict[str, str] = {}  # user_id -> verification code
+        self.password_reset_url_templates: list[str] = []
 
     # --- test setup helpers ------------------------------------------------
 
@@ -99,6 +101,14 @@ class FakeZitadel:
             user = self.users_by_id.get(user_id)
             methods = user["methods"] if user else set()
             return {"authMethodTypes": [f"AUTHENTICATION_METHOD_TYPE_{m}" for m in methods]}
+
+        if method == "POST" and path.endswith("/password_reset"):
+            user_id = path.split("/")[3]
+            return self._password_reset(user_id, json or {})
+
+        if method == "POST" and path.endswith("/password") and "/password_reset" not in path:
+            user_id = path.split("/")[3]
+            return self._set_password(user_id, json or {})
 
         raise AssertionError(f"unexpected fake ZITADEL request: {method} {path}")
 
@@ -176,6 +186,32 @@ class FakeZitadel:
                 }
             }
         return result
+
+    def _password_reset(self, user_id: str, body: dict) -> dict:
+        if user_id not in self.users_by_id:
+            raise ZitadelApiError(404, "user not found")
+        send_link = body.get("sendLink")
+        if send_link is None:
+            raise AssertionError("password_reset fake only supports the sendLink medium")
+        self.password_reset_url_templates.append(send_link["urlTemplate"])
+        # Short alphanumeric, matching the real API's own shape (proto:
+        # verification_code max_len 20) -- a hyphenated uuid would fail
+        # app/main.py's own `_RESET_CODE_RE` defense-in-depth check.
+        code = uuid.uuid4().hex[:8].upper()
+        self.password_reset_codes[user_id] = code
+        return {"details": {}}
+
+    def _set_password(self, user_id: str, body: dict) -> dict:
+        user = self.users_by_id.get(user_id)
+        if user is None:
+            raise ZitadelApiError(404, "user not found")
+        verification_code = body.get("verificationCode")
+        expected = self.password_reset_codes.get(user_id)
+        if verification_code is None or verification_code != expected:
+            raise ZitadelApiError(400, "invalid or expired verification code")
+        user["password"] = body["newPassword"]["password"]
+        del self.password_reset_codes[user_id]
+        return {"details": {}}
 
     def _get_session(self, session_id: str, params: dict) -> dict:
         # Mirrors live-verified real ZITADEL behavior (security audit

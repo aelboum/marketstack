@@ -6,6 +6,10 @@
     POST /login-svc/login/totp                  TOTP second-factor check
     GET  /login-svc/login/webauthn/options       WebAuthn challenge (JSON)
     POST /login-svc/login/webauthn/verify        WebAuthn assertion check
+    GET  /login-svc/login/forgot-password        request a reset email
+    POST /login-svc/login/forgot-password        (same; always a generic response)
+    GET  /login-svc/reset-password?userID&code   choose a new password
+    POST /login-svc/reset-password               (same; sets the new password)
     POST /login-svc/logout                       this service's own cleanup
     GET  /login-svc/healthz                      liveness
 
@@ -17,17 +21,21 @@ its only output is a browser redirect to the `callback_url` ZITADEL's own
 `/auth/callback` then consumes exactly as it always has (Authorization
 Code + PKCE, ID-token validation, `issue_session()`).
 
+Account/password recovery (`UserService.PasswordReset`/`SetPassword`,
+`app/zitadel/user_api.py`) is implemented -- previously deferred here
+pending a working SMTP configuration, now provided in local development by
+`mailpit` + `scripts/configure_zitadel_smtp.py` (docker-compose.yml); any
+other environment supplies its own real SMTP provider through the same
+`SMTP_*` environment variables. `submit_forgot_password` never reveals
+whether the submitted email/username actually resolved to an account --
+always the same response either way (account-enumeration prevention).
+
 **Deferred, documented limitations (not implemented here, per ADR-0017's
 own non-goals and this task's explicit "stop and report" allowance):**
 - External IdP sign-in (`CheckIDPIntent`) -- needs a live-verified
   redirect/callback choreography (`StartIdentityProviderIntent`) this
   audit did not confirm, and the local ZITADEL instance has no IdP
   configured to test against.
-- Account/password recovery -- `UserService.PasswordReset`/`UpdateUser`
-  are real, verified, self-service-capable APIs, but wiring them up needs
-  a verified working SMTP configuration on this ZITADEL instance, which
-  is out of this task's scope to provision. The UI states the limitation
-  rather than offering a broken link.
 - OTP via SMS/Email as a second factor -- see `app/factor_policy.py`'s
   own comment: recognized by ZITADEL, not wired up here.
 - New-factor enrollment when a user has zero eligible second factors
@@ -63,6 +71,21 @@ from app.zitadel.token import ZitadelCredential
 logger = logging.getLogger("login_service")
 
 _AUTH_REQUEST_ID_RE = re.compile(r"^V2_[A-Za-z0-9_-]{1,200}$")
+# ZITADEL's own validation for both fields is just a length bound (proto:
+# user_id min_len 1/max_len 200, verification_code min_len 1/max_len 20) --
+# no character-set constraint is documented, so this only narrows to safe
+# URL-query characters at the same lengths. Rejecting an obviously-
+# malformed value here is defense in depth, not the primary control
+# (ZITADEL's own SetPassword call still re-validates both).
+_USER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,200}$")
+_RESET_CODE_RE = re.compile(r"^[A-Za-z0-9]{1,20}$")
+# Sentinel `auth_request_id` for a ceremony that exists only to bind a CSRF
+# token to the browser's cookie on the forgot-password/reset-password pages
+# -- these never call `_complete()`/`oidc_api.create_callback`, so there is
+# no real OIDC `authRequest` to store (docs/ADR/0017's ceremony model was
+# designed around the sign-in flow only; reusing it here for CSRF avoids a
+# second, parallel piece of state for two simple forms).
+_NO_AUTH_REQUEST = ""
 
 # Security audit F-10: a real WebAuthn assertion (authenticatorData +
 # clientDataJSON + signature, each base64-encoded, plus a short id/type)
@@ -190,6 +213,138 @@ def start_login(authRequest: str = "") -> Response:
     )
     response = HTMLResponse(html_body)
     set_ceremony_cookie(response, ceremony.ceremony_id, secure=settings.cookie_secure)
+    return response
+
+
+@app.get("/login-svc/login/forgot-password")
+def start_forgot_password(request: Request) -> Response:
+    # Reuses the in-progress sign-in ceremony's CSRF token/cookie if one is
+    # present (the common case: reached via the link on the login page
+    # itself); starts a fresh CSRF-only ceremony otherwise (e.g. the
+    # sign-in ceremony already expired, or this URL was opened directly).
+    ceremony = _load_ceremony(request) or store.start(_NO_AUTH_REQUEST)
+    html_body = templates.render_forgot_password_page(
+        brand_name=_brand(),
+        action="/login-svc/login/forgot-password",
+        csrf_token=ceremony.csrf_token,
+    )
+    response = HTMLResponse(html_body)
+    set_ceremony_cookie(response, ceremony.ceremony_id, secure=settings.cookie_secure)
+    return response
+
+
+def _attempt_password_reset(login_name: str) -> None:
+    """Best-effort: resolves `login_name` to a user id (via an
+    unauthenticated `CreateSession` user-check, the same mechanism
+    `submit_password` uses, just without a password check) and requests a
+    reset email. Every failure -- unknown user, transport error, ZITADEL
+    rejecting the reset itself -- is swallowed here, never surfaced to the
+    caller, so the route above always responds identically regardless of
+    whether the account exists (account-enumeration prevention, mirroring
+    this codebase's existing security posture elsewhere -- see
+    `submit_password`'s own F-12 comment for the sibling case this can't
+    just reuse, since here even "wrong vs. unknown" must stay
+    indistinguishable, not just "wrong password vs. service down")."""
+    session_id: str | None = None
+    session_token: str | None = None
+    try:
+        created = session_api.create_session(zitadel, login_name=login_name)
+        session_id = created.get("sessionId")
+        session_token = created.get("sessionToken")
+        if not session_id:
+            return
+        session = session_api.get_session(zitadel, session_id=session_id)
+        user_id = session.get("factors", {}).get("user", {}).get("id")
+        if not user_id:
+            return
+        url_template = (
+            f"{settings.public_login_service_origin}/login-svc/reset-password"
+            "?userID={{.UserID}}&code={{.Code}}"
+        )
+        user_api.password_reset(zitadel, user_id=user_id, url_template=url_template)
+    except ZitadelApiError:
+        logger.info("login_svc_forgot_password_attempt_failed")
+    finally:
+        if session_id:
+            try:
+                session_api.delete_session(
+                    client=zitadel, session_id=session_id, session_token=session_token
+                )
+            except ZitadelApiError:
+                pass
+
+
+@app.post("/login-svc/login/forgot-password")
+def submit_forgot_password(
+    request: Request, csrf_token: str = Form(...), login_name: str = Form(...)
+) -> Response:
+    ceremony = _load_ceremony(request)
+    if ceremony is None or not store.verify_csrf(ceremony, csrf_token):
+        return _error_response("Your session has expired. Please try again.")
+
+    _attempt_password_reset(login_name)
+    return HTMLResponse(templates.render_forgot_password_sent_page(brand_name=_brand()))
+
+
+@app.get("/login-svc/reset-password")
+def start_reset_password(request: Request, userID: str = "", code: str = "") -> Response:
+    if not _USER_ID_RE.match(userID) or not _RESET_CODE_RE.match(code):
+        return _error_response("This password reset link is invalid.")
+
+    ceremony = _load_ceremony(request) or store.start(_NO_AUTH_REQUEST)
+    html_body = templates.render_reset_password_page(
+        brand_name=_brand(),
+        action="/login-svc/reset-password",
+        csrf_token=ceremony.csrf_token,
+        user_id=userID,
+        code=code,
+    )
+    response = HTMLResponse(html_body)
+    set_ceremony_cookie(response, ceremony.ceremony_id, secure=settings.cookie_secure)
+    return response
+
+
+@app.post("/login-svc/reset-password")
+def submit_reset_password(
+    request: Request,
+    csrf_token: str = Form(...),
+    user_id: str = Form(...),
+    code: str = Form(...),
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+) -> Response:
+    ceremony = _load_ceremony(request)
+    if ceremony is None or not store.verify_csrf(ceremony, csrf_token):
+        return _error_response("Your session has expired. Please try again.")
+    if not _USER_ID_RE.match(user_id) or not _RESET_CODE_RE.match(code):
+        return _error_response("This password reset link is invalid.")
+
+    def _retry(error: str) -> HTMLResponse:
+        return HTMLResponse(
+            templates.render_reset_password_page(
+                brand_name=_brand(),
+                action="/login-svc/reset-password",
+                csrf_token=ceremony.csrf_token,
+                user_id=user_id,
+                code=code,
+                error=error,
+            )
+        )
+
+    if password != password_confirm:
+        return _retry("Those passwords do not match.")
+
+    try:
+        user_api.set_password(zitadel, user_id=user_id, password=password, verification_code=code)
+    except ZitadelApiError:
+        return _retry(
+            "Could not reset your password. The link may have expired, or the new "
+            "password does not meet the requirements. Please try again."
+        )
+
+    store.consume(ceremony.ceremony_id)
+    response = HTMLResponse(templates.render_reset_password_done_page(brand_name=_brand()))
+    clear_ceremony_cookie(response, secure=settings.cookie_secure)
     return response
 
 

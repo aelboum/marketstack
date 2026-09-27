@@ -94,6 +94,21 @@ _STYLE = """
     cursor: pointer;
   }
   button:hover { background: var(--color-accent-hover); }
+  a.button-link {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 20px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--color-accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+  }
+  a.button-link:hover { background: var(--color-accent-hover); }
   button.secondary {
     background: transparent;
     color: var(--color-accent);
@@ -149,8 +164,84 @@ def render_login_page(
   <input type="password" id="password" name="password" required autocomplete="current-password">
   <button type="submit">Continue</button>
 </form>
+<p class="hint"><a href="/login-svc/login/forgot-password">Forgot your password?</a></p>
 <p class="hint">You are signing in to {_escape(brand_name)}. This page is served by
 {_escape(brand_name)}, not by the identity provider.</p>
+""",
+    )
+
+
+def render_forgot_password_page(
+    *, brand_name: str, action: str, csrf_token: str, error: str | None = None
+) -> str:
+    error_html = f'<div class="error" role="alert">{_escape(error)}</div>' if error else ""
+    return _page(
+        title=f"Reset your password - {brand_name}",
+        body=f"""
+<h1>Reset your password</h1>
+{error_html}
+<form method="post" action="{_escape(action)}" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
+  <label for="login_name">Email or username</label>
+  <input type="text" id="login_name" name="login_name" required autofocus
+         autocapitalize="off" autocorrect="off" inputmode="email">
+  <button type="submit">Send reset link</button>
+</form>
+<p class="hint"><a href="/login-svc/login/password">Back to sign in</a></p>
+""",
+    )
+
+
+def render_forgot_password_sent_page(*, brand_name: str) -> str:
+    return _page(
+        title=f"Check your email - {brand_name}",
+        body="""
+<h1>Check your email</h1>
+<p>If an account with that email or username exists, we've sent instructions
+for resetting the password.</p>
+<p class="hint"><a href="/login-svc/login/password">Back to sign in</a></p>
+""",
+    )
+
+
+def render_reset_password_page(
+    *,
+    brand_name: str,
+    action: str,
+    csrf_token: str,
+    user_id: str,
+    code: str,
+    error: str | None = None,
+) -> str:
+    error_html = f'<div class="error" role="alert">{_escape(error)}</div>' if error else ""
+    return _page(
+        title=f"Choose a new password - {brand_name}",
+        body=f"""
+<h1>Choose a new password</h1>
+{error_html}
+<form method="post" action="{_escape(action)}" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{_escape(csrf_token)}">
+  <input type="hidden" name="user_id" value="{_escape(user_id)}">
+  <input type="hidden" name="code" value="{_escape(code)}">
+  <label for="password">New password</label>
+  <input type="password" id="password" name="password" required autofocus
+         autocomplete="new-password">
+  <label for="password_confirm">Confirm new password</label>
+  <input type="password" id="password_confirm" name="password_confirm" required
+         autocomplete="new-password">
+  <button type="submit">Set new password</button>
+</form>
+""",
+    )
+
+
+def render_reset_password_done_page(*, brand_name: str) -> str:
+    return _page(
+        title=f"Password updated - {brand_name}",
+        body="""
+<h1>Your password has been updated</h1>
+<p>You can now sign in with your new password.</p>
+<a href="/login" class="button-link">Continue to sign in</a>
 """,
     )
 

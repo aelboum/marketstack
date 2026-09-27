@@ -181,6 +181,21 @@ services:
     volumes:
       - zitadel-bootstrap:/bootstrap
 
+  # Development-only SMTP catcher (docs/ROADMAP.md forgot-password wiring,
+  # login-service's own ADR-0017 "deferred limitations" -- now wired up).
+  # ZITADEL's SMTP config (`zitadel-smtp-configure` below) points at this
+  # container instead of a real provider, so every password-reset/
+  # invitation email ZITADEL sends lands here instead of a real mailbox --
+  # readable at http://localhost:8025. Never used in production; a real
+  # SMTP provider is a future, environment-specific config, not this
+  # compose file's concern.
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - "${MAILPIT_LOCAL_WEB_PORT}:8025"
+    # SMTP port 1025 is deliberately not published to the host -- only
+    # `zitadel` (in-network, by service name) ever sends mail.
+
   zitadel:
     # Pinned exact version (never `latest`), matching saas-os's own
     # docker-compose.yml -- v4.18.0 immediately preceding it is a
@@ -327,6 +342,35 @@ services:
       zitadel-bootstrap:
         condition: service_completed_successfully
 
+  # Marketstack-owned post-bootstrap step, same shape as
+  # `zitadel-login-v2-configure` above: points ZITADEL's instance-level
+  # SMTP config (`AdminService.AddEmailProviderSMTP`/`ActivateEmailProvider`
+  # -- saas-os-local-identity has no concept of this either) at the
+  # `mailpit` service above, so ZITADEL's own password-reset/invitation
+  # emails actually send somewhere in local dev. Reuses the same bootstrap
+  # PAT (IAM_OWNER-scoped) for the same reason
+  # scripts/configure_zitadel_login_v2.py already does -- never a
+  # service's own runtime credential.
+  zitadel-smtp-configure:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - saas_os_pat
+    entrypoint: ["python", "scripts/configure_zitadel_smtp.py"]
+    env_file:
+      - .env
+    environment:
+      ZITADEL_INTERNAL_URL: http://zitadel.localhost:${ZITADEL_LOCAL_PORT}
+    volumes:
+      - zitadel-bootstrap:/bootstrap:ro
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      zitadel-bootstrap:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
   # Login Service (docs/ADR/0017-product-owned-zitadel-login-service.md)
   # -- a separate, product-owned service (./login-service, its own image,
   # its own dependency set; never imports saas-os or product.*). Two
@@ -414,7 +458,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PWD: ${POSTGRES_PASSWORD}
       POSTGRES_SEEDS: db
-      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/docker.yaml
     ports:
       - "7233:7233"
     depends_on:
