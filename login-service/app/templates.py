@@ -21,6 +21,7 @@ go through `_escape()` -- this module has no other XSS defense.
 from __future__ import annotations
 
 import html
+import json
 
 
 def _escape(value: str) -> str:
@@ -206,7 +207,7 @@ function bufToB64url(buf) {{
 async function runWebAuthn() {{
   const errorEl = document.getElementById('webauthn-error');
   try {{
-    const optsResp = await fetch({options_url!r}, {{credentials: 'same-origin'}});
+    const optsResp = await fetch({json.dumps(options_url)}, {{credentials: 'same-origin'}});
     if (!optsResp.ok) throw new Error('could not start verification');
     const opts = await optsResp.json();
     const publicKey = opts.publicKey || opts;
@@ -229,10 +230,10 @@ async function runWebAuthn() {{
           ? bufToB64url(assertion.response.userHandle) : null
       }}
     }};
-    const verifyResp = await fetch({verify_url!r}, {{
+    const verifyResp = await fetch({json.dumps(verify_url)}, {{
       method: 'POST',
       credentials: 'same-origin',
-      headers: {{'Content-Type': 'application/json', 'X-Ceremony-CSRF': {csrf_token!r}}},
+      headers: {{'Content-Type': 'application/json', 'X-Ceremony-CSRF': {json.dumps(csrf_token)}}},
       body: JSON.stringify(assertionJson)
     }});
     const result = await verifyResp.json();

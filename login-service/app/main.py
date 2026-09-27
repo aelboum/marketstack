@@ -37,6 +37,7 @@ own non-goals and this task's explicit "stop and report" allowance):**
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -62,6 +63,27 @@ from app.zitadel.token import ZitadelCredential
 logger = logging.getLogger("login_service")
 
 _AUTH_REQUEST_ID_RE = re.compile(r"^V2_[A-Za-z0-9_-]{1,200}$")
+
+# Security audit F-10: a real WebAuthn assertion (authenticatorData +
+# clientDataJSON + signature, each base64-encoded, plus a short id/type)
+# is at most a few KiB; 16 KiB is generous headroom over that while still
+# bounding what an attacker can force this process to buffer before JSON
+# parsing even runs.
+_WEBAUTHN_MAX_BODY_BYTES = 16 * 1024
+
+
+async def _read_body_capped(request: Request, *, max_bytes: int) -> bytes | None:
+    """Reads the raw request body directly off the ASGI stream, checked
+    against actual received bytes as they arrive -- never trusting a
+    (possibly absent or understated) Content-Length header alone.
+    Returns None, without reading further, the moment the body exceeds
+    `max_bytes`."""
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > max_bytes:
+            return None
+    return bytes(body)
 
 
 def _read_private_key(path: str) -> str:
@@ -219,13 +241,29 @@ def submit_password(
 
     try:
         created = session_api.create_session(zitadel, login_name=login_name, password=password)
-    except ZitadelApiError:
+    except ZitadelApiError as exc:
+        # Security audit F-12: an actual authentication rejection (ZITADEL
+        # CreateSession's own verified status for a wrong password/unknown
+        # user, live-verified elsewhere in this codebase as 401) keeps the
+        # existing generic message -- unchanged, and still never
+        # distinguishes unknown-user from wrong-password. Any other status
+        # (a ZITADEL service failure, or `0` for a transport-level
+        # failure -- see app/zitadel/client.py's own ZitadelApiError call
+        # sites) means this service could not actually evaluate the
+        # credential at all, which is a different, non-security-sensitive
+        # fact worth surfacing distinctly -- never the status code,
+        # reason, or any other exception detail.
+        error_message = (
+            "Invalid email or password."
+            if exc.status_code == 401
+            else "Authentication service temporarily unavailable. Please try again."
+        )
         return HTMLResponse(
             templates.render_login_page(
                 brand_name=_brand(),
                 action="/login-svc/login/password",
                 csrf_token=ceremony.csrf_token,
-                error="Invalid email or password.",
+                error=error_message,
             )
         )
 
@@ -328,7 +366,10 @@ async def webauthn_verify(request: Request) -> Response:
     if not store.verify_csrf(ceremony, request.headers.get("x-ceremony-csrf")):
         return JSONResponse({"error": "Your sign-in session has expired."}, status_code=400)
 
-    assertion = await request.json()
+    raw_body = await _read_body_capped(request, max_bytes=_WEBAUTHN_MAX_BODY_BYTES)
+    if raw_body is None:
+        return JSONResponse({"error": "Request too large."}, status_code=413)
+    assertion = json.loads(raw_body)
     try:
         updated = session_api.set_session(
             zitadel,

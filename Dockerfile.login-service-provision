@@ -1,0 +1,44 @@
+# Dedicated minimal image for the one-shot Login Service credential
+# provisioning task (security audit F-13). `scripts/
+# provision_login_service_credential.py` only needs `httpx` (its ZITADEL
+# HTTP calls) and `cryptography` (local RSA keypair generation) plus the
+# standard library -- it never imports `saas-os` or `product.*`, so this
+# image deliberately does NOT reuse the root `Dockerfile`: no `git`, no
+# saas-os clone (so no `saas_os_pat` secret is ever mounted or read by
+# any RUN step here), no `product/` package, no frontend.
+#
+# The script itself is NOT copied into this image: repository root
+# `.dockerignore` excludes `scripts/` from the build context for every
+# `context: .` image in this repository (unrelated to this change), so
+# `COPY scripts/...` is not possible here either -- exactly like the
+# main product image today, this container gets the script at container
+# *start* time via docker-compose.yml's own existing
+# `./scripts:/app/scripts:ro` bind mount, unchanged by this Dockerfile.
+#
+# No secret of any kind is ever baked into this image: it only installs
+# two public PyPI packages. The ZITADEL bootstrap PAT the script itself
+# reads is supplied purely via docker-compose.yml's existing
+# `zitadel-bootstrap:/bootstrap:ro` volume mount at container runtime --
+# unrelated to image build time, and untouched by this change.
+
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Unpinned, matching the same two direct dependencies as declared (also
+# unpinned) in the repository root pyproject.toml for this exact script
+# -- no version constraint invented here that the rest of the repository
+# does not already use.
+RUN pip install --no-cache-dir httpx cryptography
+
+# Least privilege, matching both existing Dockerfiles' own convention.
+RUN groupadd --system app && useradd --system --gid app --home /app app \
+    && chown -R app:app /app
+USER app
+
+# Overridden by docker-compose.yml's own `entrypoint:` for the
+# `login-service-provision` service (unchanged by this file) -- kept
+# here so the image is still directly runnable/self-documenting outside
+# that specific compose service, mirroring `login-service/Dockerfile`'s
+# own convention.
+ENTRYPOINT ["python", "scripts/provision_login_service_credential.py"]

@@ -32,6 +32,14 @@ from dataclasses import dataclass
 CEREMONY_COOKIE_NAME = "login_svc_ceremony"
 CEREMONY_COOKIE_PATH = "/login-svc"
 CEREMONY_TTL_SECONDS = 10 * 60  # matches SaaS-OS's own login-transaction lifetime
+# Security audit F-09: a hard cap on the in-memory ceremony store,
+# independent of TTL-based expiry -- bounds worst-case memory use under a
+# sustained flood of ceremony creation followed by inactivity (expiry
+# cleanup alone only reclaims space once CEREMONY_TTL_SECONDS has
+# elapsed). Each ceremony is a handful of short strings/floats, so even
+# this many resident at once is a trivial amount of memory for a login
+# service; conservative rather than tuned to any measured load.
+CEREMONY_STORE_MAX_SIZE = 10_000
 
 
 @dataclass
@@ -69,6 +77,16 @@ class CeremonyStore:
         for cid in expired:
             del self._ceremonies[cid]
 
+    def _evict_oldest_until_under_max_locked(self) -> None:
+        """FIFO eviction by creation order -- relies on `dict` preserving
+        insertion order (never reordered by `get()`/`update()`), so the
+        first key is always the oldest surviving ceremony. Only ever
+        called before the new ceremony is inserted, so it can never evict
+        the one currently being created (security audit F-09)."""
+        while len(self._ceremonies) >= CEREMONY_STORE_MAX_SIZE:
+            oldest_id = next(iter(self._ceremonies))
+            del self._ceremonies[oldest_id]
+
     def start(self, auth_request_id: str) -> Ceremony:
         now = time.time()
         ceremony = Ceremony(
@@ -80,6 +98,7 @@ class CeremonyStore:
         )
         with self._lock:
             self._purge_expired_locked(now)
+            self._evict_oldest_until_under_max_locked()
             self._ceremonies[ceremony.ceremony_id] = ceremony
         return ceremony
 

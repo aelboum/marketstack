@@ -350,7 +350,14 @@ services:
   login-service-provision:
     build:
       context: .
-      dockerfile: Dockerfile
+      # Security audit F-13: a dedicated minimal image (httpx +
+      # cryptography only) instead of the full product image -- see
+      # Dockerfile.login-service-provision's own module comment. The
+      # `saas_os_pat` secret below is unused by this Dockerfile (it
+      # never clones saas-os), kept only because this block's own
+      # `secrets:`/volumes/environment/depends_on are otherwise
+      # unchanged by this task.
+      dockerfile: Dockerfile.login-service-provision
       secrets:
         - saas_os_pat
     entrypoint: ["python", "scripts/provision_login_service_credential.py"]
