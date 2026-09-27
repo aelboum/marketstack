@@ -60,6 +60,29 @@ now-current row, exactly the guarantee `docs/ROADMAP.md` Phase 7's own
 `publish()` call added in this phase, mirroring `product/crm/opportunities.py
 ::change_stage()`'s own precedent; no other behavior in this module
 changed for it.
+
+**docs/ROADMAP.md Phase 23 ("Customer Lifecycle Loop")** adds four more
+event types, all following the identical, already-established shape:
+`appointments.appointment.cancelled`/`.rescheduled` (published from all
+four existing cancel/reschedule functions, staff and public alike -- a
+cancellation is the identical business fact regardless of which path
+triggered it), and two brand-new staff mutations this phase introduces,
+`staff_complete_appointment()`/`staff_no_show_appointment()`, publishing
+`.completed`/`.no_show` respectively. Every event payload carries only
+`appointment_id`/`calendar_id`/`contact_id` -- the same bounded,
+identifier-only shape `.booked` already established -- **with one
+deliberate, documented exception**: `.completed`'s payload also carries
+`actor_user_id`. This is the one event in this entire product whose
+payload names an actor, because its one real subscriber
+(`product/reputation/event_handlers.py`) must call
+`product.reputation.review_requests.create_review_request()`, which
+requires a real, authorized `actor_user_id` -- there is no
+"workflow-owns-an-actor" indirection available here the way
+`product.automation`'s own `Workflow.created_by_user_id` provides for its
+own actions. Not PII (an internal identifier, not personal data about the
+customer) and not a precedent for adding actor identity to every future
+event -- a narrow, explained exception to this product's own "payload
+carries only the identifiers/context required downstream" convention.
 """
 
 from __future__ import annotations
@@ -80,7 +103,9 @@ from product.appointments.errors import (
 )
 from product.appointments.models import (
     STATUS_CANCELLED,
+    STATUS_COMPLETED,
     STATUS_CONFIRMED,
+    STATUS_NO_SHOW,
     Appointment,
     AppointmentManageToken,
     BookingLink,
@@ -93,6 +118,14 @@ from product.foundation.events import Event, publish
 
 APPOINTMENT_BOOKED_EVENT_TYPE = "appointments.appointment.booked"
 APPOINTMENT_BOOKED_EVENT_VERSION = 1
+APPOINTMENT_CANCELLED_EVENT_TYPE = "appointments.appointment.cancelled"
+APPOINTMENT_CANCELLED_EVENT_VERSION = 1
+APPOINTMENT_RESCHEDULED_EVENT_TYPE = "appointments.appointment.rescheduled"
+APPOINTMENT_RESCHEDULED_EVENT_VERSION = 1
+APPOINTMENT_COMPLETED_EVENT_TYPE = "appointments.appointment.completed"
+APPOINTMENT_COMPLETED_EVENT_VERSION = 1
+APPOINTMENT_NO_SHOW_EVENT_TYPE = "appointments.appointment.no_show"
+APPOINTMENT_NO_SHOW_EVENT_VERSION = 1
 
 _TOKEN_BYTES = 32  # mirrors core/identity/service.py's own invitation-token byte length
 
@@ -307,8 +340,18 @@ def public_cancel_appointment(manage_token: str) -> AppointmentView:
     tenant_id = _resolve_tenant_for_manage_token(manage_token)
     with tenant_session_scope(tenant_id) as session:
         row = _locked_appointment_for_manage_token(session, manage_token)
-        if row.status == STATUS_CANCELLED:
-            raise AppointmentValidationError(f"appointment {row.id} is already cancelled.")
+        # docs/ROADMAP.md Phase 23: `completed`/`no_show` did not exist
+        # before this phase, so this guard was previously only ever
+        # exercised against confirmed/cancelled -- tightened here (from
+        # "not already cancelled" to "must still be confirmed") to
+        # correctly close the newly-reachable completed/no_show -> cancel
+        # path, never a behavior change for the two states this function
+        # already handled.
+        if row.status != STATUS_CONFIRMED:
+            raise AppointmentValidationError(
+                f"appointment {row.id} cannot be cancelled while "
+                f"status={row.status!r} (only 'confirmed' appointments can be)."
+            )
         row.status = STATUS_CANCELLED
         session.flush()
         session.refresh(row)
@@ -324,6 +367,18 @@ def public_cancel_appointment(manage_token: str) -> AppointmentView:
         resource_id=str(appointment_id),
         outcome=AuditOutcome.SUCCESS,
         metadata={"calendar_id": str(calendar_id)},
+    )
+    publish(
+        Event(
+            type=APPOINTMENT_CANCELLED_EVENT_TYPE,
+            version=APPOINTMENT_CANCELLED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={
+                "appointment_id": str(appointment_id),
+                "calendar_id": str(calendar_id),
+                "contact_id": str(row.contact_id) if row.contact_id else None,
+            },
+        )
     )
     return _to_view(row)
 
@@ -366,6 +421,18 @@ def public_reschedule_appointment(
             "starts_at": new_starts_at.isoformat(),
             "ends_at": new_ends_at.isoformat(),
         },
+    )
+    publish(
+        Event(
+            type=APPOINTMENT_RESCHEDULED_EVENT_TYPE,
+            version=APPOINTMENT_RESCHEDULED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={
+                "appointment_id": str(appointment_id),
+                "calendar_id": str(calendar_id),
+                "contact_id": str(row.contact_id) if row.contact_id else None,
+            },
+        )
     )
     return _to_view(row)
 
@@ -431,8 +498,15 @@ def staff_cancel_appointment(
         row = session.get(Appointment, appointment_id, with_for_update=True)
         if row is None or row.tenant_id != tenant_id:
             raise AppointmentReferenceNotFoundError("appointment", appointment_id)
-        if row.status == STATUS_CANCELLED:
-            raise AppointmentValidationError(f"appointment {row.id} is already cancelled.")
+        # docs/ROADMAP.md Phase 23: see `public_cancel_appointment()`'s
+        # identical comment -- tightened from "not already cancelled" to
+        # "must still be confirmed" to close the newly-reachable
+        # completed/no_show -> cancel path.
+        if row.status != STATUS_CONFIRMED:
+            raise AppointmentValidationError(
+                f"appointment {row.id} cannot be cancelled while "
+                f"status={row.status!r} (only 'confirmed' appointments can be)."
+            )
         row.status = STATUS_CANCELLED
         session.flush()
         session.refresh(row)
@@ -448,6 +522,18 @@ def staff_cancel_appointment(
         resource_id=str(appointment_id),
         outcome=AuditOutcome.SUCCESS,
         metadata={"calendar_id": str(calendar_id)},
+    )
+    publish(
+        Event(
+            type=APPOINTMENT_CANCELLED_EVENT_TYPE,
+            version=APPOINTMENT_CANCELLED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={
+                "appointment_id": str(appointment_id),
+                "calendar_id": str(calendar_id),
+                "contact_id": str(row.contact_id) if row.contact_id else None,
+            },
+        )
     )
     return _to_view(row)
 
@@ -495,6 +581,120 @@ def staff_reschedule_appointment(
             "ends_at": new_ends_at.isoformat(),
         },
     )
+    publish(
+        Event(
+            type=APPOINTMENT_RESCHEDULED_EVENT_TYPE,
+            version=APPOINTMENT_RESCHEDULED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={
+                "appointment_id": str(appointment_id),
+                "calendar_id": str(calendar_id),
+                "contact_id": str(row.contact_id) if row.contact_id else None,
+            },
+        )
+    )
+    return _to_view(row)
+
+
+def staff_complete_appointment(
+    actor_user_id: uuid.UUID, tenant_id: uuid.UUID, appointment_id: uuid.UUID
+) -> AppointmentView:
+    """Marks a `'confirmed'` appointment `'completed'` (docs/ROADMAP.md
+    Phase 23) -- the transition that makes the customer's visit a
+    business fact the rest of the system can react to. Publishes
+    `APPOINTMENT_COMPLETED_EVENT_TYPE` with the completing `actor_user_id`
+    in its payload -- see module docstring for why this one event is a
+    deliberate exception to the "identifiers only" convention."""
+    require(actor_user_id, tenant_id, resource=APPOINTMENT_RESOURCE, action="update")
+    with tenant_session_scope(tenant_id) as session:
+        row = session.get(Appointment, appointment_id, with_for_update=True)
+        if row is None or row.tenant_id != tenant_id:
+            raise AppointmentReferenceNotFoundError("appointment", appointment_id)
+        if row.status != STATUS_CONFIRMED:
+            raise AppointmentValidationError(
+                f"appointment {row.id} cannot be completed while "
+                f"status={row.status!r} (only 'confirmed' appointments can be)."
+            )
+        row.status = STATUS_COMPLETED
+        session.flush()
+        session.refresh(row)
+        calendar_id = row.calendar_id
+        contact_id = row.contact_id
+        session.expunge(row)
+
+    record(
+        tenant_id=tenant_id,
+        actor_type=ActorType.USER,
+        actor_user_id=actor_user_id,
+        action="appointments.appointment.complete",
+        resource_type="appointments.appointment",
+        resource_id=str(appointment_id),
+        outcome=AuditOutcome.SUCCESS,
+        metadata={"calendar_id": str(calendar_id)},
+    )
+    publish(
+        Event(
+            type=APPOINTMENT_COMPLETED_EVENT_TYPE,
+            version=APPOINTMENT_COMPLETED_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={
+                "appointment_id": str(appointment_id),
+                "calendar_id": str(calendar_id),
+                "contact_id": str(contact_id) if contact_id else None,
+                "actor_user_id": str(actor_user_id),
+            },
+        )
+    )
+    return _to_view(row)
+
+
+def staff_no_show_appointment(
+    actor_user_id: uuid.UUID, tenant_id: uuid.UUID, appointment_id: uuid.UUID
+) -> AppointmentView:
+    """Marks a `'confirmed'` appointment `'no_show'` (docs/ROADMAP.md
+    Phase 23) -- the customer never attended. Mirrors
+    `staff_complete_appointment()`'s own shape exactly, except no
+    subscriber needs an actor identity for this event today, so its
+    payload stays identifier-only, unlike `.completed`'s."""
+    require(actor_user_id, tenant_id, resource=APPOINTMENT_RESOURCE, action="update")
+    with tenant_session_scope(tenant_id) as session:
+        row = session.get(Appointment, appointment_id, with_for_update=True)
+        if row is None or row.tenant_id != tenant_id:
+            raise AppointmentReferenceNotFoundError("appointment", appointment_id)
+        if row.status != STATUS_CONFIRMED:
+            raise AppointmentValidationError(
+                f"appointment {row.id} cannot be marked no-show while "
+                f"status={row.status!r} (only 'confirmed' appointments can be)."
+            )
+        row.status = STATUS_NO_SHOW
+        session.flush()
+        session.refresh(row)
+        calendar_id = row.calendar_id
+        contact_id = row.contact_id
+        session.expunge(row)
+
+    record(
+        tenant_id=tenant_id,
+        actor_type=ActorType.USER,
+        actor_user_id=actor_user_id,
+        action="appointments.appointment.no_show",
+        resource_type="appointments.appointment",
+        resource_id=str(appointment_id),
+        outcome=AuditOutcome.SUCCESS,
+        metadata={"calendar_id": str(calendar_id)},
+    )
+    publish(
+        Event(
+            type=APPOINTMENT_NO_SHOW_EVENT_TYPE,
+            version=APPOINTMENT_NO_SHOW_EVENT_VERSION,
+            tenant_id=str(tenant_id),
+            payload={
+                "appointment_id": str(appointment_id),
+                "calendar_id": str(calendar_id),
+                "contact_id": str(contact_id) if contact_id else None,
+            },
+        )
+    )
     return _to_view(row)
 
 
@@ -509,5 +709,7 @@ __all__ = [
     "resolve_booking_link",
     "resolve_manage_token",
     "staff_cancel_appointment",
+    "staff_complete_appointment",
+    "staff_no_show_appointment",
     "staff_reschedule_appointment",
 ]

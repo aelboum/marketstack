@@ -83,6 +83,19 @@ TRIGGER_EVENT_TYPES = (
     # needed beyond the one line each adds below.
     "marketing.lead_captured",
     "websites.lead_captured",
+    # docs/ROADMAP.md Phase 23 ("Customer Lifecycle Loop"): the remaining
+    # four Appointments lifecycle events
+    # (`product/appointments/booking.py`/`reminders.py`'s own new
+    # `publish()` calls) -- each dedups on its own `appointment_id`, and
+    # each also carries `contact_id` in its payload, so an existing action
+    # like `create_task` already works unmodified against any of them
+    # (`product.automation.actions._extract_trigger_ids()` is
+    # payload-driven, not event-type-driven -- no change needed there).
+    "appointments.appointment.cancelled",
+    "appointments.appointment.rescheduled",
+    "appointments.appointment.reminder_sent",
+    "appointments.appointment.completed",
+    "appointments.appointment.no_show",
 )
 
 _TRIGGER_ID_FIELD_BY_EVENT_TYPE: dict[str, str] = {
@@ -92,6 +105,11 @@ _TRIGGER_ID_FIELD_BY_EVENT_TYPE: dict[str, str] = {
     "telephony.call.completed": "call_id",
     "marketing.lead_captured": "contact_id",
     "websites.lead_captured": "contact_id",
+    "appointments.appointment.cancelled": "appointment_id",
+    "appointments.appointment.rescheduled": "appointment_id",
+    "appointments.appointment.reminder_sent": "appointment_id",
+    "appointments.appointment.completed": "appointment_id",
+    "appointments.appointment.no_show": "appointment_id",
 }
 
 

@@ -24,13 +24,27 @@ your review of that ADR's own durable-engine recommendation).
   had -- no new import-linter edge was needed for either change (event
   subscription is by string, not by import; the new action reuses the
   same already-approved `product.automation -> product.crm` edge).
+- Wired by Phase 23 ("Customer Lifecycle Loop"): four more Appointments
+  lifecycle triggers -- `appointments.appointment.cancelled`/
+  `.rescheduled` (one-line `publish()` calls added to all four existing
+  cancel/reschedule functions, staff and public alike),
+  `.reminder_sent` (added to `send_due_reminders()`), and `.completed`/
+  `.no_show` (published by two brand-new staff mutations this phase
+  introduces, `staff_complete_appointment()`/`staff_no_show_appointment()`
+  -- no status for either existed before this phase). No new action was
+  added for this phase's own scope; the existing `create_task` action
+  already works against any of them unmodified, since
+  `_extract_trigger_ids()` reads `contact_id` out of the payload
+  regardless of which event type carried it.
 - Still deferred, with a concrete reason each: "payment received"/
   "invoice overdue" (Phase 15/24 Accounting does not exist yet -- 10.4's
   own stated dependency), "email/SMS received" (Conversations' own
   SMS/WhatsApp inbound path is itself still PARTIAL, no real vendor --
   `product/conversations/sms.py`), "review received" (Phase 12
   Reputation's own automation integration is itself explicitly deferred,
-  `docs/ADR/0010-...`'s own "Deferred: Automation Integration" section).
+  `docs/ADR/0010-...`'s own "Deferred: Automation Integration" section --
+  unaffected by Phase 23, which wires Appointments directly into
+  Reputation, not through Automation).
 
 **Execution is synchronous, in-process, never `infra.jobs`** -- see
 `docs/ADR/0007-automation-execution-substrate.md` for the full

@@ -66,6 +66,8 @@ from product.appointments.booking import (
     public_reschedule_appointment,
     resolve_manage_token,
     staff_cancel_appointment,
+    staff_complete_appointment,
+    staff_no_show_appointment,
     staff_reschedule_appointment,
 )
 from product.appointments.calendar_events import (
@@ -568,6 +570,28 @@ def staff_cancel_appointment_route(
     actor_id: uuid.UUID = Depends(get_current_actor),
 ) -> dict[str, object]:
     return _appointment_dict(_call(staff_cancel_appointment, actor_id, tenant_id, appointment_id))
+
+
+@router.post("/tenants/{tenant_id}/appointments/{appointment_id}/complete")
+def staff_complete_appointment_route(
+    tenant_id: uuid.UUID,
+    appointment_id: uuid.UUID,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> dict[str, object]:
+    return _appointment_dict(
+        _call(staff_complete_appointment, actor_id, tenant_id, appointment_id)
+    )
+
+
+@router.post("/tenants/{tenant_id}/appointments/{appointment_id}/no-show")
+def staff_no_show_appointment_route(
+    tenant_id: uuid.UUID,
+    appointment_id: uuid.UUID,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> dict[str, object]:
+    return _appointment_dict(
+        _call(staff_no_show_appointment, actor_id, tenant_id, appointment_id)
+    )
 
 
 @router.post("/tenants/{tenant_id}/appointments/{appointment_id}/reschedule")

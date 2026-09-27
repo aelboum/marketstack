@@ -101,7 +101,16 @@ from infra.db import (
 
 STATUS_CONFIRMED = "confirmed"
 STATUS_CANCELLED = "cancelled"
-VALID_APPOINTMENT_STATUSES = (STATUS_CONFIRMED, STATUS_CANCELLED)
+# docs/ROADMAP.md Phase 23 ("Customer Lifecycle Loop"). Purely additive at
+# this layer: `status` carries no DB-level CHECK constraint (enforcement
+# is this module's own service-layer concern, same as
+# `product/websites/models.py::Page.status`'s identical shape), and the
+# double-booking `EXCLUDE ... WHERE (status = 'confirmed')` constraint
+# (module docstring) already frees a slot for any non-`'confirmed'`
+# status -- `completed`/`no_show` need no migration to behave correctly.
+STATUS_COMPLETED = "completed"
+STATUS_NO_SHOW = "no_show"
+VALID_APPOINTMENT_STATUSES = (STATUS_CONFIRMED, STATUS_CANCELLED, STATUS_COMPLETED, STATUS_NO_SHOW)
 
 MINUTES_PER_DAY = 24 * 60  # 1440 -- the exclusive upper bound for start_time/end_time.
 

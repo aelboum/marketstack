@@ -55,6 +55,19 @@ here) and `crm.contact:read` (checked inside `product.crm.contacts
 consequence of reusing CRM's own published, authorized read function
 (`docs/ADR/0005-...`) rather than reading `crm.contacts` directly, which
 this module is not permitted to do at all.
+
+**docs/ROADMAP.md Phase 23** adds `APPOINTMENT_REMINDER_SENT_EVENT_TYPE`,
+published once per appointment actually reminded (after the email send
+succeeds and `reminder_sent_at` is set, never before) -- the fourth of
+this phase's four named event types
+(`product/appointments/booking.py`'s own module docstring covers the
+other three). This phase does **not** change this module's own,
+already-disclosed conclusion above: `infra.jobs` has no periodic/cron
+primitive and `core.tenancy` has no tenant-enumeration primitive, so
+"calls `send_due_reminders()` per tenant on an actual cadence in
+production" remains a genuine, undecided SaaS-OS/architecture gap, not
+something this phase fakes with a job registration that would have no
+real caller.
 """
 
 from __future__ import annotations
@@ -73,6 +86,10 @@ from product.appointments.models import STATUS_CONFIRMED, Appointment
 from product.appointments.permissions import APPOINTMENT_RESOURCE, require
 from product.crm.contacts import get_contact
 from product.crm.errors import CrmReferenceNotFoundError
+from product.foundation.events import Event, publish
+
+APPOINTMENT_REMINDER_SENT_EVENT_TYPE = "appointments.appointment.reminder_sent"
+APPOINTMENT_REMINDER_SENT_EVENT_VERSION = 1
 
 # Not configurable per-tenant this phase -- a disclosed simplification.
 # 24 hours gives a booked contact a full day's notice without this sweep
@@ -164,6 +181,18 @@ def send_due_reminders(
             if row is not None and row.tenant_id == tenant_id and row.reminder_sent_at is None:
                 row.reminder_sent_at = current
         reminded_ids.append(appointment.id)
+        publish(
+            Event(
+                type=APPOINTMENT_REMINDER_SENT_EVENT_TYPE,
+                version=APPOINTMENT_REMINDER_SENT_EVENT_VERSION,
+                tenant_id=str(tenant_id),
+                payload={
+                    "appointment_id": str(appointment.id),
+                    "calendar_id": str(appointment.calendar_id),
+                    "contact_id": str(appointment.contact_id),
+                },
+            )
+        )
 
     record(
         tenant_id=tenant_id,
@@ -178,4 +207,9 @@ def send_due_reminders(
     return RemindersSweepResult(reminded_count=len(reminded_ids), appointment_ids=reminded_ids)
 
 
-__all__ = ["REMINDER_LEAD_TIME", "RemindersSweepResult", "send_due_reminders"]
+__all__ = [
+    "APPOINTMENT_REMINDER_SENT_EVENT_TYPE",
+    "REMINDER_LEAD_TIME",
+    "RemindersSweepResult",
+    "send_due_reminders",
+]

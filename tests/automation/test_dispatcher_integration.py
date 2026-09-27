@@ -1,6 +1,17 @@
 """End-to-end trigger -> condition -> action execution (docs/ROADMAP.md
 Phase 10.2). Real disposable Postgres. Marked `integration`, excluded
 from the default `pytest` run.
+
+Imports `product.crm.event_handlers`/`product.automation.event_handlers`/
+`product.appointments.event_handlers`/`product.websites.event_handlers`
+solely for their module-level `subscribe("agency.role_provisioned", ...)`
+side effects -- mirrors `tests/reputation/_cleanup.py`'s own identical,
+already-documented precedent. This file has no HTTP-level test of its
+own (`product/api/main.py` is never imported here) to trigger that
+registration transitively, so every test in it -- not just this phase's
+own new additions -- genuinely depends on running alongside some other
+test file that does; made explicit here rather than left to depend on
+`pytest`'s own collection order across files.
 """
 
 from __future__ import annotations
@@ -12,12 +23,18 @@ import pytest
 from core.audit_log import list as list_audit_log
 from product.agency.delegation import create_client_deny
 from product.agency.provisioning import provision_agency, provision_client
+from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
+from product.appointments.booking import book_appointment, staff_complete_appointment
+from product.appointments.calendars import create_calendar
+from product.automation import event_handlers as _automation_event_handlers  # noqa: F401
 from product.automation.dispatcher import MAX_AUTOMATION_DEPTH
 from product.automation.models import RUN_STATUS_FAILED, RUN_STATUS_SKIPPED, RUN_STATUS_SUCCESS
 from product.automation.workflows import create_workflow, list_workflow_runs
+from product.crm import event_handlers as _crm_event_handlers  # noqa: F401
 from product.crm.contacts import create_contact, get_contact
 from product.crm.opportunities import change_stage, create_opportunity, get_opportunity
 from product.crm.pipelines import create_pipeline, create_stage
+from product.websites import event_handlers as _websites_event_handlers  # noqa: F401
 from product.websites.leads import capture_lead
 from product.websites.pages import create_page, publish_page
 from product.websites.websites import create_website
@@ -442,3 +459,90 @@ def test_assign_opportunity_action_end_to_end() -> None:
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id, member.id)
+
+
+def _cleanup_appointments_rows(tenant_id: uuid.UUID) -> None:
+    """One-off extension for the single Phase 23 cross-domain test below,
+    which creates real `appointments.*` rows that
+    `tests/automation/_cleanup.py`'s own `cleanup_tenant_tree()` does not
+    know about -- mirrors this file's own identical
+    `_cleanup_websites_rows()` precedent for the symmetric Phase 22 case."""
+    from infra.db import session_scope, tenant_session_scope
+    from sqlalchemy import text
+
+    with tenant_session_scope(tenant_id) as session:
+        for table in ("appointments", "availability_rules", "calendars"):
+            session.execute(
+                text(f"DELETE FROM appointments.{table} WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+    with session_scope() as session:
+        for table in ("appointment_manage_tokens", "booking_links"):
+            session.execute(
+                text(f"DELETE FROM appointments.{table} WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+    # Defensive: if `product.reputation.event_handlers` happened to
+    # already be registered in this process (another test file imported
+    # it first, in the same pytest session), completing the appointment
+    # below also creates a real `reputation.review_requests` row as an
+    # incidental side effect of the very trigger this test exercises --
+    # harmless to the test's own assertions, but it must still be
+    # cleaned up before `core.tenants` can be deleted.
+    with tenant_session_scope(tenant_id) as session:
+        for table in ("review_responses", "reviews", "review_requests"):
+            session.execute(
+                text(f"DELETE FROM reputation.{table} WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+
+
+def test_appointment_completed_trigger_fires_action_end_to_end() -> None:
+    """docs/ROADMAP.md Phase 23, scope item confirming
+    `appointments.appointment.completed` is a real, usable Automation
+    trigger -- `create_task` (an existing action, unmodified) fires
+    against the completed appointment's own contact."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        from datetime import UTC, datetime, timedelta
+
+        workflow = create_workflow(
+            owner.id,
+            client.tenant_id,
+            name="Task on appointment completed",
+            trigger_type="appointments.appointment.completed",
+            action_type="create_task",
+            action_config={"title": "Follow up after visit"},
+        )
+
+        calendar = create_calendar(
+            owner.id, client.tenant_id, name="Cal", owner_user_id=owner.id, timezone="UTC"
+        )
+        starts_at = datetime(2026, 9, 1, 9, tzinfo=UTC)
+        appt = book_appointment(
+            tenant_id=client.tenant_id,
+            calendar_id=calendar.id,
+            contact_email="trigger@example.com",
+            contact_first_name="Trig",
+            contact_last_name="Ger",
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=1),
+            actor_user_id=owner.id,
+        )
+        staff_complete_appointment(owner.id, client.tenant_id, appt.id)
+
+        runs = list_workflow_runs(owner.id, client.tenant_id, workflow.id)
+        assert len(runs) == 1
+        assert runs[0].status == RUN_STATUS_SUCCESS
+
+        from product.crm.activities import TaskView, list_activities
+
+        activities = list_activities(owner.id, client.tenant_id, contact_id=appt.contact_id)
+        assert any(
+            isinstance(a, TaskView) and a.title == "Follow up after visit" for a in activities
+        )
+    finally:
+        _cleanup_appointments_rows(client.tenant_id)
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
