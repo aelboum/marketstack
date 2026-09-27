@@ -69,6 +69,20 @@
 		reverse_proxy {$SAAS_OS_BACKEND_INTERNAL_ORIGIN:http://backend:8000}
 	}
 
+	# The product-owned custom Login Service (docs/ADR/0017), a separate
+	# container from `backend` -- NOT part of SaaS-OS's own closed
+	# BACKEND_ROUTE_PREFIXES contract above, and this repository's own
+	# addition to maintain (this file's own header: "once emitted it is
+	# this repository's own file to maintain"). `/login-svc/*` never
+	# overlaps `/auth/*`/`/v1/*`, so the Login Service's own ceremony
+	# cookies (Path=/login-svc) are never sent to `backend` at all --
+	# enforced by the browser's own cookie-Path scoping, not by this
+	# Caddyfile (see login-service/app/cookies.py's own docstring).
+	@login_service path /login-svc/*
+	handle @login_service {
+		reverse_proxy login-service:8000
+	}
+
 	# Everything else is the PRODUCT's. SaaS-OS does not know (and must
 	# never encode) which paths a product's frontend serves -- its
 	# authenticated entry point, dashboard, tenant UI and navigation are all

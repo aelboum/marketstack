@@ -140,6 +140,7 @@ services:
     depends_on:
       - backend
       - frontend
+      - login-service
 
   # --- Local self-hosted identity (saas-os docs/LOCAL-IDENTITY.md,
   # "Downstream product development") ---------------------------------
@@ -295,6 +296,96 @@ services:
       zitadel:
         condition: service_healthy
 
+  # Marketstack-owned post-bootstrap step (docs/ADR/0017): sets
+  # loginVersion.loginV2.baseUri on the application `zitadel-bootstrap`
+  # (above) just created -- saas-os-local-identity itself has no concept
+  # of this field (verified against the pinned saas-os commit). Runs the
+  # product's own scripts/configure_zitadel_login_v2.py, never SaaS-OS
+  # source, using the `backend` image (scripts/ is excluded from that
+  # image itself -- .dockerignore -- so it is bind-mounted here, mirroring
+  # scripts/check-docker.sh's own identical pattern for the same reason).
+  # Reuses the same bootstrap PAT `zitadel-bootstrap` used (a LOCAL/
+  # BOOTSTRAP credential only -- see that script's own module docstring
+  # for why this is never the future Login service's own credential).
+  # A no-op, not an error, when ZITADEL_LOGIN_V2_BASE_URI is unset
+  # (.env.example default).
+  zitadel-login-v2-configure:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - saas_os_pat
+    entrypoint: ["python", "scripts/configure_zitadel_login_v2.py"]
+    env_file:
+      - .env
+    environment:
+      ZITADEL_INTERNAL_URL: http://zitadel.localhost:${ZITADEL_LOCAL_PORT}
+    volumes:
+      - zitadel-bootstrap:/bootstrap:ro
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      zitadel-bootstrap:
+        condition: service_completed_successfully
+
+  # Login Service (docs/ADR/0017-product-owned-zitadel-login-service.md)
+  # -- a separate, product-owned service (./login-service, its own image,
+  # its own dependency set; never imports saas-os or product.*). Two
+  # services: a one-shot provisioning step (mirrors zitadel-bootstrap's
+  # own shape) that creates this service's dedicated ZITADEL machine-user
+  # credential using the bootstrap PAT as a one-time administrative
+  # action, and the service itself, which never receives that PAT and
+  # talks to ZITADEL only with its own, separately-scoped credential
+  # (IAM_LOGIN_CLIENT -- session.write/session.link/session.delete/
+  # user.read; NOT project.app.write, which stays with
+  # zitadel-login-v2-configure's own credential above).
+  # Same fresh-named-volume permission problem `zitadel-bootstrap-vol-init`
+  # already solves above (this product's own backend image's non-root
+  # `app` user vs. a root-owned freshly created volume) -- identical fix.
+  login-service-credential-vol-init:
+    image: busybox:1.36.1
+    command: ["sh", "-c", "mkdir -p /credential && chmod 0777 /credential"]
+    volumes:
+      - login-service-credential:/credential
+
+  login-service-provision:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - saas_os_pat
+    entrypoint: ["python", "scripts/provision_login_service_credential.py"]
+    environment:
+      ZITADEL_INTERNAL_URL: http://zitadel.localhost:${ZITADEL_LOCAL_PORT}
+      OIDC_LOCAL_PROJECT_NAME: ${OIDC_LOCAL_PROJECT_NAME}
+      LOGIN_SERVICE_CREDENTIAL_DIR: /credential
+    volumes:
+      - zitadel-bootstrap:/bootstrap:ro
+      - ./scripts:/app/scripts:ro
+      - login-service-credential:/credential
+    depends_on:
+      zitadel-bootstrap:
+        condition: service_completed_successfully
+      login-service-credential-vol-init:
+        condition: service_completed_successfully
+
+  login-service:
+    build:
+      context: ./login-service
+      dockerfile: Dockerfile
+    environment:
+      ZITADEL_ISSUER_URL: http://zitadel.localhost:${ZITADEL_LOCAL_PORT}
+      LOGIN_SERVICE_PRIVATE_KEY_PATH: /credential/private_key.pem
+      LOGIN_SERVICE_PUBLIC_ORIGIN: ${PUBLIC_APP_ORIGIN:-http://localhost:8080}
+      LOGIN_SERVICE_COOKIE_SECURE: ${LOGIN_SERVICE_COOKIE_SECURE:-false}
+      LOGIN_SERVICE_BRAND_NAME: ${LOGIN_SERVICE_BRAND_NAME:-Product}
+    volumes:
+      - login-service-credential:/credential:ro
+    depends_on:
+      login-service-provision:
+        condition: service_completed_successfully
+      zitadel:
+        condition: service_healthy
+
   # Phase 10.3 infrastructure spike only (module comment above) -- not
   # depended on by `backend` or `frontend`, and not required for this
   # product to build, start, or serve any existing route.
@@ -332,6 +423,7 @@ volumes:
   db-data:
   zitadel-db-data:
   zitadel-bootstrap:
+  login-service-credential:
 
 secrets:
   # A token with read access to the private aelboum/saas-os repo, sourced

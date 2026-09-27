@@ -35,6 +35,18 @@ license = { text = "UNLICENSED" }
 dependencies = [
     "saas-os @ git+https://github.com/aelboum/saas-os@78f03b33cab90d0b5d0a06606288f861c5cf46f7",
     "temporalio==1.33.0",
+    # scripts/configure_zitadel_login_v2.py's own direct ZITADEL Management
+    # API client (docs/ADR/0017-product-owned-zitadel-login-service.md).
+    # Already present transitively via saas-os's own OIDC/local-identity
+    # code -- declared here explicitly because this repository's own code
+    # now imports it directly too, not just saas-os.
+    "httpx",
+    # scripts/provision_login_service_credential.py's own RSA keypair
+    # generation (docs/ADR/0017) -- already present transitively via
+    # saas-os's own `pyjwt[crypto]` dependency (core/identity/oidc.py's
+    # RS256 validation), declared here explicitly for the same reason as
+    # httpx above.
+    "cryptography",
 ]
 
 [project.optional-dependencies]

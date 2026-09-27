@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Neutral technical identifier (docs/ADR/0001-naming-and-identifier-neutrality.md)
+# -- this is a separate, product-owned service; it deliberately does not
+# depend on `product`, `core`, `api`, or the `saas-os` package at all
+# (docs/ADR/0017-product-owned-zitadel-login-service.md's own architecture
+# boundary: this service is *outside* SaaS-OS's relying-party process).
+name = "login-service"
+version = "0.0.1"
+description = "Product-owned custom ZITADEL Login UI/server (docs/ADR/0017). Talks to ZITADEL's Session API directly; never imports SaaS-OS or product.*."
+requires-python = ">=3.13"
+readme = "README.md"
+license = { text = "UNLICENSED" }
+
+# Deliberately minimal and NOT overlapping with the main product's pinned
+# saas-os dependency -- this process never imports saas-os. `httpx` for
+# the ZITADEL API calls, `PyJWT[crypto]` for the private-key JWT profile
+# (RFC 7523) used to obtain this service's own short-lived ZITADEL access
+# token (never a persistent PAT -- ADR-0017 Security requirements).
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "pyjwt[crypto]>=2.9",
+    # FastAPI's own Form(...) parsing requirement (application/x-www-form-urlencoded
+    # bodies from the login/TOTP HTML forms) -- not an extra framework, just the
+    # multipart/form parser FastAPI itself delegates to.
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

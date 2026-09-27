@@ -41,3 +41,16 @@ Thumbs.db
 
 # --- Local tooling state (not part of this repository's content) ----------
 .claude/
+
+# --- Login Service provisioned credential (docs/ADR/0017) ------------------
+# scripts/provision_login_service_credential.py's own local-run output
+# (private_key.pem + non-secret id files) -- the Docker Compose path
+# writes these into a named volume instead, never this working tree, but
+# a developer running the script directly on the host must not commit
+# the private key it generates.
+deploy/login-service/
+
+# login-service/tests/conftest.py regenerates this throwaway RSA test key
+# on demand (never registered with any real ZITADEL instance) -- a local
+# pytest fixture artifact, not source, never committed.
+login-service/tests/_test_private_key.pem
