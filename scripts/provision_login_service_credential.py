@@ -6,20 +6,14 @@ Uses the existing bootstrap machine user's PAT (the same
 IAM_OWNER-scoped, LOCAL/BOOTSTRAP-only credential
 `scripts/configure_zitadel_login_v2.py` already documents and reuses for
 exactly this kind of one-time administrative action -- never the Login
-Service's own runtime credential) to:
+Service's own runtime credential) to, in this order:
 
 1. Find-or-create a dedicated ZITADEL machine user named
    `LOGIN_SERVICE_ZITADEL_USERNAME` (default `login-service`) via
    `zitadel.user.v2.UserService.CreateUser` (`POST /v2/users`,
    `machine{...}`) -- a NEW identity, never the bootstrap machine user
    itself.
-2. Generate a fresh RSA keypair locally (the private key never leaves
-   this process/host) and register only the PUBLIC key via
-   `UserService.AddKey` (`POST /v2/users/{user_id}/keys`, permission
-   `user.write`) -- exactly the "deploy-time generated private key ->
-   private-key JWT" mechanism ADR-0017 requires. ZITADEL never sees the
-   private key.
-3. Grant that machine user the `IAM_LOGIN_CLIENT` role via the legacy
+2. Grant that machine user the `IAM_LOGIN_CLIENT` role via the legacy
    Admin API's `AddIAMMember` (`POST /admin/v1/members`, permission
    `iam.member.write`) -- verified (`cmd/defaults.yaml` at the pinned
    ZITADEL version) as the ONLY built-in ZITADEL role that carries
@@ -29,14 +23,35 @@ Service's own runtime credential) to:
    `iam.member.write`) but does NOT carry `project.app.write` -- the
    Login Service's runtime credential still cannot reconfigure
    applications, satisfying the required separation from
-   `scripts/configure_zitadel_login_v2.py`'s own credential.
+   `scripts/configure_zitadel_login_v2.py`'s own credential. **This step
+   runs before any key exists (security audit F-02): success or an
+   already-a-member 409 continues; any other failure aborts the whole
+   run immediately -- no key is created and no credential file is ever
+   written for a machine user whose required authorization could not be
+   confirmed.**
+3. Reconcile keys, then generate a fresh RSA keypair locally (the private
+   key never leaves this process/host) and register only the PUBLIC key
+   via `UserService.AddKey` (`POST /v2/users/{user_id}/keys`, permission
+   `user.write`) -- exactly the "deploy-time generated private key ->
+   private-key JWT" mechanism ADR-0017 requires. ZITADEL never sees the
+   private key. **Security audit F-01**: if the local credential files
+   are absent, this process has no recoverable private key for any
+   already-registered key on this user (a lost private key can never be
+   retrieved from ZITADEL), so every key already on this user is listed
+   first (`UserService.ListKeys`, filtered strictly to this one
+   `user_id` -- never a tenant-wide query), a replacement is created and
+   verified, and only THEN are the previously-listed (now obsolete) keys
+   removed (`UserService.RemoveKey`) -- never before the replacement is
+   confirmed to exist, and never a key that does not belong to this
+   dedicated user.
 
 Idempotent: if the local output files (private key + recorded
 user_id/key_id) already exist, this script does nothing and exits 0 --
 re-running it is safe. It never overwrites an existing local private key
-(the corresponding ZITADEL-side key registration cannot be recovered if
-lost; re-provisioning on purpose means deleting the local output
-directory first, a deliberate, visible action, never automatic here).
+(re-provisioning on purpose means deleting the local output directory
+first, a deliberate, visible action, never automatic here). When those
+files are absent, re-running is still safe: the reconciliation in step 3
+above prevents unbounded key accumulation on the ZITADEL side.
 
 Output (all gitignored, never committed -- see .gitignore's
 `deploy/login-service/` entry):
@@ -220,11 +235,44 @@ def add_key(client: httpx.Client, *, user_id: str, public_key_pem: bytes) -> str
     return body["keyId"]
 
 
+def list_key_ids(client: httpx.Client, *, user_id: str) -> list[str]:
+    """`UserService.ListKeys` -- verified proto: `POST /v2/users/keys/search`,
+    permission `user.read`. Filtered strictly to this one `user_id`
+    (`IDFilter{id: user_id}`, `zitadel/filter/v2/filter.proto`) -- never a
+    tenant-wide query (security audit F-01: this must never see, and
+    therefore can never touch, another machine user's keys).
+
+    Note the response's own `Key.id` field (`zitadel/user/v2/key.proto`)
+    -- NOT `keyId`, which is `AddKeyResponse`'s own, differently-named
+    field for the same concept."""
+    body = _call(
+        client,
+        "POST",
+        "/v2/users/keys/search",
+        json={"filters": [{"userIdFilter": {"id": user_id}}]},
+    )
+    return [key["id"] for key in body.get("result", []) if "id" in key]
+
+
+def remove_key(client: httpx.Client, *, user_id: str, key_id: str) -> None:
+    """`UserService.RemoveKey` -- verified proto:
+    `DELETE /v2/users/{user_id}/keys/{key_id}`, permission `user.write`.
+    ZITADEL's own proto comment: succeeds whether the key existed or not
+    -- safe to call on a key that is already gone."""
+    _call(client, "DELETE", f"/v2/users/{user_id}/keys/{key_id}")
+
+
 # Verified live: {"code":6,"message":"Errors.Instance.Member.AlreadyExists"}
 _ALREADY_MEMBER_STATUS = 409
 
 
 def grant_iam_login_client_role(client: httpx.Client, *, user_id: str) -> None:
+    """Fail-closed (security audit F-02): success or an already-a-member
+    409 return normally; any other failure raises `ProvisioningError`,
+    aborting `provision()` before any key is created or any credential
+    file is written. A Login Service credential must never be published
+    for a machine user whose required IAM authorization could not be
+    confirmed -- a bare warning here previously let that happen."""
     try:
         _call(
             client,
@@ -240,12 +288,11 @@ def grant_iam_login_client_role(client: httpx.Client, *, user_id: str) -> None:
                 "-- no action needed."
             )
             return
-        print(
-            f"[provision-login-service] WARNING: could not confirm the "
-            f"{_IAM_LOGIN_CLIENT_ROLE} role grant ({exc}). Verify manually in the ZITADEL "
-            "console (Instance -> Members) before relying on this credential.",
-            file=sys.stderr,
-        )
+        raise ProvisioningError(
+            f"Could not grant {_IAM_LOGIN_CLIENT_ROLE} to {user_id!r} ({exc}). Refusing to "
+            "create a key or publish a credential without confirmed IAM authorization -- "
+            "verify manually in the ZITADEL console (Instance -> Members) and re-run."
+        ) from exc
 
 
 def provision(*, output_dir: str, transport: httpx.BaseTransport | None = None) -> None:
@@ -287,11 +334,42 @@ def provision(*, output_dir: str, transport: httpx.BaseTransport | None = None) 
                 f"{username!r}: {user_id}"
             )
 
+        # F-02: required authorization must be confirmed before any key
+        # exists or any credential is published. Raises (aborting this
+        # entire run, no key created, no file written) on any failure
+        # other than an already-a-member 409.
+        grant_iam_login_client_role(client, user_id=user_id)
+
+        # F-01: reaching this point means the local credential files are
+        # absent (the already-provisioned fast path above returned
+        # earlier otherwise), so this process holds no recoverable
+        # private key for any key already registered on this user --
+        # every one of them is obsolete. List them now, before creating
+        # the replacement, strictly scoped to this one dedicated user.
+        obsolete_key_ids = list_key_ids(client, user_id=user_id)
+
         private_pem, public_pem = generate_keypair()
         key_id = add_key(client, user_id=user_id, public_key_pem=public_pem)
+        if not key_id:
+            raise ProvisioningError("AddKey response carried no keyId.")
         print(f"[provision-login-service] registered key {key_id!r} for user {user_id!r}")
 
-        grant_iam_login_client_role(client, user_id=user_id)
+        # Only now, with the replacement confirmed created, retire the
+        # obsolete keys -- never before, and never the new key itself
+        # (it cannot appear in obsolete_key_ids, which was listed prior
+        # to its creation). A cleanup failure does not fail the run: the
+        # new credential is already valid and in use at this point.
+        for obsolete_key_id in obsolete_key_ids:
+            try:
+                remove_key(client, user_id=user_id, key_id=obsolete_key_id)
+                print(f"[provision-login-service] removed obsolete key {obsolete_key_id!r}")
+            except ProvisioningApiError as exc:
+                print(
+                    f"[provision-login-service] WARNING: could not remove obsolete key "
+                    f"{obsolete_key_id!r} ({exc}). The new key {key_id!r} is valid and in "
+                    "use; remove the stale key manually if desired.",
+                    file=sys.stderr,
+                )
 
     os.makedirs(output_dir, exist_ok=True)
     with open(key_path, "wb") as f:
