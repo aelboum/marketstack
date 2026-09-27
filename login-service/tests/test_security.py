@@ -127,6 +127,86 @@ def test_open_redirect_rejected_for_non_http_callback_url():
         _safe_redirect("javascript:alert(1)")
 
 
+# --- F-04: sessionToken query-parameter exposure ------------------------------
+
+
+def test_get_session_never_sends_session_token_as_a_query_parameter(client, fake_zitadel):
+    """The real security property (live-verified against ZITADEL v4.19.0,
+    see app/zitadel/session_api.py::get_session's own docstring): this
+    service's privileged credential already holds session.read
+    unconditionally, so GetSession is called with no sessionToken at all
+    -- not merely a redacted/logged-elsewhere one. Asserted directly
+    against the recorded call, not a source-string search."""
+    fake_zitadel.add_auth_request("V2_f04")
+    fake_zitadel.add_user(login_name="a@example.com", password="pw")
+    start = client.get("/login-svc/login", params={"authRequest": "V2_f04"})
+    csrf = _extract_csrf(start.text)
+
+    client.post(
+        "/login-svc/login/password",
+        data={"csrf_token": csrf, "login_name": "a@example.com", "password": "pw"},
+        follow_redirects=False,
+    )
+
+    get_session_calls = [
+        c for c in fake_zitadel.calls if c[0] == "GET" and c[1].startswith("/v2/sessions/")
+    ]
+    assert get_session_calls, "expected at least one GetSession call"
+    for _method, _path, _json, params in get_session_calls:
+        assert params is None or "sessionToken" not in params
+
+
+def test_session_token_never_appears_in_captured_output_during_normal_login(
+    client, fake_zitadel, capsys
+):
+    """End-to-end proof for the exact login flow this service performs:
+    no captured stdout/stderr output contains the real session token
+    value, whether from GetSession (which no longer sends it at all) or
+    from any other step (CreateSession/SetSession/CreateCallback, which
+    still legitimately handle it in memory)."""
+    fake_zitadel.add_auth_request("V2_f04_logs")
+    fake_zitadel.add_user(login_name="a@example.com", password="pw")
+    start = client.get("/login-svc/login", params={"authRequest": "V2_f04_logs"})
+    csrf = _extract_csrf(start.text)
+
+    client.post(
+        "/login-svc/login/password",
+        data={"csrf_token": csrf, "login_name": "a@example.com", "password": "pw"},
+        follow_redirects=False,
+    )
+
+    all_tokens = {session["token"] for session in fake_zitadel.sessions.values()}
+    captured = capsys.readouterr()
+    for token in all_tokens:
+        assert token not in captured.out
+        assert token not in captured.err
+
+
+def test_get_session_exception_never_carries_a_token(fake_zitadel):
+    """If GetSession itself fails (e.g. an unknown session_id), the raised
+    ZitadelApiError's own message must stay the same fixed, non-user-data
+    string regardless -- confirms the F-04 fix didn't introduce a new
+    path where a token could leak into an exception."""
+    from app.zitadel import session_api
+
+    with pytest.raises(ZitadelApiError) as excinfo:
+        session_api.get_session(fake_zitadel, session_id="does-not-exist")
+    assert str(excinfo.value) == "ZITADEL API call failed: 401 invalid session"
+
+
+def test_get_session_still_returns_correct_factors(client, fake_zitadel):
+    """Existing GetSession behavior (the actual factor data used by
+    factor_policy.decide()) is unchanged by the F-04 fix."""
+    from app.zitadel import session_api
+
+    fake_zitadel.add_user(login_name="a@example.com", password="pw")
+    checks = {"user": {"loginName": "a@example.com"}, "password": {"password": "pw"}}
+    created = fake_zitadel.request("POST", "/v2/sessions", json={"checks": checks})
+    factors = session_api.get_session(fake_zitadel, session_id=created["sessionId"])["factors"]
+    assert "user" in factors
+    assert "password" in factors
+
+
 def test_browser_cannot_supply_redirect_target():
     """The password/totp/webauthn POST handlers accept no field the
     browser could use to choose a redirect destination -- the callback

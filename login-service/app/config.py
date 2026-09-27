@@ -62,6 +62,22 @@ class Settings:
 
     cookie_secure: bool
     brand_name: str
+    # Mirrors SaaS-OS's own `ENVIRONMENT` posture (`api/auth/config.py`'s
+    # `AuthHttpConfig`/`AUTH_COOKIE_SECURE`): "development" is the only
+    # value that may pair with `cookie_secure=False` -- see
+    # `__post_init__` below (security audit F-03). Never read by any
+    # other part of this service; this is its one purpose.
+    environment: str = "development"
+
+    def __post_init__(self) -> None:
+        # Repeated here (not just in load_settings()) so a directly
+        # constructed Settings object can't bypass it either -- same
+        # reasoning as AuthHttpConfig.__post_init__'s own docstring.
+        if self.environment == "production" and not self.cookie_secure:
+            raise ConfigurationError(
+                "LOGIN_SERVICE_COOKIE_SECURE cannot be disabled when "
+                "LOGIN_SERVICE_ENVIRONMENT=production."
+            )
 
 
 def load_settings() -> Settings:
@@ -73,4 +89,5 @@ def load_settings() -> Settings:
         public_login_service_origin=_require("LOGIN_SERVICE_PUBLIC_ORIGIN"),
         cookie_secure=_bool("LOGIN_SERVICE_COOKIE_SECURE", True),
         brand_name=_optional("LOGIN_SERVICE_BRAND_NAME", "Product"),
+        environment=_optional("LOGIN_SERVICE_ENVIRONMENT", "development"),
     )

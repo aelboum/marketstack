@@ -127,10 +127,11 @@ def _complete(ceremony: Ceremony) -> str:
 
 
 def _evaluate(ceremony: Ceremony) -> factor_policy.Decision:
+    # ceremony.session_token is still required overall (CreateCallback
+    # needs it below) even though get_session() itself no longer does
+    # (security audit F-04 -- see that function's own docstring).
     assert ceremony.session_id and ceremony.session_token
-    factors = session_api.get_session(
-        zitadel, session_id=ceremony.session_id, session_token=ceremony.session_token
-    )["factors"]
+    factors = session_api.get_session(zitadel, session_id=ceremony.session_id)["factors"]
     user_id = factors.get("user", {}).get("id")
     if user_id and not ceremony.user_id:
         store.update(ceremony.ceremony_id, user_id=user_id)

@@ -178,8 +178,15 @@ class FakeZitadel:
         return result
 
     def _get_session(self, session_id: str, params: dict) -> dict:
+        # Mirrors live-verified real ZITADEL behavior (security audit
+        # F-04): our privileged IAM_LOGIN_CLIENT-equivalent credential
+        # already holds session.read unconditionally, so GetSession here
+        # never requires -- and the real client never sends -- a
+        # sessionToken query parameter. `params` is accepted only for
+        # call-shape compatibility with the generic `request()` dispatch
+        # below; it is not used to authorize this read.
         session = self.sessions.get(session_id)
-        if session is None or session["token"] != params.get("sessionToken"):
+        if session is None:
             raise ZitadelApiError(401, "invalid session")
         return {"session": {"id": session_id, "factors": session["factors"]}}
 

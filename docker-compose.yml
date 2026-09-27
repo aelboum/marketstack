@@ -376,7 +376,17 @@ services:
       ZITADEL_ISSUER_URL: http://zitadel.localhost:${ZITADEL_LOCAL_PORT}
       LOGIN_SERVICE_PRIVATE_KEY_PATH: /credential/private_key.pem
       LOGIN_SERVICE_PUBLIC_ORIGIN: ${PUBLIC_APP_ORIGIN:-http://localhost:8080}
-      LOGIN_SERVICE_COOKIE_SECURE: ${LOGIN_SERVICE_COOKIE_SECURE:-false}
+      # security audit F-03: no ":-false" fallback here on purpose -- an
+      # unset/empty LOGIN_SERVICE_COOKIE_SECURE must fall through to
+      # app/config.py's own secure-by-default (True), never be silently
+      # forced insecure by this compose file. .env.example ships an
+      # explicit `false` for local plaintext-HTTP dev, same as
+      # AUTH_COOKIE_SECURE's own convention; LOGIN_SERVICE_ENVIRONMENT
+      # left unset (defaults to "development") is what makes that
+      # explicit `false` acceptable here -- see app/config.py's own
+      # __post_init__ guard, which rejects the combination outright once
+      # LOGIN_SERVICE_ENVIRONMENT=production.
+      LOGIN_SERVICE_COOKIE_SECURE: ${LOGIN_SERVICE_COOKIE_SECURE:-}
       LOGIN_SERVICE_BRAND_NAME: ${LOGIN_SERVICE_BRAND_NAME:-Product}
     volumes:
       - login-service-credential:/credential:ro

@@ -66,20 +66,30 @@ def set_session(
     return client.request("PATCH", f"/v2/sessions/{session_id}", json=body)
 
 
-def get_session(client: ZitadelClient, *, session_id: str, session_token: str) -> dict:
+def get_session(client: ZitadelClient, *, session_id: str) -> dict:
     """Returns the `Session` object (unwrapped from any `{"session": ...}`
     envelope) -- specifically its `factors`, the ground truth
     `app/factor_policy.py` reasons over.
 
-    `sessionToken` travels as a query parameter, not a JSON body: a GET
-    request's `google.api.http` mapping (no `body: "*"` on this RPC) puts
-    every non-path request field on the query string, per grpc-gateway's
-    own convention -- mirrors every other GET in this codebase's verified
-    ZITADEL calls (e.g. ListApplications' own filters are the one
-    documented exception, sent as a POST)."""
-    body = client.request(
-        "GET", f"/v2/sessions/{session_id}", params={"sessionToken": session_token}
-    )
+    Security audit F-04: `GetSession`'s own permission model is
+    `session.read` OR presenting the session's own token (verified proto
+    comment: the token requirement is "waived for own sessions or when
+    the session token itself is presented"). This service's runtime
+    credential already holds `session.read` unconditionally, as part of
+    the `IAM_LOGIN_CLIENT` role every other call in this module already
+    relies on -- so the token is never sent here at all, live-verified
+    against the pinned ZITADEL v4.19.0 instance (a real GetSession with
+    no `sessionToken` query parameter returns the identical `factors`
+    payload as one that includes it). This does not change the ZITADEL
+    API contract -- same endpoint, same method, same permission the
+    credential already had -- it only stops transmitting a bearer-
+    equivalent value this specific call never needed, which removes the
+    URL-query-parameter exposure surface for `GetSession` entirely rather
+    than merely trying to redact it after the fact. `CreateCallback`
+    (app/zitadel/oidc_api.py) still requires and receives the token
+    separately -- proof of possession is genuinely required there, and is
+    unaffected by this change."""
+    body = client.request("GET", f"/v2/sessions/{session_id}")
     return body.get("session", body)
 
 
