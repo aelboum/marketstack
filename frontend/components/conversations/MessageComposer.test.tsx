@@ -20,7 +20,7 @@ vi.mock("@/lib/api/conversations", async (importOriginal) => {
 });
 
 describe("MessageComposer", () => {
-  it("email channel: defaults to the Send tab and sends via the real send-email operation", async () => {
+  it("email channel: defaults to the reply tab and sends via the real send-email operation", async () => {
     listTemplatesMock.mockResolvedValue([]);
     sendEmailMock.mockResolvedValue({ id: "m1" });
     const onSent = vi.fn();
@@ -28,14 +28,13 @@ describe("MessageComposer", () => {
 
     render(<MessageComposer tenantId="t1" threadId="th1" channel="email" onSent={onSent} />);
 
-    await user.type(screen.getByLabelText("To"), "a@example.com");
-    await user.type(screen.getByLabelText("Subject"), "Hi");
-    await user.type(screen.getByPlaceholderText("Email body…"), "Body text");
-    // Two "Send email" buttons exist: the tab selector (already active by
-    // default for an email-channel thread) and the form's own submit
-    // button -- the submit button is the real one to click.
-    const sendButtons = screen.getAllByRole("button", { name: "Send email" });
-    await user.click(sendButtons[sendButtons.length - 1]);
+    await user.type(screen.getByLabelText("Aan"), "a@example.com");
+    await user.type(screen.getByLabelText("Onderwerp"), "Hi");
+    await user.type(screen.getByPlaceholderText("Schrijf een antwoord…"), "Body text");
+    // Two "Versturen" buttons exist: the tab selector's label differs
+    // ("Antwoord") from the form's own submit button ("Versturen") --
+    // click the submit button.
+    await user.click(screen.getByRole("button", { name: "Versturen" }));
 
     await waitFor(() =>
       expect(sendEmailMock).toHaveBeenCalledWith("t1", "th1", {
@@ -47,12 +46,12 @@ describe("MessageComposer", () => {
     expect(onSent).toHaveBeenCalledOnce();
   });
 
-  it("non-email channel: no Send tab exists, only Internal note, with an explanatory notice", async () => {
+  it("non-email channel: no reply tab exists, only Internal note, with an explanatory notice", async () => {
     listTemplatesMock.mockResolvedValue([]);
     render(<MessageComposer tenantId="t1" threadId="th1" channel="sms" onSent={vi.fn()} />);
 
-    expect(screen.queryByRole("button", { name: "Send email" })).not.toBeInTheDocument();
-    expect(screen.getByText(/no way to send a real sms message/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Antwoord" })).not.toBeInTheDocument();
+    expect(screen.getByText(/geen manier om een echt sms-bericht/)).toBeInTheDocument();
   });
 
   it("internal note: submits via createMessage with is_internal_note true, never sendEmail", async () => {
@@ -63,8 +62,11 @@ describe("MessageComposer", () => {
 
     render(<MessageComposer tenantId="t1" threadId="th1" channel="sms" onSent={onSent} />);
 
-    await user.type(screen.getByPlaceholderText(/never sent to the contact/), "Called, no answer");
-    await user.click(screen.getByRole("button", { name: "Add internal note" }));
+    await user.type(
+      screen.getByPlaceholderText(/nooit verzonden naar de klant/),
+      "Called, no answer",
+    );
+    await user.click(screen.getByRole("button", { name: "Notitie toevoegen" }));
 
     await waitFor(() =>
       expect(createMessageMock).toHaveBeenCalledWith("t1", "th1", {
@@ -83,10 +85,10 @@ describe("MessageComposer", () => {
     const user = userEvent.setup();
 
     render(<MessageComposer tenantId="t1" threadId="th1" channel="chat" onSent={vi.fn()} />);
-    await user.type(screen.getByPlaceholderText(/never sent to the contact/), "Draft note");
-    await user.click(screen.getByRole("button", { name: "Add internal note" }));
+    await user.type(screen.getByPlaceholderText(/nooit verzonden naar de klant/), "Draft note");
+    await user.click(screen.getByRole("button", { name: "Notitie toevoegen" }));
 
     await waitFor(() => expect(screen.getByText("The request was invalid.")).toBeInTheDocument());
-    expect(screen.getByPlaceholderText(/never sent to the contact/)).toHaveValue("Draft note");
+    expect(screen.getByPlaceholderText(/nooit verzonden naar de klant/)).toHaveValue("Draft note");
   });
 });

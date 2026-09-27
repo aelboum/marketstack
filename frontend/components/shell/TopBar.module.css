@@ -4,10 +4,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
   padding: 0 var(--space-4);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-menu);
 }
 
 .start {
@@ -62,6 +65,87 @@
   /* Allowed to shrink so a long workspace id truncates instead of
      pushing the account control off a narrow screen. */
   min-width: 0;
+}
+
+/* Cosmetic header search (dashboard-design integration) -- visually
+   matches the mockup's search box, but is disabled: no search index or
+   keyboard-shortcut handler backs it. Pushed to the right edge via
+   margin-left:auto so it sits just before the language toggle/account
+   cluster regardless of layout (sidebar has no centerNav flex spacer;
+   topnav's centerNav already fills the space, so this is a no-op there). */
+.search {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  width: 260px;
+  max-width: 40vw;
+  padding: 0 var(--space-3);
+  margin-left: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text-faint);
+  flex-shrink: 0;
+}
+
+@media (min-width: 48rem) {
+  .search {
+    display: flex;
+  }
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-faint);
+}
+
+.searchKbd {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+.langGroup {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.langButton {
+  height: 30px;
+  min-width: 36px;
+  border: 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.langButton:hover {
+  background: var(--color-bg);
+}
+
+.langButton[data-active="true"] {
+  background: var(--color-text);
+  color: var(--color-surface);
 }
 
 .tenantTag {

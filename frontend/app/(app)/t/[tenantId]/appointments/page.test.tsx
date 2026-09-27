@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AppointmentsWeekPage from "./page";
+import { getWeekStart } from "@/lib/appointments/calendarWeek";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/t/tenant-1/appointments",
@@ -192,6 +193,15 @@ describe("AppointmentsWeekPage", () => {
       results: [{ id: "cal1", tenant_id: "t1", name: "Hoofdagenda", owner_user_id: "u1", timezone: "Europe/Amsterdam", created_at: "", updated_at: "" }],
       hasMore: false,
     });
+    // Monday of "today"'s week, not a raw `new Date()` -- CalendarWeekView
+    // only ever renders Monday-Friday (lib/appointments/calendarWeek.ts's
+    // own module docstring: a weekend timestamp is deliberately outside
+    // its query window), so a real `new Date()` here is flaky depending on
+    // which real-world weekday the suite happens to run on.
+    const monday = getWeekStart(new Date());
+    monday.setHours(10, 0, 0, 0);
+    const startsAt = monday;
+    const endsAt = new Date(startsAt.getTime() + 30 * 60_000);
     listAppointmentsMock.mockResolvedValue({
       results: [
         {
@@ -199,8 +209,8 @@ describe("AppointmentsWeekPage", () => {
           tenant_id: "t1",
           calendar_id: "cal1",
           contact_id: "c1",
-          starts_at: new Date().toISOString(),
-          ends_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+          starts_at: startsAt.toISOString(),
+          ends_at: endsAt.toISOString(),
           status: "confirmed",
           created_at: "",
           updated_at: "",

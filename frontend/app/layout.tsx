@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { SessionProvider } from "@/lib/auth/session-context";
+import { LocaleProvider } from "@/lib/i18n/locale-context";
 import "./globals.css";
 
 // Root layout (docs/ROADMAP.md Phase 1.6, extended by UI-1). The
@@ -32,7 +33,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <LocaleProvider>
+          <SessionProvider>{children}</SessionProvider>
+        </LocaleProvider>
       </body>
     </html>
   );

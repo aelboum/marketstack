@@ -12,6 +12,18 @@ vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({ markSessionExpired: vi.fn() }),
 }));
 
+vi.mock("@/lib/i18n/locale-context", () => ({
+  useTranslate: () => (nl: string) => nl,
+}));
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: React.PropsWithChildren<{ href: string }>) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 describe("KpiStrip", () => {
   it("shows a loading state while the KPIs load", () => {
     loadDashboardKpisMock.mockReturnValue(new Promise(() => {}));

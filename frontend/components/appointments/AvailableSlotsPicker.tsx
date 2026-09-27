@@ -32,7 +32,7 @@ import {
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
-import { FormRow } from "@/components/ui/FormRow";
+import { FormRowGroup } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 
@@ -84,6 +84,15 @@ export function AvailableSlotsPicker({
     duration > MAX_SLOT_DURATION_MINUTES;
   const canSearch = !rangeInvalid && !rangeTooLong && !durationInvalid;
 
+  const runSearch = () => {
+    if (!canSearch) return;
+    setApplied({
+      date_from: dateFrom,
+      date_to: dateTo,
+      slot_duration_minutes: duration,
+    });
+  };
+
   const query = useApiQuery(
     () =>
       applied
@@ -94,15 +103,11 @@ export function AvailableSlotsPicker({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      <FormRow
-        onSubmit={(event) => {
+      <FormRowGroup
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
           event.preventDefault();
-          if (!canSearch) return;
-          setApplied({
-            date_from: dateFrom,
-            date_to: dateTo,
-            slot_duration_minutes: duration,
-          });
+          runSearch();
         }}
       >
         <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
@@ -152,10 +157,10 @@ export function AvailableSlotsPicker({
             }}
           />
         </label>
-        <Button type="submit" disabled={!canSearch}>
+        <Button type="button" onClick={runSearch} disabled={!canSearch}>
           Find slots
         </Button>
-      </FormRow>
+      </FormRowGroup>
 
       {rangeInvalid && !rangeTooLong ? (
         <InlineNotice tone="warning">The end date must not be before the start date.</InlineNotice>

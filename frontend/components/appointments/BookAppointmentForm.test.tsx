@@ -83,7 +83,7 @@ describe("BookAppointmentForm", () => {
     expect(onBooked).toHaveBeenCalledWith({ id: "a1", status: "confirmed" });
   });
 
-  it("offers no contact form until a real slot has been chosen", async () => {
+  it("offers no contact form until a real slot has been chosen, and keeps Confirm disabled until then", async () => {
     listCalendarsMock.mockResolvedValue({ results: [CALENDAR], hasMore: false });
     listAvailableSlotsMock.mockResolvedValue([]);
     const user = userEvent.setup();
@@ -93,7 +93,29 @@ describe("BookAppointmentForm", () => {
     await user.selectOptions(screen.getByLabelText("Calendar"), "cal1");
 
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Confirm booking" })).not.toBeInTheDocument();
+    // The Confirm button is now a single, persistent footer control
+    // (mockup layout parity) -- always present, but disabled until a
+    // slot and every contact field are real.
+    expect(screen.getByRole("button", { name: "Confirm booking" })).toBeDisabled();
+  });
+
+  it("renders no Cancel button when the caller gives it nothing to cancel back to", async () => {
+    listCalendarsMock.mockResolvedValue({ results: [CALENDAR], hasMore: false });
+    render(<BookAppointmentForm tenantId="t1" onBooked={vi.fn()} />);
+    await waitFor(() => expect(screen.getByLabelText("Calendar")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+  });
+
+  it("calls the caller's onCancel from the footer's Cancel button when given one", async () => {
+    listCalendarsMock.mockResolvedValue({ results: [CALENDAR], hasMore: false });
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+
+    render(<BookAppointmentForm tenantId="t1" onBooked={vi.fn()} onCancel={onCancel} />);
+    await waitFor(() => expect(screen.getByLabelText("Calendar")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 
   it("explains a 409 as 'the slot was taken', not as a generic failure", async () => {

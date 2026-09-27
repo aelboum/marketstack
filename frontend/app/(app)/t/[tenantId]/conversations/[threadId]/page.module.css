@@ -1,0 +1,184 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-base);
+}
+
+.backButton {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+@media (min-width: 48rem) {
+  .backButton {
+    display: none;
+  }
+}
+
+.headerInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headerName {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.headerMeta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  /* Establishes the container query context for .customerPanel below --
+     gated on the space actually available to this pane, not the raw
+     viewport (the sidebar/list pane already consume part of that), so
+     this is a genuinely better fit than a second viewport breakpoint
+     would be, not a workaround for the single-breakpoint policy. */
+  container-type: inline-size;
+}
+
+.conversationColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+.customerPanel {
+  display: none;
+  width: 19rem;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--space-5) var(--space-4);
+  flex-direction: column;
+  gap: var(--space-5);
+  overflow-y: auto;
+}
+
+@container (min-width: 56rem) {
+  .customerPanel {
+    display: flex;
+  }
+}
+
+.panelIdentity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.panelAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  display: grid;
+  place-items: center;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.panelName {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.panelSince {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.panelFields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.panelFields dt {
+  color: var(--color-text-faint);
+}
+
+.panelFields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.panelSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.panelSectionLabel {
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  font-weight: var(--font-weight-medium);
+}
+
+.panelDealCard {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panelDealName {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.panelDealMeta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

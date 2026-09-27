@@ -22,6 +22,11 @@ vi.mock("@/lib/tenant/tenant-context", () => ({
   useTenant: () => ({ tenantId: "tenant-1" }),
 }));
 
+vi.mock("@/lib/i18n/locale-context", () => ({
+  useLocale: () => ({ locale: "NL" as const, setLocale: vi.fn() }),
+  useTranslate: () => (nl: string) => nl,
+}));
+
 const {
   listClientsMock,
   loadAutomationActivityMock,
@@ -80,15 +85,20 @@ function setDefaultMocks() {
   listInboxMock.mockResolvedValue([]);
 }
 
-describe("DashboardPage (Vandaag / Command Center)", () => {
-  it("renders the business-oriented heading, not the old technical one", async () => {
+describe("DashboardPage (Dashboard / Command Center)", () => {
+  it("renders the Dashboard heading and a real, non-fabricated greeting", async () => {
     setDefaultMocks();
     render(<DashboardPage />);
 
-    expect(screen.getByRole("heading", { name: "Vandaag" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Dashboard" })).not.toBeInTheDocument();
-    expect(screen.getByText(/user-1/)).toBeInTheDocument();
-    expect(screen.getByText(/tenant-1/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    // Time-of-day greeting, never a fabricated personal name -- CurrentUser
+    // carries no display name (see the page's own module comment).
+    expect(
+      screen.getByRole("heading", { name: /Goedemorgen|Goedemiddag|Goedenavond/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Dit vraagt vandaag uw aandacht/)).toBeInTheDocument();
+    // No raw internal id leaks into the visible greeting any more.
+    expect(screen.queryByText(/tenant-1/)).not.toBeInTheDocument();
   });
 
   it("shows an honest empty state per section when there is genuinely nothing -- never a fabricated metric", async () => {

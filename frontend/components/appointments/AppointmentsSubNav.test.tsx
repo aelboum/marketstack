@@ -18,10 +18,14 @@ describe("AppointmentsSubNav", () => {
     render(<AppointmentsSubNav tenantId="tenant-1" />);
 
     expect(screen.getByRole("link", { name: "Book" })).toHaveAttribute("data-active", "true");
-    expect(screen.getByRole("link", { name: "Calendars" })).toHaveAttribute("data-active", "false");
-    expect(screen.getByRole("link", { name: "Calendars" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Overzicht" })).toHaveAttribute("data-active", "false");
+    expect(screen.getByRole("link", { name: "Overzicht" })).toHaveAttribute(
       "href",
       "/t/tenant-1/appointments",
+    );
+    expect(screen.getByRole("link", { name: "Calendars" })).toHaveAttribute(
+      "href",
+      "/t/tenant-1/appointments/calendars",
     );
     expect(screen.getByRole("link", { name: "Manage" })).toHaveAttribute(
       "href",
@@ -33,7 +37,7 @@ describe("AppointmentsSubNav", () => {
     );
   });
 
-  it("offers no appointment-list tab -- the backend exposes no list endpoint", () => {
+  it("names no tab literally 'Appointments' -- the business-oriented label is 'Overzicht'", () => {
     render(<AppointmentsSubNav tenantId="tenant-1" />);
     expect(screen.queryByRole("link", { name: "Appointments" })).not.toBeInTheDocument();
   });

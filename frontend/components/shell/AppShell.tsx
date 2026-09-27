@@ -123,7 +123,12 @@ export function AppShell({
         data-open={mobileNavOpen}
         aria-label="Main"
       >
-        <div className={styles.sidebarBrand}>Product</div>
+        <div className={styles.sidebarBrand}>
+          <span className={styles.sidebarBrandMark} aria-hidden="true">
+            P
+          </span>
+          Product
+        </div>
         <Navigation tenantId={tenantId} orientation="vertical" />
       </aside>
       <div className={styles.body}>

@@ -27,8 +27,9 @@
 
 import { request } from "@/lib/api/client";
 
-/** The only two statuses `product/appointments/models.py` defines. */
-export type AppointmentStatus = "confirmed" | "cancelled";
+/** `product/appointments/models.py::VALID_APPOINTMENT_STATUSES`.
+ * `completed`/`no_show` added docs/ROADMAP.md Phase 23. */
+export type AppointmentStatus = "confirmed" | "cancelled" | "completed" | "no_show";
 
 export type Calendar = {
   id: string;
@@ -298,6 +299,28 @@ export function rescheduleAppointment(
   return request<Appointment>(
     `/v1/appointments/tenants/${tenantId}/appointments/${appointmentId}/reschedule`,
     { method: "POST", body: input },
+  );
+}
+
+/** docs/ROADMAP.md Phase 23 -- marks a confirmed appointment attended.
+ * Publishes `appointments.appointment.completed`, which the backend uses
+ * to automatically create a review request (where Reputation is set up). */
+export function completeAppointment(tenantId: string, appointmentId: string): Promise<Appointment> {
+  return request<Appointment>(
+    `/v1/appointments/tenants/${tenantId}/appointments/${appointmentId}/complete`,
+    { method: "POST" },
+  );
+}
+
+/** docs/ROADMAP.md Phase 23 -- marks a confirmed appointment as the
+ * customer never attending. */
+export function markAppointmentNoShow(
+  tenantId: string,
+  appointmentId: string,
+): Promise<Appointment> {
+  return request<Appointment>(
+    `/v1/appointments/tenants/${tenantId}/appointments/${appointmentId}/no-show`,
+    { method: "POST" },
   );
 }
 

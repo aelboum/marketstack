@@ -12,14 +12,13 @@
 // complete/no-show) for the appointment already in hand; clicking a
 // generic calendar event opens `CalendarEventForm` in edit mode.
 //
-// Week view itself is untouched (`CalendarWeekView`) -- integrating
-// CalendarEvents into it would mean reworking its self-contained data
-// fetching and `lib/appointments/calendarWeek.ts`'s own
-// `Appointment`-typed bucketing/layout math (shared with, and tested by,
-// that component alone), a substantially larger change than the other
-// three views needed. Per this phase's own "STOP and report" allowance
-// for exactly this case, Week does not show generic calendar events yet
-// -- see this phase's own report.
+// Week now consumes the same unified `AgendaItem[]` the other three
+// views do (`CalendarWeekView`'s own module docstring) -- its previous
+// Appointment-only fetch was the last holdout. `lib/appointments
+// /calendarWeek.ts`'s own `Appointment`-typed `bucketByWeekday()` stays
+// untouched and unused by the component now (bucketing reuses
+// `calendarMonth.ts::groupItemsByDay()`, already generic); its own
+// existing tests remain valid unchanged.
 import { useRef, useState } from "react";
 import { useTenant } from "@/lib/tenant/tenant-context";
 import {
@@ -227,9 +226,10 @@ export default function AppointmentsWeekPage() {
         <CalendarWeekView
           tenantId={tenantId}
           weekStart={weekStart}
+          calendarId={activeCalendarId}
           isToday={isToday}
           reloadKey={reloadKey}
-          onEventClick={setManageAppointment}
+          onItemClick={handleItemClick}
         />
       ) : view === "day" ? (
         <CalendarDayView

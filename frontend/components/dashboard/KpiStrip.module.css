@@ -1,13 +1,37 @@
+/* One bordered card, divided into cells: the container paints the
+   divider color, each cell paints over it with the surface color, and
+   the 1px `gap` is what shows through as a clean divider line -- robust
+   regardless of how many rows the grid wraps into (no fragile
+   nth-child/row-index math). */
 .strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+@media (min-width: 48rem) {
+  .strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .tile {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.tile:hover {
+  background: var(--color-bg);
+  text-decoration: none;
 }
 
 .label {

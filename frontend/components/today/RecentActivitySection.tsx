@@ -9,22 +9,33 @@
 // them, exactly as docs/ARCHITECTURE.md's module-boundary rule requires
 // (a module never depends on another; the experience layer reads both
 // through their own published APIs).
+//
+// Row presentation goes through `components/dashboard/DashboardListRow`
+// (mockup layout parity); each row links to the real detail screen for
+// that record (a contact, or an automation run) -- both routes exist,
+// unlike UpcomingAppointmentsSection's rows.
 import { loadAutomationActivity, loadRecentContacts } from "@/lib/dashboard/commandCenter";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
+import { useTranslate } from "@/lib/i18n/locale-context";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
-import { Card } from "@/components/ui/Card";
+import { DashboardListRow } from "@/components/dashboard/DashboardListRow";
 
 function relativeDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+function initials(firstName: string, lastName: string): string {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+}
+
 export function RecentActivitySection({ tenantId }: { tenantId: string }) {
+  const t = useTranslate();
   const automationQuery = useApiQuery(() => loadAutomationActivity(tenantId), [tenantId]);
   const contactsQuery = useApiQuery(() => loadRecentContacts(tenantId), [tenantId]);
 
   if (automationQuery.status === "loading" || contactsQuery.status === "loading") {
-    return <LoadingState label="Recente activiteit laden…" />;
+    return <LoadingState label={t("Recente activiteit laden…", "Loading recent activity…")} />;
   }
 
   if (automationQuery.status === "error") {
@@ -40,34 +51,37 @@ export function RecentActivitySection({ tenantId }: { tenantId: string }) {
   if (recentRuns.length === 0 && recentContacts.length === 0) {
     return (
       <EmptyState
-        title="Nog geen recente activiteit"
-        description="Zodra er klanten worden toegevoegd of automatiseringen worden uitgevoerd, verschijnt dat hier."
+        title={t("Nog geen recente activiteit", "No recent activity yet")}
+        description={t(
+          "Zodra er klanten worden toegevoegd of automatiseringen worden uitgevoerd, verschijnt dat hier.",
+          "Once customers are added or automations run, it will appear here.",
+        )}
       />
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }} data-testid="recent-activity-list">
+    <div style={{ display: "flex", flexDirection: "column" }} data-testid="recent-activity-list">
       {recentContacts.map((contact) => (
-        <Card key={`contact-${contact.id}`}>
-          <div style={{ fontSize: "var(--font-size-sm)" }}>
-            Nieuw contact:{" "}
-            <strong>
-              {contact.first_name} {contact.last_name}
-            </strong>{" "}
-            <span style={{ color: "var(--color-text-faint)" }}>({relativeDay(contact.created_at)})</span>
-          </div>
-        </Card>
+        <DashboardListRow
+          key={`contact-${contact.id}`}
+          href={`/t/${tenantId}/crm/contacts/${contact.id}`}
+          lead={initials(contact.first_name, contact.last_name)}
+          title={t(
+            `Nieuw contact: ${contact.first_name} ${contact.last_name}`,
+            `New contact: ${contact.first_name} ${contact.last_name}`,
+          )}
+          meta={relativeDay(contact.created_at)}
+        />
       ))}
       {recentRuns.map((run) => (
-        <Card key={`run-${run.id}`}>
-          <div style={{ fontSize: "var(--font-size-sm)" }}>
-            Automatisering afgerond: <strong>{run.workflowName}</strong>{" "}
-            <span style={{ color: "var(--color-text-faint)" }}>
-              ({run.completed_at ? relativeDay(run.completed_at) : ""})
-            </span>
-          </div>
-        </Card>
+        <DashboardListRow
+          key={`run-${run.id}`}
+          href={`/t/${tenantId}/automation/runs/${run.id}`}
+          lead="✓"
+          title={t(`Automatisering afgerond: ${run.workflowName}`, `Automation completed: ${run.workflowName}`)}
+          meta={run.completed_at ? relativeDay(run.completed_at) : ""}
+        />
       ))}
     </div>
   );

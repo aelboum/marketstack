@@ -18,6 +18,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("@/lib/i18n/locale-context", () => ({
+  useLocale: () => ({ locale: "NL" as const, setLocale: vi.fn() }),
+  useTranslate: () => (nl: string) => nl,
+}));
+
 function renderShell() {
   return render(
     <AppShell layout="sidebar" tenantId="tenant-1" userId="user-1" onLogout={vi.fn()}>

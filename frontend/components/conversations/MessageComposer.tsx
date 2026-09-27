@@ -22,6 +22,14 @@ import { useAsyncAction } from "@/lib/hooks/useAsyncAction";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { InlineNotice } from "@/components/ui/InlineNotice";
+import styles from "./MessageComposer.module.css";
+
+const CHANNEL_NL: Record<Channel, string> = {
+  email: "e-mail",
+  sms: "sms",
+  whatsapp: "WhatsApp",
+  chat: "chat",
+};
 
 function CharCount({ value }: { value: string }) {
   const over = value.length > MAX_MESSAGE_BODY_LENGTH;
@@ -50,7 +58,7 @@ function TemplatePicker({
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
       <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
-        Insert a template
+        Sjabloon invoegen
       </span>
       <select
         value=""
@@ -59,7 +67,7 @@ function TemplatePicker({
           if (template) onPick(template.body);
         }}
       >
-        <option value="">Choose…</option>
+        <option value="">Kiezen…</option>
         {relevant.map((template) => (
           <option key={template.id} value={template.id}>
             {template.name}
@@ -98,28 +106,25 @@ function InternalNoteForm({
           onSent();
         }
       }}
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
+      className={styles.form}
     >
       <TemplatePicker tenantId={tenantId} channel={channel} onPick={setBody} />
-      <textarea
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-        rows={3}
-        aria-label="Internal note"
-        placeholder="Only visible to your team -- never sent to the contact."
-        style={{
-          fontFamily: "inherit",
-          fontSize: "var(--font-size-sm)",
-          padding: "var(--space-2)",
-          border: `1px solid ${overLimit ? "var(--color-danger)" : "var(--color-border-strong)"}`,
-          borderRadius: "var(--radius-sm)",
-        }}
-      />
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <CharCount value={body} />
-        <Button type="submit" size="sm" disabled={state.status === "pending" || !body.trim() || overLimit}>
-          {state.status === "pending" ? "Adding…" : "Add internal note"}
+      <div className={styles.replyRow}>
+        <textarea
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          rows={2}
+          aria-label="Internal note"
+          placeholder="Alleen zichtbaar voor je team -- nooit verzonden naar de klant."
+          className={styles.textarea}
+          data-invalid={overLimit}
+        />
+        <Button type="submit" disabled={state.status === "pending" || !body.trim() || overLimit}>
+          {state.status === "pending" ? "Bezig…" : "Notitie toevoegen"}
         </Button>
+      </div>
+      <div className={styles.footerRow}>
+        <CharCount value={body} />
       </div>
       {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
     </form>
@@ -156,30 +161,27 @@ function SendEmailForm({
           onSent();
         }
       }}
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
+      className={styles.form}
     >
       <TemplatePicker tenantId={tenantId} channel={channel} onPick={setBody} />
-      <Input label="To" type="email" required value={toEmail} onChange={(event) => setToEmail(event.target.value)} />
-      <Input label="Subject" required value={subject} onChange={(event) => setSubject(event.target.value)} />
-      <textarea
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-        rows={5}
-        aria-label="Email body"
-        placeholder="Email body…"
-        style={{
-          fontFamily: "inherit",
-          fontSize: "var(--font-size-sm)",
-          padding: "var(--space-2)",
-          border: `1px solid ${overLimit ? "var(--color-danger)" : "var(--color-border-strong)"}`,
-          borderRadius: "var(--radius-sm)",
-        }}
-      />
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <CharCount value={body} />
+      <Input label="Aan" type="email" required value={toEmail} onChange={(event) => setToEmail(event.target.value)} />
+      <Input label="Onderwerp" required value={subject} onChange={(event) => setSubject(event.target.value)} />
+      <div className={styles.replyRow}>
+        <textarea
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          rows={2}
+          aria-label="Email body"
+          placeholder="Schrijf een antwoord…"
+          className={styles.textarea}
+          data-invalid={overLimit}
+        />
         <Button type="submit" disabled={state.status === "pending" || !canSend}>
-          {state.status === "pending" ? "Sending…" : "Send email"}
+          {state.status === "pending" ? "Versturen…" : "Versturen"}
         </Button>
+      </div>
+      <div className={styles.footerRow}>
+        <CharCount value={body} />
       </div>
       {state.status === "error" ? <InlineNotice tone="danger">{state.error.message}</InlineNotice> : null}
     </form>
@@ -200,11 +202,11 @@ export function MessageComposer({
   const [tab, setTab] = useState<"note" | "send">(channel === "email" ? "send" : "note");
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+    <div className={styles.composer}>
       {/* `variant` alone made the selected tab a colour-only signal.
           `aria-pressed` states it outright, matching the pattern
           AvailableSlotsPicker already uses for its slot toggles. */}
-      <div style={{ display: "flex", gap: "var(--space-1)" }}>
+      <div className={styles.tabs}>
         {channel === "email" ? (
           <Button
             variant={tab === "send" ? "primary" : "ghost"}
@@ -212,7 +214,7 @@ export function MessageComposer({
             aria-pressed={tab === "send"}
             onClick={() => setTab("send")}
           >
-            Send email
+            Antwoord
           </Button>
         ) : null}
         <Button
@@ -221,7 +223,7 @@ export function MessageComposer({
           aria-pressed={tab === "note"}
           onClick={() => setTab("note")}
         >
-          Internal note
+          Interne notitie
         </Button>
       </div>
 
@@ -231,9 +233,9 @@ export function MessageComposer({
         <>
           {channel !== "email" ? (
             <InlineNotice tone="neutral">
-              There is no way to send a real {channel} message through this product yet -- only an
-              inbound webhook exists for this channel (see this phase&apos;s deferred items). An
-              internal note is logged here, never delivered to the contact.
+              Er is geen manier om een echt {CHANNEL_NL[channel]}-bericht via dit product te
+              versturen -- alleen een inkomende webhook bestaat voor dit kanaal. Een interne notitie
+              wordt hier vastgelegd, nooit verzonden naar de klant.
             </InlineNotice>
           ) : null}
           <InternalNoteForm tenantId={tenantId} threadId={threadId} channel={channel} onSent={onSent} />

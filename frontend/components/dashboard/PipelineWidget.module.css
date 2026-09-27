@@ -1,0 +1,32 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  gap: 2px;
+  background: var(--color-border);
+}
+
+.barSegment {
+  flex-shrink: 0;
+  flex-basis: 0;
+}
+
+.stageCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stageDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}

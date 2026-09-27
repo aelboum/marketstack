@@ -93,9 +93,8 @@ describe("state is not conveyed by colour alone (UI-8)", () => {
     render(<MessageComposer tenantId="t1" threadId="th1" channel="email" onSent={vi.fn()} />);
 
     // Previously the active tab differed only by button colour.
-    const tabs = screen.getAllByRole("button", { name: "Send email" });
-    expect(tabs[0]).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Internal note" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Antwoord" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Interne notitie" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );

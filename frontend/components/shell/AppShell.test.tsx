@@ -15,6 +15,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("@/lib/i18n/locale-context", () => ({
+  useLocale: () => ({ locale: "NL" as const, setLocale: vi.fn() }),
+  useTranslate: () => (nl: string) => nl,
+}));
+
 // A stand-in "domain page" -- the same node is used for every layout
 // below, unmodified. This is the concrete proof the UI Track roadmap
 // asks for: the shell's layout can change (sidebar <-> topnav) without

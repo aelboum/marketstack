@@ -13,15 +13,17 @@
 // limit): this renders one concise summary line and a link into the
 // real Approval Inbox (`/t/{tenantId}/approvals`) -- never an
 // approve/reject control here.
-import Link from "next/link";
+//
+// Row presentation goes through `components/dashboard/DashboardListRow`
+// (mockup layout parity) -- the underlying data/hooks below are
+// unchanged from before that visual pass.
 import { loadAutomationActivity } from "@/lib/dashboard/commandCenter";
 import { listApprovals } from "@/lib/api/approvals";
 import { listInbox } from "@/lib/api/conversations";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
-import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
+import { DashboardListRow } from "@/components/dashboard/DashboardListRow";
 
 function PendingApprovalsLine({ tenantId }: { tenantId: string }) {
   const query = useApiQuery(() => listApprovals(tenantId, { status: "pending" }), [tenantId]);
@@ -41,18 +43,13 @@ function PendingApprovalsLine({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <Card>
-      <Link
-        href={`/t/${tenantId}/approvals`}
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
-      >
-        <span>
-          {query.data.length}{" "}
-          {query.data.length === 1 ? "actie wacht" : "acties wachten"} op goedkeuring
-        </span>
-        <Badge tone="warning">Bekijken →</Badge>
-      </Link>
-    </Card>
+    <DashboardListRow
+      href={`/t/${tenantId}/approvals`}
+      lead="!"
+      title={`${query.data.length} ${query.data.length === 1 ? "actie wacht" : "acties wachten"} op goedkeuring`}
+      tag="Bekijken →"
+      tone="warning"
+    />
   );
 }
 
@@ -70,18 +67,13 @@ function NeedsReplyLine({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <Card>
-      <Link
-        href={`/t/${tenantId}/conversations`}
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
-      >
-        <span>
-          {query.data.length}{" "}
-          {query.data.length === 1 ? "gesprek wacht" : "gesprekken wachten"} op een reactie
-        </span>
-        <Badge tone="warning">Bekijken →</Badge>
-      </Link>
-    </Card>
+    <DashboardListRow
+      href={`/t/${tenantId}/conversations`}
+      lead="@"
+      title={`${query.data.length} ${query.data.length === 1 ? "gesprek wacht" : "gesprekken wachten"} op een reactie`}
+      tag="Bekijken →"
+      tone="warning"
+    />
   );
 }
 
@@ -100,9 +92,9 @@ export function AttentionSection({ tenantId }: { tenantId: string }) {
 
   if (failed.length === 0) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+      <div style={{ display: "flex", flexDirection: "column" }}>
         <PendingApprovalsLine tenantId={tenantId} />
-      <NeedsReplyLine tenantId={tenantId} />
+        <NeedsReplyLine tenantId={tenantId} />
         <EmptyState
           title="Alles in orde"
           description="Er zijn momenteel geen automatiseringen die mislukt zijn en uw aandacht nodig hebben."
@@ -112,31 +104,19 @@ export function AttentionSection({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
-      data-testid="attention-list"
-    >
+    <div style={{ display: "flex", flexDirection: "column" }} data-testid="attention-list">
       <PendingApprovalsLine tenantId={tenantId} />
       <NeedsReplyLine tenantId={tenantId} />
       {failed.map((run) => (
-        <Card key={run.id}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "var(--space-3)",
-            }}
-          >
-            <div>
-              <strong>{run.workflowName}</strong>
-              <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-                {run.error ?? "Deze automatisering is mislukt."}
-              </div>
-            </div>
-            <Badge tone="danger">Mislukt</Badge>
-          </div>
-        </Card>
+        <DashboardListRow
+          key={run.id}
+          href={`/t/${tenantId}/automation/runs/${run.id}`}
+          lead="!"
+          title={run.workflowName}
+          meta={run.error ?? "Deze automatisering is mislukt."}
+          tag="Mislukt"
+          tone="danger"
+        />
       ))}
     </div>
   );

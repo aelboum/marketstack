@@ -1,21 +1,24 @@
-/* The Unified Inbox's own split-view shell (docs/ROADMAP.md Phase 30) --
-   mirrors components/settings/SettingsShell.module.css's own "shell owns
-   the responsive arrangement, a page owns none of it" discipline,
-   applied to a conventional inbox list|detail layout instead of a
-   sidebar|content one. */
+/* The Unified Inbox's own split-view shell (docs/ROADMAP.md Phase 30,
+   restyled for mockup layout parity: design/Inbox.dc.html). Fixed to
+   the viewport height below the sticky TopBar -- a chat-app shape, not
+   the normal document-scrolls-as-a-whole shape every other route uses
+   -- with each pane scrolling independently (`overflow-y: auto` +
+   `min-height: 0`, the standard CSS Grid "let a track's content scroll
+   instead of stretching the track" pair). */
 
 .shell {
   display: grid;
-  gap: var(--space-4);
   grid-template-columns: minmax(0, 1fr);
+  height: calc(100vh - var(--shell-topbar-height));
+  height: calc(100dvh - var(--shell-topbar-height));
+  overflow: hidden;
 }
 
 @media (min-width: 48rem) {
   .shell {
     /* Desktop: list and detail side by side, always -- the conventional
        inbox interaction docs/ROADMAP.md Phase 30 itself asks for. */
-    grid-template-columns: 22rem minmax(0, 1fr);
-    align-items: start;
+    grid-template-columns: 20rem minmax(0, 1fr);
   }
 
   .listPane,
@@ -40,4 +43,10 @@
 .listPane,
 .detailPane {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.listPane {
+  border-right: 1px solid var(--color-border);
 }

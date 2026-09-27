@@ -1,0 +1,95 @@
+.row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  min-height: 52px;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.row:hover {
+  background: var(--color-bg);
+  text-decoration: none;
+}
+
+.lead {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-muted);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.textGroup {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tagNeutral {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.tagInfo {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+}
+
+.tagSuccess {
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+
+.tagWarning {
+  background: var(--color-warning-muted);
+  color: var(--color-warning);
+}
+
+.tagDanger {
+  background: var(--color-danger-muted);
+  color: var(--color-danger);
+}
+
+.aside {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}

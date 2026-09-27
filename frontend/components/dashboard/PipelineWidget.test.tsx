@@ -12,6 +12,10 @@ vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({ markSessionExpired: vi.fn() }),
 }));
 
+vi.mock("@/lib/i18n/locale-context", () => ({
+  useTranslate: () => (nl: string) => nl,
+}));
+
 describe("PipelineWidget", () => {
   it("shows a loading state while the pipeline summary loads", () => {
     loadPipelineSummaryMock.mockReturnValue(new Promise(() => {}));

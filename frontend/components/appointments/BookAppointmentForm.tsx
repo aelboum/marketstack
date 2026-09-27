@@ -16,6 +16,16 @@
 // than creating a duplicate -- which is why this collects contact
 // details directly instead of picking an existing CRM contact: the
 // endpoint takes no `contact_id`.
+//
+// One outer `<form>` with a single persistent Cancel/Confirm footer
+// (mockup layout parity: design/Calendar.dc.html's own booking dialog
+// footer) -- calendar -> slot -> contact fields still progressively
+// disclose as each prior choice is made (a real constraint: a slot
+// cannot be picked before a calendar is, and validating that server-side
+// availability is the whole point of this form, per this file's own
+// docstring above), but the Confirm button itself lives in one place for
+// the whole flow, simply disabled until every field is filled, rather
+// than a separate submit button per step.
 import { useState } from "react";
 import {
   bookAppointment,
@@ -34,13 +44,20 @@ import { InlineNotice } from "@/components/ui/InlineNotice";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
 import { AvailableSlotsPicker } from "./AvailableSlotsPicker";
+import styles from "./BookAppointmentForm.module.css";
 
 export function BookAppointmentForm({
   tenantId,
   onBooked,
+  onCancel,
 }: {
   tenantId: string;
   onBooked: (appointment: Appointment) => void;
+  /** Renders a "Cancel" button in the footer next to "Confirm" when
+   * given -- the caller's dialog dismiss action. Omitted on the
+   * standalone `/appointments/book` page, which is not a dialog and has
+   * nothing to cancel back to. */
+  onCancel?: () => void;
 }) {
   const calendarsQuery = useApiQuery(() => listCalendars(tenantId, { limit: 100 }), [tenantId]);
   const [calendarId, setCalendarId] = useState("");
@@ -86,118 +103,127 @@ export function BookAppointmentForm({
     lastName.trim().length > 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-      <section aria-labelledby="book-calendar-heading">
-        <h2 id="book-calendar-heading" style={{ fontSize: "var(--font-size-md)" }}>
-          1. Choose a calendar
-        </h2>
-        <Card>
-          <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-            <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
-              Calendar
-            </span>
-            <select
-              aria-label="Calendar"
-              value={calendarId}
-              onChange={(event) => {
-                setCalendarId(event.target.value);
-                setSlot(null);
-              }}
-            >
-              <option value="">Select a calendar…</option>
-              {calendars.map((calendar) => (
-                <option key={calendar.id} value={calendar.id}>
-                  {calendar.name || "(unnamed)"} — {calendar.timezone}
-                </option>
-              ))}
-            </select>
-          </label>
-        </Card>
-      </section>
-
-      {selectedCalendar ? (
-        <section aria-labelledby="book-slot-heading">
-          <h2 id="book-slot-heading" style={{ fontSize: "var(--font-size-md)" }}>
-            2. Choose an available slot
+    <form
+      className={styles.form}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!canSubmit) return;
+        const booked = await run();
+        if (booked) {
+          setSlot(null);
+          setEmail("");
+          setFirstName("");
+          setLastName("");
+          setPhone("");
+          onBooked(booked);
+        }
+      }}
+    >
+      <div className={styles.steps}>
+        <section aria-labelledby="book-calendar-heading">
+          <h2 id="book-calendar-heading" style={{ fontSize: "var(--font-size-md)" }}>
+            1. Choose a calendar
           </h2>
           <Card>
-            <AvailableSlotsPicker
-              tenantId={tenantId}
-              calendarId={selectedCalendar.id}
-              timeZone={selectedCalendar.timezone}
-              selectedSlotStart={slot?.starts_at ?? null}
-              onSelect={setSlot}
-            />
-          </Card>
-        </section>
-      ) : null}
-
-      {slot && selectedCalendar ? (
-        <section aria-labelledby="book-contact-heading">
-          <h2 id="book-contact-heading" style={{ fontSize: "var(--font-size-md)" }}>
-            3. Contact details
-          </h2>
-          <Card>
-            <p style={{ marginTop: 0, fontSize: "var(--font-size-sm)" }}>
-              Booking <strong>{formatInTimeZone(slot.starts_at, selectedCalendar.timezone)}</strong>{" "}
-              ({selectedCalendar.timezone})
-            </p>
-            <form
-              onSubmit={async (event) => {
-                event.preventDefault();
-                if (!canSubmit) return;
-                const booked = await run();
-                if (booked) {
+            <label style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+              <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
+                Calendar
+              </span>
+              <select
+                aria-label="Calendar"
+                value={calendarId}
+                onChange={(event) => {
+                  setCalendarId(event.target.value);
                   setSlot(null);
-                  setEmail("");
-                  setFirstName("");
-                  setLastName("");
-                  setPhone("");
-                  onBooked(booked);
-                }
-              }}
-              style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
-            >
-              <Input
-                label="Email"
-                type="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-              <Input
-                label="First name"
-                required
-                value={firstName}
-                onChange={(event) => setFirstName(event.target.value)}
-              />
-              <Input
-                label="Last name"
-                required
-                value={lastName}
-                onChange={(event) => setLastName(event.target.value)}
-              />
-              <Input
-                label="Phone (optional)"
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-              />
-
-              {state.status === "error" ? (
-                <InlineNotice tone="danger">
-                  {state.error.status === 409
-                    ? "That slot was taken while you were filling this in. Pick another slot."
-                    : state.error.message}
-                </InlineNotice>
-              ) : null}
-
-              <Button type="submit" disabled={state.status === "pending" || !canSubmit}>
-                {state.status === "pending" ? "Booking…" : "Confirm booking"}
-              </Button>
-            </form>
+                }}
+              >
+                <option value="">Select a calendar…</option>
+                {calendars.map((calendar) => (
+                  <option key={calendar.id} value={calendar.id}>
+                    {calendar.name || "(unnamed)"} — {calendar.timezone}
+                  </option>
+                ))}
+              </select>
+            </label>
           </Card>
         </section>
-      ) : null}
-    </div>
+
+        {selectedCalendar ? (
+          <section aria-labelledby="book-slot-heading">
+            <h2 id="book-slot-heading" style={{ fontSize: "var(--font-size-md)" }}>
+              2. Choose an available slot
+            </h2>
+            <Card>
+              <AvailableSlotsPicker
+                tenantId={tenantId}
+                calendarId={selectedCalendar.id}
+                timeZone={selectedCalendar.timezone}
+                selectedSlotStart={slot?.starts_at ?? null}
+                onSelect={setSlot}
+              />
+            </Card>
+          </section>
+        ) : null}
+
+        {slot && selectedCalendar ? (
+          <section aria-labelledby="book-contact-heading">
+            <h2 id="book-contact-heading" style={{ fontSize: "var(--font-size-md)" }}>
+              3. Contact details
+            </h2>
+            <Card>
+              <p style={{ marginTop: 0, fontSize: "var(--font-size-sm)" }}>
+                Booking <strong>{formatInTimeZone(slot.starts_at, selectedCalendar.timezone)}</strong>{" "}
+                ({selectedCalendar.timezone})
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                <Input
+                  label="Email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+                <Input
+                  label="First name"
+                  required
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
+                />
+                <Input
+                  label="Last name"
+                  required
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                />
+                <Input
+                  label="Phone (optional)"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                />
+              </div>
+            </Card>
+          </section>
+        ) : null}
+
+        {state.status === "error" ? (
+          <InlineNotice tone="danger">
+            {state.error.status === 409
+              ? "That slot was taken while you were filling this in. Pick another slot."
+              : state.error.message}
+          </InlineNotice>
+        ) : null}
+      </div>
+
+      <footer className={styles.footer}>
+        {onCancel ? (
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : null}
+        <Button type="submit" disabled={state.status === "pending" || !canSubmit}>
+          {state.status === "pending" ? "Booking…" : "Confirm booking"}
+        </Button>
+      </footer>
+    </form>
   );
 }

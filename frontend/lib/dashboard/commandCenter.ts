@@ -1,4 +1,4 @@
-// Read-only composition layer for the "Vandaag" Command Center
+// Read-only composition layer for the "Dashboard" Command Center
 // (docs/ROADMAP.md Phase 28). Every function here composes existing,
 // already-shipped API contracts (CRM, Appointments, Automation) --
 // nothing here calls a new backend aggregation endpoint, per Phase 28's

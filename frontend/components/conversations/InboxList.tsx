@@ -1,35 +1,41 @@
 "use client";
 
-// The Unified Inbox list (docs/ROADMAP.md Phase 30) -- a business-
-// oriented view over `listInbox()` (`product/conversations/inbox.py`,
-// composed server-side within Conversations, joined with a customer name
-// here, at the experience layer, per Phase 30's own architecture: this
-// component is the ONE place that calls both the Conversations API and
-// CRM's own `getContact()` for the bounded set of contacts a page
-// actually shows -- neither backend module imports the other.
-import { useEffect, useState } from "react";
+// The Unified Inbox list (docs/ROADMAP.md Phase 30, restyled for mockup
+// layout parity: design/Inbox.dc.html). A business-oriented view over
+// `listInbox()` (`product/conversations/inbox.py`, composed server-side
+// within Conversations), joined with a customer name here, at the
+// experience layer, per Phase 30's own architecture: this component is
+// the ONE place that calls both the Conversations API and CRM's own
+// `getContact()` for the bounded set of contacts a page actually shows
+// -- neither backend module imports the other.
+//
+// One bounded, unfiltered fetch (INBOX_SAMPLE_SIZE) backs all three
+// filter chips (matches the mockup's own three-chip set: All/Ongelezen/
+// Van mij) -- counts and the filtered list are both derived from the
+// same loaded set client-side, rather than three separate requests each
+// time a chip is picked. "Ongelezen" uses the server's own real
+// `needs_reply` flag (a customer's last message has no reply yet) --
+// never a client-only "seen it" flag: opening a thread does not itself
+// send a reply, so a thread genuinely stays "needs a reply" until one
+// is actually sent, which is more accurate than an optimistic
+// mark-as-read-on-open would be.
+import { usePathname } from "next/navigation";
+import Link from "next/link";
 import {
   listInbox,
-  type AssignedFilter,
   type Channel,
   type InboxItem,
 } from "@/lib/api/conversations";
-import { getContact } from "@/lib/api/crm";
+import { useSession } from "@/lib/auth/session-context";
 import { inboxTimestamp } from "@/lib/conversations/format";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
+import { useContactNames } from "@/lib/hooks/useContactNames";
+import { useState } from "react";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
-import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { Badge } from "@/components/ui/Badge";
+import styles from "./InboxList.module.css";
 
-type InboxFilter = "all" | "needs_reply" | "me" | "unassigned";
-
-const FILTER_LABELS: Record<InboxFilter, string> = {
-  all: "Alles",
-  needs_reply: "Wacht op reactie",
-  me: "Toegewezen aan mij",
-  unassigned: "Niet toegewezen",
-};
+const INBOX_SAMPLE_SIZE = 100;
 
 const CHANNEL_LABELS: Record<Channel, string> = {
   email: "E-mail",
@@ -38,171 +44,120 @@ const CHANNEL_LABELS: Record<Channel, string> = {
   chat: "Chat",
 };
 
-/** Resolves contact names for the bounded set of contacts one page of
- * inbox items actually references -- a handful of explicit `getContact()`
- * calls, never a bulk/CRM-wide fetch. Shows a neutral placeholder while a
- * name is still resolving, never the raw `contact_id` (Phase 30's own
- * "do not expose internal IDs" rule). */
-function useContactNames(tenantId: string, contactIds: (string | null)[]): Record<string, string> {
-  const [names, setNames] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    const uniqueIds = Array.from(new Set(contactIds.filter((id): id is string => id !== null)));
-    const missing = uniqueIds.filter((id) => !(id in names));
-    if (missing.length === 0) return;
-
-    let cancelled = false;
-    Promise.all(
-      missing.map((id) =>
-        getContact(tenantId, id)
-          .then((contact) => [id, `${contact.first_name} ${contact.last_name}`] as const)
-          .catch(() => [id, "Onbekende klant"] as const),
-      ),
-    ).then((resolved) => {
-      if (cancelled) return;
-      setNames((current) => ({ ...current, ...Object.fromEntries(resolved) }));
-    });
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, contactIds.join(",")]);
-
-  return names;
-}
+type InboxFilter = "all" | "unread" | "mine";
 
 export function InboxList({ tenantId, reloadKey }: { tenantId: string; reloadKey?: unknown }) {
+  const { user } = useSession();
+  const pathname = usePathname();
   const [filter, setFilter] = useState<InboxFilter>("all");
-  const [channel, setChannel] = useState<Channel | "">("");
-
-  const assigned: AssignedFilter | undefined =
-    filter === "me" ? "me" : filter === "unassigned" ? "unassigned" : undefined;
-  const needsReply = filter === "needs_reply";
 
   const query = useApiQuery(
-    () =>
-      listInbox(tenantId, {
-        assigned,
-        channel: channel || undefined,
-        needs_reply: needsReply || undefined,
-      }),
-    [tenantId, filter, channel, reloadKey],
+    () => listInbox(tenantId, { limit: INBOX_SAMPLE_SIZE }),
+    [tenantId, reloadKey],
   );
 
   const items = query.status === "success" ? query.data : [];
-  const contactNames = useContactNames(
+  const contactInfo = useContactNames(
     tenantId,
     items.map((item) => item.contact_id),
   );
 
+  const isMine = (item: InboxItem) => !!user && item.assigned_to_user_id === user.user_id;
+  const counts = {
+    all: items.length,
+    unread: items.filter((item) => item.needs_reply).length,
+    mine: items.filter(isMine).length,
+  };
+  const filtered = items.filter((item) => {
+    if (filter === "unread") return item.needs_reply;
+    if (filter === "mine") return isMine(item);
+    return true;
+  });
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }} role="group" aria-label="Filters">
-        {(Object.keys(FILTER_LABELS) as InboxFilter[]).map((key) => (
+    <div className={styles.pane}>
+      <div className={styles.filters} role="group" aria-label="Filters">
+        {(
+          [
+            ["all", "Alle", counts.all],
+            ["unread", "Ongelezen", counts.unread],
+            ["mine", "Van mij", counts.mine],
+          ] as const
+        ).map(([key, label, count]) => (
           <button
             key={key}
             type="button"
-            onClick={() => setFilter(key)}
+            className={styles.filterChip}
+            data-active={filter === key}
             aria-pressed={filter === key}
-            style={{
-              padding: "var(--space-1) var(--space-3)",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--color-border)",
-              background: filter === key ? "var(--color-accent-muted)" : "transparent",
-              color: filter === key ? "var(--color-accent)" : "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-              cursor: "pointer",
-            }}
+            onClick={() => setFilter(key)}
           >
-            {FILTER_LABELS[key]}
+            {label}
+            <span className={styles.filterCount}>{count}</span>
           </button>
         ))}
-        <select
-          aria-label="Kanaal"
-          value={channel}
-          onChange={(event) => setChannel(event.target.value as Channel | "")}
-          style={{ fontSize: "var(--font-size-sm)" }}
-        >
-          <option value="">Alle kanalen</option>
-          {(Object.keys(CHANNEL_LABELS) as Channel[]).map((key) => (
-            <option key={key} value={key}>
-              {CHANNEL_LABELS[key]}
-            </option>
-          ))}
-        </select>
       </div>
 
-      {query.status === "loading" ? <LoadingState label="Inbox laden…" /> : null}
+      {query.status === "loading" ? (
+        <div className={styles.stateSlot}>
+          <LoadingState label="Inbox laden…" />
+        </div>
+      ) : null}
       {query.status === "error" ? (
-        <ApiErrorPanel error={query.error} onRetry={query.refetch} />
+        <div className={styles.stateSlot}>
+          <ApiErrorPanel error={query.error} onRetry={query.refetch} />
+        </div>
       ) : null}
-      {query.status === "success" && items.length === 0 ? (
-        <EmptyState
-          title="Niets te zien hier"
-          description="Er zijn momenteel geen gesprekken die aan dit filter voldoen."
-        />
+      {query.status === "success" && filtered.length === 0 ? (
+        <div className={styles.stateSlot}>
+          <EmptyState
+            title="Je bent helemaal bij"
+            description="Geen gesprekken in deze weergave."
+          />
+        </div>
       ) : null}
-      {query.status === "success" && items.length > 0 ? (
-        <InboxTable tenantId={tenantId} items={items} contactNames={contactNames} />
+      {query.status === "success" && filtered.length > 0 ? (
+        <ul className={styles.list}>
+          {filtered.map((item) => {
+            const href = `/t/${tenantId}/conversations/${item.thread_id}`;
+            const isActive = pathname === href;
+            const contact = item.contact_id ? contactInfo[item.contact_id] : undefined;
+            const name = contact?.name ?? (item.contact_id ? "…" : "Onbekende klant");
+            const initials = contact?.initials ?? "?";
+            return (
+              <li key={item.thread_id}>
+                <Link
+                  href={href}
+                  className={styles.row}
+                  data-active={isActive}
+                  aria-current={isActive ? "page" : undefined}
+                >
+                  <span className={styles.avatar} aria-hidden="true">
+                    {initials}
+                  </span>
+                  <span className={styles.rowBody}>
+                    <span className={styles.rowTop}>
+                      <span className={styles.rowName} data-unread={item.needs_reply}>
+                        {name}
+                      </span>
+                      <span className={styles.rowTime}>
+                        {inboxTimestamp(item.last_message_at ?? item.updated_at)}
+                      </span>
+                    </span>
+                    <span className={styles.rowPreview} data-unread={item.needs_reply}>
+                      {item.last_message_preview ?? "Nog geen berichten"}
+                    </span>
+                    <span className={styles.rowMeta}>
+                      {CHANNEL_LABELS[item.channel]}
+                      {item.needs_reply ? <span className={styles.unreadTag}>· Ongelezen</span> : null}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </div>
-  );
-}
-
-function InboxTable({
-  tenantId,
-  items,
-  contactNames,
-}: {
-  tenantId: string;
-  items: InboxItem[];
-  contactNames: Record<string, string>;
-}) {
-  const columns: DataTableColumn<InboxItem>[] = [
-    {
-      key: "contact",
-      header: "Klant",
-      render: (row) => (
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-          <span>{row.contact_id ? (contactNames[row.contact_id] ?? "…") : "Onbekende klant"}</span>
-          {row.needs_reply ? <Badge tone="warning">Wacht op reactie</Badge> : null}
-        </div>
-      ),
-    },
-    {
-      key: "preview",
-      header: "Laatste bericht",
-      render: (row) => (
-        <span style={{ color: "var(--color-text-muted)" }}>
-          {row.last_message_preview ?? "Nog geen berichten"}
-        </span>
-      ),
-    },
-    {
-      key: "channel",
-      header: "Kanaal",
-      render: (row) => <Badge tone="accent">{CHANNEL_LABELS[row.channel]}</Badge>,
-    },
-    {
-      key: "time",
-      header: "Tijd",
-      render: (row) => inboxTimestamp(row.last_message_at ?? row.updated_at),
-    },
-    {
-      key: "assignment",
-      header: "Toegewezen",
-      render: (row) => (row.assigned_to_user_id ? "Toegewezen" : "Niet toegewezen"),
-    },
-  ];
-
-  return (
-    <DataTable
-      columns={columns}
-      rows={items}
-      rowKey={(row) => row.thread_id}
-      getRowHref={(row) => `/t/${tenantId}/conversations/${row.thread_id}`}
-      label="Inbox"
-    />
   );
 }

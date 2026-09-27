@@ -6,6 +6,7 @@ vi.mock("./client", () => ({ request: requestMock }));
 import {
   bookAppointment,
   cancelAppointment,
+  completeAppointment,
   createAvailabilityRule,
   createCalendar,
   createCalendarEvent,
@@ -19,6 +20,7 @@ import {
   listAvailableSlots,
   listCalendarEvents,
   listCalendars,
+  markAppointmentNoShow,
   rescheduleAppointment,
   sweepReminders,
   updateCalendar,
@@ -185,6 +187,24 @@ describe("appointments API functions -- exact request shape sent to the real rou
           new_ends_at: "2026-03-02T09:30:00.000Z",
         },
       },
+    );
+  });
+
+  it("completeAppointment() -> POST .../complete with no body", async () => {
+    requestMock.mockResolvedValue({});
+    await completeAppointment("t1", "a1");
+    expect(requestMock).toHaveBeenCalledWith(
+      "/v1/appointments/tenants/t1/appointments/a1/complete",
+      { method: "POST" },
+    );
+  });
+
+  it("markAppointmentNoShow() -> POST .../no-show with no body", async () => {
+    requestMock.mockResolvedValue({});
+    await markAppointmentNoShow("t1", "a1");
+    expect(requestMock).toHaveBeenCalledWith(
+      "/v1/appointments/tenants/t1/appointments/a1/no-show",
+      { method: "POST" },
     );
   });
 

@@ -1,55 +1,50 @@
 "use client";
 
-// Message history for one thread -- `GET .../threads/{id}/messages`,
-// already ordered oldest-first by the backend (`sequence.asc()`,
+// Message history for one thread (mockup layout parity: design/
+// Inbox.dc.html) -- `GET .../threads/{id}/messages`, already ordered
+// oldest-first by the backend (`sequence.asc()`,
 // `product/conversations/messages.py`'s own docstring: deterministic,
 // collision-proof ordering, never `created_at`). Bounded pagination
 // (limit/offset, same pattern as UI-3's lists) -- never an unbounded
 // fetch of a thread's entire history.
+//
+// Rendered as chat bubbles: `direction === "outbound"` (us) aligns
+// right in the accent color, `"inbound"` (the contact) aligns left on a
+// plain surface -- an internal note is neither: it was never sent to
+// the contact, so it renders with its own distinct "Interne notitie"
+// label rather than looking like a real exchanged message (this
+// product does have internal notes, unlike the mockup, which shows no
+// such case).
+import { useEffect } from "react";
 import { listMessages, type Message } from "@/lib/api/conversations";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
-import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 import { MessageBody } from "./MessageBody";
+import styles from "./MessageList.module.css";
 
-function MessageRow({ message }: { message: Message }) {
+function formatMeta(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function MessageBubble({ message }: { message: Message }) {
+  const isOutbound = message.direction === "outbound";
   return (
-    <Card
-      style={{
-        borderLeft: message.is_internal_note
-          ? "3px solid var(--color-warning)"
-          : message.direction === "outbound"
-            ? "3px solid var(--color-accent)"
-            : "3px solid var(--color-border-strong)",
-      }}
-    >
+    <li className={styles.bubbleRow} data-align={isOutbound ? "end" : "start"}>
       <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "var(--space-2)",
-          gap: "var(--space-2)",
-        }}
+        className={styles.bubble}
+        data-tone={message.is_internal_note ? "note" : isOutbound ? "outbound" : "inbound"}
       >
-        <div style={{ display: "flex", gap: "var(--space-1)" }}>
-          {message.is_internal_note ? <Badge tone="warning">Internal note</Badge> : null}
-          <Badge tone={message.direction === "outbound" ? "accent" : "neutral"}>
-            {message.direction === "outbound" ? "Outbound" : "Inbound"}
-          </Badge>
-        </div>
-        <time
-          dateTime={message.created_at}
-          style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-faint)" }}
-        >
-          {new Date(message.created_at).toLocaleString()}
-        </time>
+        {message.is_internal_note ? <span className={styles.noteLabel}>Interne notitie</span> : null}
+        <MessageBody body={message.body} />
       </div>
-      <MessageBody body={message.body} />
-    </Card>
+      <span className={styles.bubbleMeta}>{formatMeta(message.created_at)}</span>
+    </li>
   );
 }
 
@@ -57,42 +52,50 @@ export function MessageList({
   tenantId,
   threadId,
   reloadKey,
+  onRefresh,
 }: {
   tenantId: string;
   threadId: string;
   reloadKey?: unknown;
+  /** Lets the caller (the thread header) trigger a refresh without this
+   * component needing its own visible control -- real, useful capability
+   * (asynchronous inbound messages/webhooks aren't pushed live), just
+   * relocated rather than dropped to match the mockup's own chrome-free
+   * message area. */
+  onRefresh?: (refetch: () => void) => void;
 }) {
   const query = useApiQuery(
     () => listMessages(tenantId, threadId, { limit: 50 }),
     [tenantId, threadId, reloadKey],
   );
 
-  if (query.status === "loading") return <LoadingState label="Loading messages…" />;
+  useEffect(() => {
+    onRefresh?.(query.refetch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query.refetch]);
+
+  if (query.status === "loading") return <LoadingState label="Berichten laden…" />;
   if (query.status === "error") {
     return <ApiErrorPanel error={query.error} onRetry={query.refetch} />;
   }
 
+  if (query.data.results.length === 0) {
+    return (
+      <EmptyState
+        title="Nog geen berichten"
+        description="Verzonden berichten en notities verschijnen hier."
+      />
+    );
+  }
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button variant="secondary" size="sm" onClick={query.refetch}>
-          Refresh
-        </Button>
-      </div>
-      {query.data.results.length === 0 ? (
-        <EmptyState title="No messages yet" description="Sent messages and notes will appear here." />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-          {query.data.results.map((message) => (
-            <MessageRow key={message.id} message={message} />
-          ))}
-          {query.data.hasMore ? (
-            <p style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-faint)", margin: 0 }}>
-              More messages exist than are shown here.
-            </p>
-          ) : null}
-        </div>
-      )}
-    </div>
+    <ol className={styles.list} aria-live="polite">
+      {query.data.hasMore ? (
+        <li className={styles.moreNotice}>Er zijn meer berichten dan hier getoond worden.</li>
+      ) : null}
+      {query.data.results.map((message) => (
+        <MessageBubble key={message.id} message={message} />
+      ))}
+    </ol>
   );
 }

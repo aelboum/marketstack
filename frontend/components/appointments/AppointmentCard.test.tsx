@@ -4,9 +4,16 @@ import userEvent from "@testing-library/user-event";
 import { AppointmentCard } from "./AppointmentCard";
 import { ApiError } from "@/lib/api/errors";
 
-const { cancelAppointmentMock, rescheduleAppointmentMock } = vi.hoisted(() => ({
+const {
+  cancelAppointmentMock,
+  rescheduleAppointmentMock,
+  completeAppointmentMock,
+  markAppointmentNoShowMock,
+} = vi.hoisted(() => ({
   cancelAppointmentMock: vi.fn(),
   rescheduleAppointmentMock: vi.fn(),
+  completeAppointmentMock: vi.fn(),
+  markAppointmentNoShowMock: vi.fn(),
 }));
 vi.mock("@/lib/api/appointments", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/appointments")>();
@@ -14,6 +21,8 @@ vi.mock("@/lib/api/appointments", async (importOriginal) => {
     ...actual,
     cancelAppointment: cancelAppointmentMock,
     rescheduleAppointment: rescheduleAppointmentMock,
+    completeAppointment: completeAppointmentMock,
+    markAppointmentNoShow: markAppointmentNoShowMock,
   };
 });
 
@@ -122,6 +131,66 @@ describe("AppointmentCard", () => {
 
     await waitFor(() =>
       expect(screen.getByText(/That time is no longer available/)).toBeInTheDocument(),
+    );
+  });
+
+  it("marks a confirmed appointment as completed and reports the updated row", async () => {
+    completeAppointmentMock.mockResolvedValue(appointment({ status: "completed" }));
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+
+    render(<AppointmentCard tenantId="t1" appointment={appointment()} onChanged={onChanged} />);
+    await user.click(screen.getByRole("button", { name: "Afgerond" }));
+
+    await waitFor(() => expect(completeAppointmentMock).toHaveBeenCalledWith("t1", "a1"));
+    expect(onChanged).toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
+  });
+
+  it("marks a confirmed appointment as no-show and reports the updated row", async () => {
+    markAppointmentNoShowMock.mockResolvedValue(appointment({ status: "no_show" }));
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+
+    render(<AppointmentCard tenantId="t1" appointment={appointment()} onChanged={onChanged} />);
+    await user.click(screen.getByRole("button", { name: "Niet verschenen" }));
+
+    await waitFor(() => expect(markAppointmentNoShowMock).toHaveBeenCalledWith("t1", "a1"));
+    expect(onChanged).toHaveBeenCalledWith(expect.objectContaining({ status: "no_show" }));
+  });
+
+  it("a completed appointment shows the Dutch terminal-state label and no actions", () => {
+    render(<AppointmentCard tenantId="t1" appointment={appointment({ status: "completed" })} />);
+
+    expect(screen.getByText("Afgerond")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel appointment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reschedule" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/definitieve status van deze afspraak/i),
+    ).toBeInTheDocument();
+  });
+
+  it("a no-show appointment shows the Dutch terminal-state label and no actions", () => {
+    render(<AppointmentCard tenantId="t1" appointment={appointment({ status: "no_show" })} />);
+
+    expect(screen.getByText("Niet verschenen")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel appointment" })).not.toBeInTheDocument();
+  });
+
+  it("surfaces a failed complete/no-show attempt without hiding the backend message", async () => {
+    completeAppointmentMock.mockRejectedValue(
+      new ApiError(
+        "validation",
+        "appointment a1 cannot be completed while status='cancelled' (only 'confirmed' appointments can be).",
+        { status: 400 },
+      ),
+    );
+    const user = userEvent.setup();
+
+    render(<AppointmentCard tenantId="t1" appointment={appointment()} />);
+    await user.click(screen.getByRole("button", { name: "Afgerond" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/cannot be completed while status=/)).toBeInTheDocument(),
     );
   });
 });

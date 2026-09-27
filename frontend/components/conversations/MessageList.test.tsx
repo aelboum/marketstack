@@ -13,7 +13,7 @@ vi.mock("@/lib/auth/session-context", () => ({
 }));
 
 describe("MessageList", () => {
-  it("renders messages with direction/internal-note badges", async () => {
+  it("renders messages as chat bubbles, marking an internal note distinctly from a real exchanged message", async () => {
     listMessagesMock.mockResolvedValue({
       results: [
         {
@@ -45,9 +45,12 @@ describe("MessageList", () => {
     render(<MessageList tenantId="t1" threadId="th1" />);
 
     await waitFor(() => expect(screen.getByText("Hello there")).toBeInTheDocument());
-    expect(screen.getByText("Inbound")).toBeInTheDocument();
-    expect(screen.getByText("Internal note")).toBeInTheDocument();
     expect(screen.getByText("Internal only")).toBeInTheDocument();
+    // Real exchanged message: no "Interne notitie" marker.
+    expect(screen.getByText("Hello there").closest("li")).not.toHaveTextContent("Interne notitie");
+    // Internal note: carries the marker so it can never be mistaken for
+    // something actually delivered to the contact.
+    expect(screen.getByText("Internal only").closest("li")).toHaveTextContent("Interne notitie");
   });
 
   it("renders a message body containing markup as literal text -- never executes it", async () => {
@@ -101,11 +104,11 @@ describe("MessageList", () => {
     expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
   });
 
-  it("shows loading then empty state with no messages", async () => {
+  it("shows loading then an honest empty state with no messages", async () => {
     listMessagesMock.mockResolvedValue({ results: [], hasMore: false });
     render(<MessageList tenantId="t1" threadId="th1" />);
     expect(screen.getByRole("status")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("No messages yet")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Nog geen berichten")).toBeInTheDocument());
   });
 
   it("shows the non-enumerating permission-denied state on 403/404", async () => {
@@ -114,5 +117,12 @@ describe("MessageList", () => {
     await waitFor(() =>
       expect(screen.getByText(/Not found, or you don't have access/)).toBeInTheDocument(),
     );
+  });
+
+  it("hands the caller a working refresh handle instead of rendering its own control", async () => {
+    listMessagesMock.mockResolvedValue({ results: [], hasMore: false });
+    const onRefresh = vi.fn();
+    render(<MessageList tenantId="t1" threadId="th1" onRefresh={onRefresh} />);
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledWith(expect.any(Function)));
   });
 });
