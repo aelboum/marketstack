@@ -1,24 +1,24 @@
 """Reacts to `agency.role_provisioned` (published by `product/agency
-/roles.py`) to grant this module's own `accounting.account`/
-`accounting.period`/`accounting.journal` permissions to the newly
-provisioned role -- the "module needing another module's capability
-reacts via the event dispatcher" path `docs/ARCHITECTURE.md` section 2.2
-prescribes for permission-granting specifically, mirrors
-`product/reputation/event_handlers.py`'s own identical subscription.
-`product.accounting` never imports `product.agency` directly.
+/roles.py`) to grant this module's own six `accounting.*` resource
+permissions to the newly provisioned role -- the "module needing another
+module's capability reacts via the event dispatcher" path
+`docs/ARCHITECTURE.md` section 2.2 prescribes for permission-granting
+specifically, mirrors `product/reputation/event_handlers.py`'s own
+identical subscription. `product.accounting` never imports
+`product.agency` directly.
 
 **Higher-risk actions are owner-only**, mirroring
 `product/reputation/event_handlers.py`'s own "cancel is owner-only"
-precedent: reversing a *posted* journal entry (a correction that, unlike
-voiding a draft, leaves a permanent, visible trace against real financial
-history) and closing/reopening a period (which changes what the rest of
-the tenant can post against) are both judged the same higher-risk tier as
-Reputation's `cancel` and CRM/Websites' `delete`. `owner`: full lifecycle
-on all three resources, including `reverse` (journal) and `manage`
-(period). `member`: ordinary day-to-day bookkeeping -- create/read/update
-accounts, create/read periods, create/update/void/post journal entries --
-never `reverse` a posted entry, never `manage` a period's open/closed
-state.
+precedent, extended by ADR-0014 Decision 13 to Phase 25's own resources:
+reversing a *posted* journal entry, closing/reopening a period,
+cancelling a *posted* invoice, approving/posting a bill (segregation-of-
+duties on outgoing spend, Decision 13's own deliberate asymmetry with
+invoice posting), and reversing a payment allocation are all judged the
+same higher-risk tier as Reputation's `cancel` and CRM/Websites'
+`delete`. `owner`: full lifecycle on all six resources. `member`:
+ordinary day-to-day bookkeeping -- ordinary create/update/void/post/read
+actions on every resource, but never `reverse`/`cancel`/`bill.post`/
+`reverse_allocation`.
 """
 
 from __future__ import annotations
@@ -29,7 +29,10 @@ from core.rbac import get_role
 
 from product.accounting.permissions import (
     ACCOUNT_RESOURCE,
+    BILL_RESOURCE,
+    INVOICE_RESOURCE,
     JOURNAL_RESOURCE,
+    PAYMENT_RESOURCE,
     PERIOD_RESOURCE,
     grant_to_role,
 )
@@ -42,11 +45,17 @@ _OWNER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (ACCOUNT_RESOURCE, ("create", "read", "update")),
     (PERIOD_RESOURCE, ("create", "read", "manage")),
     (JOURNAL_RESOURCE, ("create", "update", "void", "post", "reverse", "read")),
+    (INVOICE_RESOURCE, ("create", "update", "void", "post", "cancel", "read")),
+    (BILL_RESOURCE, ("create", "update", "void", "post", "cancel", "read")),
+    (PAYMENT_RESOURCE, ("create", "allocate", "reverse_allocation", "read")),
 )
 _MEMBER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (ACCOUNT_RESOURCE, ("create", "read", "update")),
     (PERIOD_RESOURCE, ("create", "read")),
     (JOURNAL_RESOURCE, ("create", "update", "void", "post", "read")),
+    (INVOICE_RESOURCE, ("create", "update", "void", "post", "read")),
+    (BILL_RESOURCE, ("create", "update", "void", "read")),
+    (PAYMENT_RESOURCE, ("create", "allocate", "read")),
 )
 
 

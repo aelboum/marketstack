@@ -1,15 +1,18 @@
-"""ORM models for the `accounting` schema (docs/ROADMAP.md Phase 24 --
-"Mini Accounting Foundation"; `docs/ADR/0014-mini-accounting-foundation.md`,
-currently PROPOSED -- see that document's own Status section).
+"""ORM models for the `accounting` schema. Phase 24 (docs/ROADMAP.md --
+"Mini Accounting Foundation") established `Account`/`Period`/
+`JournalEntry`/`JournalLine` below; Phase 25 ("Revenue & Money Workflow")
+adds `ContactProfile`/`TaxCode`/`Invoice`/`InvoiceLine`/`Bill`/
+`BillLine`/`Payment`/`PaymentAllocation` further down, per
+`docs/ADR/0014-mini-accounting-foundation.md` Decisions 6-8 and 12
+(still PROPOSED -- see that document's own Status section).
 
-**Scope discipline**: this module implements exactly ADR-0014 Decisions
-1-5 (plus the journal/ledger-only slice of 9-11) -- chart of accounts,
-accounting periods, journal entries, double-entry immutability, and
-period locking. It deliberately does **not** implement Decisions 6-8
-(customers/suppliers, tax codes, payments/allocations) -- those are
-Phase 25's own `Invoice`/`Bill`/`Payment` surface, per the ADR's own
-"Phase 24 / Phase 25 scope boundary" section. No table here references a
-CRM contact, a tax code, or an invoice/bill/payment row.
+**Scope discipline (Phase 25)**: exactly ADR-0014 Decisions 6, 7, 8, and
+12 -- customer/supplier role-tagging on existing `crm.contacts` rows
+(never a second identity table, never `crm.companies`), a generic
+tax-code catalog, invoices/bills with their line items, and payments/
+allocations. No credit notes, no banking/reconciliation, no reports, no
+external provider -- all explicitly deferred, per the ADR's own
+"Deferred / explicitly out of scope" section.
 
 Declared on the installed `saas-os` package's shared `infra.db` base and
 primitives, exactly like `product/appointments/models.py`/`product/crm
@@ -89,6 +92,7 @@ from infra.db import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     Mapped,
     Numeric,
     String,
@@ -338,23 +342,575 @@ class JournalLine(Base):
     )
 
 
+CONTACT_ROLE_CUSTOMER = "customer"
+CONTACT_ROLE_SUPPLIER = "supplier"
+CONTACT_ROLE_BOTH = "both"
+VALID_CONTACT_ROLES = (CONTACT_ROLE_CUSTOMER, CONTACT_ROLE_SUPPLIER, CONTACT_ROLE_BOTH)
+
+TAX_TYPE_SALES = "sales"
+TAX_TYPE_PURCHASE = "purchase"
+VALID_TAX_TYPES = (TAX_TYPE_SALES, TAX_TYPE_PURCHASE)
+
+DOCUMENT_STATUS_DRAFT = "draft"
+DOCUMENT_STATUS_POSTED = "posted"
+DOCUMENT_STATUS_CANCELLED = "cancelled"
+DOCUMENT_STATUS_VOIDED = "voided"
+VALID_DOCUMENT_STATUSES = (
+    DOCUMENT_STATUS_DRAFT,
+    DOCUMENT_STATUS_POSTED,
+    DOCUMENT_STATUS_CANCELLED,
+    DOCUMENT_STATUS_VOIDED,
+)
+
+PAYMENT_DIRECTION_INBOUND = "inbound"
+PAYMENT_DIRECTION_OUTBOUND = "outbound"
+VALID_PAYMENT_DIRECTIONS = (PAYMENT_DIRECTION_INBOUND, PAYMENT_DIRECTION_OUTBOUND)
+
+ALLOCATION_DOCUMENT_TYPE_INVOICE = "invoice"
+ALLOCATION_DOCUMENT_TYPE_BILL = "bill"
+VALID_ALLOCATION_DOCUMENT_TYPES = (ALLOCATION_DOCUMENT_TYPE_INVOICE, ALLOCATION_DOCUMENT_TYPE_BILL)
+
+MAX_TAX_CODE_LENGTH = 32
+MAX_TAX_NAME_LENGTH = 255
+MAX_LINE_DESCRIPTION_LENGTH = 500
+MAX_DOCUMENT_DESCRIPTION_LENGTH = 500
+MAX_SUPPLIER_REFERENCE_LENGTH = 100
+MAX_PAYMENT_REFERENCE_LENGTH = 255
+
+
+class ContactProfile(Base):
+    """ADR-0014 Decision 6: the *only* thing this module adds to CRM's own
+    contact identity -- a `(tenant_id, contact_id)`-scoped role tag.
+    `crm.contacts` remains the sole identity table; `crm.companies` is
+    explicitly not a supported counterparty (Decision 6's own addendum) --
+    a company is represented through the company's own billing contact
+    (`crm.contacts.company_id`), never a second, parallel reference here.
+    One profile per contact (`uq_accounting_contact_profiles_tenant_contact`)
+    -- a contact is tagged once, not once per role.
+
+    **Deletion (Decision 6 addendum)**: the FK to `crm.contacts` carries no
+    `ON DELETE` clause (default `RESTRICT`) -- once a contact is tagged, or
+    ever referenced by an `Invoice`/`Bill`, `product.crm.contacts
+    .delete_contact()` fails with a raw, untranslated `IntegrityError`.
+    This is a disclosed, accepted trade-off, not a gap -- see the ADR's
+    own addendum for the full reasoning and its `Appointment.calendar_id`
+    precedent. `product/crm/` is not modified to add a friendlier error."""
+
+    __tablename__ = "contact_profiles"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_contact_profiles_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id", "contact_id", name="uq_accounting_contact_profiles_tenant_contact"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["crm.contacts.tenant_id", "crm.contacts.id"],
+            name="fk_accounting_contact_profiles_tenant_contact",
+            # RESTRICT (default) -- see class docstring / ADR-0014
+            # Decision 6 addendum.
+        ),
+        CheckConstraint(
+            "role IN ('customer', 'supplier', 'both')",
+            name="ck_accounting_contact_profiles_role",
+        ),
+        Index("ix_accounting_contact_profiles_tenant_id", "tenant_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    contact_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    role: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
+class TaxCode(Base):
+    """ADR-0014 Decision 7: a tenant-owned tax-rate catalog. No rate is
+    ever seeded by this module's own migration or code -- a tenant (or a
+    later, deliberately-not-built-here localization "tax pack") creates
+    its own codes. `tax_account_id` is required: a tax code's collected/
+    paid amounts always post to a real GL account when an invoice/bill
+    line using it is posted (Decision 7's own "not a side-channel total"
+    requirement)."""
+
+    __tablename__ = "tax_codes"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_tax_codes_tenant_id_id"),
+        UniqueConstraint("tenant_id", "code", name="uq_accounting_tax_codes_tenant_code"),
+        ForeignKeyConstraint(
+            ["tenant_id", "tax_account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_tax_codes_tenant_account",
+            # No ON DELETE decided (default RESTRICT) -- a tax code's
+            # posting account must never be deletable out from under it,
+            # mirroring journal_lines.account_id's own Decision 9 logic.
+        ),
+        CheckConstraint("tax_type IN ('sales', 'purchase')", name="ck_accounting_tax_codes_type"),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from",
+            name="ck_accounting_tax_codes_effective_range",
+        ),
+        Index("ix_accounting_tax_codes_tenant_id", "tenant_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    code: Mapped[str] = mapped_column(String(MAX_TAX_CODE_LENGTH), nullable=False)
+    name: Mapped[str] = mapped_column(String(MAX_TAX_NAME_LENGTH), nullable=False)
+    rate_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    tax_type: Mapped[str] = mapped_column(String(8), nullable=False)
+    tax_account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Date-only, stored at UTC midnight -- infra.db exports no Date type,
+    # mirrors Period.start_date/end_date's own identical substitution
+    # (module docstring).
+    effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now(), onupdate=now()
+    )
+
+
+class Invoice(Base):
+    """A customer invoice header (ADR-0014 Decision 12). `invoice_number`
+    is `NULL` while `draft` -- assigned only by `post_invoice()`, under
+    the tenant-wide gapless-numbering advisory lock (Decision 12's own
+    numbering mechanism), exactly mirroring `JournalEntry.period_id`'s own
+    "resolved only at posting" shape. `subtotal`/`tax_total`/`total` are
+    always derived (`SUM()` of `InvoiceLine` values, Decision 7 addendum),
+    never caller-supplied. `outstanding_amount` is the one denormalized,
+    transactionally-updated exception (Decision 2's own pattern, applied
+    here exactly as it already is to `Payment.unallocated_amount`).
+    `receivable_account_id`/`journal_entry_id` are what make Decision 2
+    ("posted journal entries are the sole source of truth") concretely
+    true for invoices, not merely asserted -- posting an invoice creates a
+    real `JournalEntry` via the unmodified `product/accounting/journal.py
+    ::post_journal_entry()`."""
+
+    __tablename__ = "invoices"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_invoices_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["crm.contacts.tenant_id", "crm.contacts.id"],
+            name="fk_accounting_invoices_tenant_contact",
+            # RESTRICT (default) -- defense in depth alongside
+            # ContactProfile's own RESTRICT, per ADR-0014 Decision 6
+            # addendum: a posted invoice must never lose its counterparty.
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "receivable_account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_invoices_tenant_receivable_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "period_id"],
+            ["accounting.periods.tenant_id", "accounting.periods.id"],
+            name="fk_accounting_invoices_tenant_period",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "journal_entry_id"],
+            ["accounting.journal_entries.tenant_id", "accounting.journal_entries.id"],
+            name="fk_accounting_invoices_tenant_journal_entry",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'posted', 'cancelled', 'voided')",
+            name="ck_accounting_invoices_status",
+        ),
+        CheckConstraint("due_date >= issue_date", name="ck_accounting_invoices_due_after_issue"),
+        Index("ix_accounting_invoices_tenant_id", "tenant_id"),
+        Index("ix_accounting_invoices_contact_id", "contact_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    invoice_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    contact_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    receivable_account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(9), nullable=False, default=DOCUMENT_STATUS_DRAFT)
+    issue_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    due_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    tax_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    outstanding_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=ZERO
+    )
+    period_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    description: Mapped[str | None] = mapped_column(
+        String(MAX_DOCUMENT_DESCRIPTION_LENGTH), nullable=True
+    )
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("core.users.id"), nullable=False
+    )
+    posted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("core.users.id"), nullable=True
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now(), onupdate=now()
+    )
+    # Deliberately NOT mapped here: the partial unique index on
+    # (tenant_id, invoice_number) WHERE invoice_number IS NOT NULL --
+    # declared entirely in the migration (mirrors Period.period_range's
+    # own "declared entirely in the migration" precedent), since
+    # SQLAlchemy's declarative UniqueConstraint has no partial-index
+    # predicate vocabulary in this codebase's own established usage.
+
+
+class InvoiceLine(Base):
+    """One line of an `Invoice` (ADR-0014 Decision 12). Fully immutable
+    once the parent invoice posts -- no service function in this module
+    updates or deletes a line belonging to a non-`draft` invoice,
+    mirroring `JournalLine`'s own complete-immutability shape exactly."""
+
+    __tablename__ = "invoice_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_invoice_lines_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "invoice_id"],
+            ["accounting.invoices.tenant_id", "accounting.invoices.id"],
+            name="fk_accounting_invoice_lines_tenant_invoice",
+            # A line has no meaning without its invoice -- mirrors
+            # `journal_lines.journal_entry_id`'s own CASCADE precedent.
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_invoice_lines_tenant_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "tax_code_id"],
+            ["accounting.tax_codes.tenant_id", "accounting.tax_codes.id"],
+            name="fk_accounting_invoice_lines_tenant_tax_code",
+        ),
+        CheckConstraint("quantity > 0", name="ck_accounting_invoice_lines_quantity_positive"),
+        CheckConstraint(
+            "unit_price >= 0", name="ck_accounting_invoice_lines_unit_price_non_negative"
+        ),
+        Index("ix_accounting_invoice_lines_tenant_id", "tenant_id"),
+        Index("ix_accounting_invoice_lines_invoice_id", "invoice_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(String(MAX_LINE_DESCRIPTION_LENGTH), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    tax_code_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    line_subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    line_tax: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
+class Bill(Base):
+    """A supplier bill header (ADR-0014 Decision 12) -- the purchase-side
+    mirror of `Invoice`, with one deliberate asymmetry: no internally
+    generated gapless number. Gapless sequential numbering is a legal
+    requirement for invoices a tenant *issues*, never for bills a tenant
+    *receives* -- a bill already carries the supplier's own
+    `supplier_reference`, used for the roadmap's own "duplicate checked"
+    step (`uq_accounting_bills_tenant_contact_reference`)."""
+
+    __tablename__ = "bills"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_bills_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "contact_id",
+            "supplier_reference",
+            name="uq_accounting_bills_tenant_contact_reference",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["crm.contacts.tenant_id", "crm.contacts.id"],
+            name="fk_accounting_bills_tenant_contact",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "payable_account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_bills_tenant_payable_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "period_id"],
+            ["accounting.periods.tenant_id", "accounting.periods.id"],
+            name="fk_accounting_bills_tenant_period",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "journal_entry_id"],
+            ["accounting.journal_entries.tenant_id", "accounting.journal_entries.id"],
+            name="fk_accounting_bills_tenant_journal_entry",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'posted', 'cancelled', 'voided')",
+            name="ck_accounting_bills_status",
+        ),
+        CheckConstraint("due_date >= bill_date", name="ck_accounting_bills_due_after_bill_date"),
+        Index("ix_accounting_bills_tenant_id", "tenant_id"),
+        Index("ix_accounting_bills_contact_id", "contact_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    supplier_reference: Mapped[str] = mapped_column(
+        String(MAX_SUPPLIER_REFERENCE_LENGTH), nullable=False
+    )
+    contact_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    payable_account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(9), nullable=False, default=DOCUMENT_STATUS_DRAFT)
+    bill_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    due_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    tax_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    outstanding_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=ZERO
+    )
+    period_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    description: Mapped[str | None] = mapped_column(
+        String(MAX_DOCUMENT_DESCRIPTION_LENGTH), nullable=True
+    )
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("core.users.id"), nullable=False
+    )
+    posted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("core.users.id"), nullable=True
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now(), onupdate=now()
+    )
+
+
+class BillLine(Base):
+    """One line of a `Bill` -- identical shape to `InvoiceLine`, with an
+    expense/liability-side `account_id` instead of a revenue one."""
+
+    __tablename__ = "bill_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_bill_lines_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "bill_id"],
+            ["accounting.bills.tenant_id", "accounting.bills.id"],
+            name="fk_accounting_bill_lines_tenant_bill",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_bill_lines_tenant_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "tax_code_id"],
+            ["accounting.tax_codes.tenant_id", "accounting.tax_codes.id"],
+            name="fk_accounting_bill_lines_tenant_tax_code",
+        ),
+        CheckConstraint("quantity > 0", name="ck_accounting_bill_lines_quantity_positive"),
+        CheckConstraint("unit_price >= 0", name="ck_accounting_bill_lines_unit_price_non_negative"),
+        Index("ix_accounting_bill_lines_tenant_id", "tenant_id"),
+        Index("ix_accounting_bill_lines_bill_id", "bill_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    bill_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(String(MAX_LINE_DESCRIPTION_LENGTH), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    tax_code_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    line_subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    line_tax: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
+class Payment(Base):
+    """ADR-0014 Decision 8 (+ addendum). No separate lifecycle/status
+    column -- `unallocated_amount` is the single source of truth (a view
+    layer may present `== 0` as "fully allocated"); this is a derivation
+    rule, not a modeling gap. No cash-leg journal entry is created for a
+    payment this phase (Decision 8's own explicit exclusion)."""
+
+    __tablename__ = "payments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_payments_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "contact_id"],
+            ["crm.contacts.tenant_id", "crm.contacts.id"],
+            name="fk_accounting_payments_tenant_contact",
+        ),
+        CheckConstraint(
+            "direction IN ('inbound', 'outbound')", name="ck_accounting_payments_direction"
+        ),
+        CheckConstraint("amount > 0", name="ck_accounting_payments_amount_positive"),
+        CheckConstraint(
+            "unallocated_amount >= 0 AND unallocated_amount <= amount",
+            name="ck_accounting_payments_unallocated_bounds",
+        ),
+        Index("ix_accounting_payments_tenant_id", "tenant_id"),
+        Index("ix_accounting_payments_contact_id", "contact_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    contact_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    unallocated_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    reference: Mapped[str | None] = mapped_column(
+        String(MAX_PAYMENT_REFERENCE_LENGTH), nullable=True
+    )
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("core.users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now(), onupdate=now()
+    )
+
+
+class PaymentAllocation(Base):
+    """ADR-0014 Decision 8 (+ addendum). `document_type`/`document_id` is
+    a deliberately soft, application-level polymorphic reference (never a
+    hard FK -- a payment allocates against exactly one of two different
+    tables; `product/accounting/payments.py::create_allocation()`
+    re-reads the target row through the same tenant's
+    `tenant_session_scope()` before allocating, which makes a cross-tenant
+    target simply not exist rather than merely unauthorized, exactly as
+    the ADR specifies). Immutable once created -- `reverses_allocation_id`
+    (nullable, self-referential) is set only on the new row a reversal
+    creates; a reversal's own `amount` restores the same magnitude back to
+    both the payment and the document, never a signed/negative amount."""
+
+    __tablename__ = "payment_allocations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_payment_allocations_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "payment_id"],
+            ["accounting.payments.tenant_id", "accounting.payments.id"],
+            name="fk_accounting_payment_allocations_tenant_payment",
+            # A allocation has no meaning without its payment -- mirrors
+            # invoice_lines/journal_lines' own CASCADE precedent. No
+            # service function ever deletes a Payment row today.
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "reverses_allocation_id"],
+            [
+                "accounting.payment_allocations.tenant_id",
+                "accounting.payment_allocations.id",
+            ],
+            name="fk_accounting_payment_allocations_tenant_reverses",
+        ),
+        CheckConstraint(
+            "document_type IN ('invoice', 'bill')",
+            name="ck_accounting_payment_allocations_document_type",
+        ),
+        CheckConstraint("amount > 0", name="ck_accounting_payment_allocations_amount_positive"),
+        Index("ix_accounting_payment_allocations_tenant_id", "tenant_id"),
+        Index("ix_accounting_payment_allocations_payment_id", "payment_id"),
+        Index(
+            "ix_accounting_payment_allocations_document",
+            "tenant_id",
+            "document_type",
+            "document_id",
+        ),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    payment_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    document_type: Mapped[str] = mapped_column(String(7), nullable=False)
+    document_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    reverses_allocation_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("core.users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
 __all__ = [
     "ACCOUNT_TYPE_ASSET",
     "ACCOUNT_TYPE_EQUITY",
     "ACCOUNT_TYPE_EXPENSE",
     "ACCOUNT_TYPE_LIABILITY",
     "ACCOUNT_TYPE_REVENUE",
+    "ALLOCATION_DOCUMENT_TYPE_BILL",
+    "ALLOCATION_DOCUMENT_TYPE_INVOICE",
+    "CONTACT_ROLE_BOTH",
+    "CONTACT_ROLE_CUSTOMER",
+    "CONTACT_ROLE_SUPPLIER",
+    "DOCUMENT_STATUS_CANCELLED",
+    "DOCUMENT_STATUS_DRAFT",
+    "DOCUMENT_STATUS_POSTED",
+    "DOCUMENT_STATUS_VOIDED",
     "JOURNAL_ENTRY_STATUS_DRAFT",
     "JOURNAL_ENTRY_STATUS_POSTED",
     "JOURNAL_ENTRY_STATUS_REVERSED",
     "JOURNAL_ENTRY_STATUS_VOIDED",
+    "PAYMENT_DIRECTION_INBOUND",
+    "PAYMENT_DIRECTION_OUTBOUND",
     "PERIOD_STATUS_CLOSED",
     "PERIOD_STATUS_OPEN",
+    "TAX_TYPE_PURCHASE",
+    "TAX_TYPE_SALES",
     "VALID_ACCOUNT_TYPES",
+    "VALID_ALLOCATION_DOCUMENT_TYPES",
+    "VALID_CONTACT_ROLES",
+    "VALID_DOCUMENT_STATUSES",
     "VALID_JOURNAL_ENTRY_STATUSES",
+    "VALID_PAYMENT_DIRECTIONS",
     "VALID_PERIOD_STATUSES",
+    "VALID_TAX_TYPES",
     "Account",
+    "Bill",
+    "BillLine",
+    "ContactProfile",
+    "Invoice",
+    "InvoiceLine",
     "JournalEntry",
     "JournalLine",
+    "Payment",
+    "PaymentAllocation",
     "Period",
+    "TaxCode",
 ]

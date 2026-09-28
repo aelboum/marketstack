@@ -36,10 +36,33 @@ your review of that ADR's own durable-engine recommendation).
   already works against any of them unmodified, since
   `_extract_trigger_ids()` reads `contact_id` out of the payload
   regardless of which event type carried it.
-- Still deferred, with a concrete reason each: "payment received"/
-  "invoice overdue" (Phase 15/24 Accounting does not exist yet -- 10.4's
-  own stated dependency), "email/SMS received" (Conversations' own
-  SMS/WhatsApp inbound path is itself still PARTIAL, no real vendor --
+- Wired by Phase 25 completion remediation ("Revenue & Money Workflow"):
+  "payment received" -- what this docstring originally deferred pending
+  Accounting's own existence -- is now partly done:
+  `accounting.invoice.posted` (one of the two flagship events
+  `docs/ADR/0014-mini-accounting-foundation.md` Decision 10 and
+  `docs/ROADMAP.md`'s own Phase 25 Cross-domain integration section name
+  explicitly) is a real trigger type now, published by
+  `product/accounting/invoices.py::post_invoice()`. No new action was
+  added; `post_invoice()`'s own event payload already carries
+  `contact_id` alongside `invoice_id`, so the existing `create_task`/
+  `send_email`/`send_webhook` actions already work against it completely
+  unmodified, the identical "no new action was added" precedent Phase
+  23's own four Appointments triggers above establish. `accounting.bill
+  .posted`/`accounting.payment.created`/`accounting.payment.allocated`
+  are real, published events too (`docs/ADR/0014-...` Decision 10) but
+  are not wired as trigger types here -- one real consumer for one real
+  event satisfies Phase 25's own Definition of Done; wiring the rest
+  without a stated business need would be exactly the "speculative"
+  scope that same Decision warns against.
+- Still deferred, with a concrete reason each: "invoice overdue" (a
+  derived query condition -- `Invoice.status == 'posted' AND
+  outstanding_amount > 0 AND due_date < now`,
+  `product/accounting/invoices.py::list_invoices(overdue_only=True)` --
+  never itself a published event, so there is nothing to wire a trigger
+  to; becoming overdue is not a discrete moment a `publish()` call could
+  even mark), "email/SMS received" (Conversations' own SMS/WhatsApp
+  inbound path is itself still PARTIAL, no real vendor --
   `product/conversations/sms.py`), "review received" (Phase 12
   Reputation's own automation integration is itself explicitly deferred,
   `docs/ADR/0010-...`'s own "Deferred: Automation Integration" section --

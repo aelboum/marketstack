@@ -188,6 +188,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from product.accounting import event_handlers as _accounting_event_handlers  # noqa: F401
 from product.accounting.purge import register as register_accounting_purge_participant
+from product.accounting.routes import router as accounting_router
 from product.action_registry_composition import wire_production_automation_actions
 from product.agency.routes import router as agency_router
 from product.ai import event_handlers as _ai_event_handlers  # noqa: F401
@@ -243,6 +244,25 @@ def _frontend_origins() -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+def _install_dev_auth_bypass(app: FastAPI) -> None:
+    """Local-dev-only convenience (never enabled unless BOTH `ENVIRONMENT=
+    development` AND `DEV_AUTH_BYPASS=1` are set): overrides the
+    platform's own `get_current_actor` FastAPI dependency so every route
+    that depends on it (directly, or transitively via `get_tenant_context`)
+    treats every request as already authenticated as one fixed local user
+    -- no real OIDC provider/session cookie needed. Resolves to a real
+    `core.identity.User` row via the same `get_or_create_user_for_external_
+    identity()` a genuine OIDC callback uses, so downstream FK-backed
+    operations (tenant membership, RBAC) see a real user, not a dangling id."""
+    from api.dependencies import get_current_actor
+    from core.identity import get_or_create_user_for_external_identity
+
+    def _dev_actor():
+        return get_or_create_user_for_external_identity("dev-bypass", "dev-user").id
+
+    app.dependency_overrides[get_current_actor] = _dev_actor
+
+
 def create_app() -> FastAPI:
     app = build_platform_app(title="Product", version="0.0.1")
     app.add_middleware(DomainResolutionMiddleware)
@@ -273,6 +293,7 @@ def create_app() -> FastAPI:
     app.include_router(reputation_router)
     app.include_router(templates_router)
     app.include_router(approvals_router)
+    app.include_router(accounting_router)
     register_foundation_purge_participants()
     register_white_label_purge_participants()
     register_crm_purge_participant()
@@ -286,6 +307,8 @@ def create_app() -> FastAPI:
     register_templates_purge_participant()
     register_accounting_purge_participant()
     wire_production_automation_actions()
+    if os.environ.get("ENVIRONMENT") == "development" and os.environ.get("DEV_AUTH_BYPASS") == "1":
+        _install_dev_auth_bypass(app)
     return app
 
 

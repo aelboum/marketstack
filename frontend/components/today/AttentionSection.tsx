@@ -1,18 +1,26 @@
 "use client";
 
 // "Needs your attention" -- the Command Center's own top section
-// (docs/ROADMAP.md Phase 28, extended by Phase 29 and Phase 30). Real
-// data only: failed automation runs (lib/dashboard/commandCenter.ts
-// ::loadAutomationActivity()), pending approvals
-// (lib/api/approvals.ts::listApprovals()), and conversations awaiting a
-// reply (lib/api/conversations.ts::listInbox()) -- no fabricated count,
-// no placeholder severity. A tenant with none of these sees an honest
-// empty state, not a hidden or invented "0".
+// (docs/ROADMAP.md Phase 28, extended by Phase 29, Phase 30, and Phase
+// 25's own "Revenue & Money Workflow"). Real data only: failed automation
+// runs (lib/dashboard/commandCenter.ts::loadAutomationActivity()),
+// pending approvals (lib/api/approvals.ts::listApprovals()), conversations
+// awaiting a reply (lib/api/conversations.ts::listInbox()), and overdue
+// customer invoices (lib/api/accounting.ts::listOverdueInvoices()) -- no
+// fabricated count, no placeholder severity. A tenant with none of these
+// sees an honest empty state, not a hidden or invented "0".
 //
 // **Not a second approval UI** (docs/ROADMAP.md Phase 29's own scope
 // limit): this renders one concise summary line and a link into the
 // real Approval Inbox (`/t/{tenantId}/approvals`) -- never an
 // approve/reject control here.
+//
+// **`OverdueInvoicesLine` renders without `href`** (Phase 25's own scope
+// limit): no accounting UI page exists yet to link to --
+// `components/dashboard/DashboardListRow`'s own contract is "never a link
+// to a page that doesn't exist" -- so this is a plain, non-clickable
+// summary row, not a placeholder link. Building a real accounting page is
+// out of this phase's scope.
 //
 // Row presentation goes through `components/dashboard/DashboardListRow`
 // (mockup layout parity) -- the underlying data/hooks below are
@@ -20,6 +28,7 @@
 import { loadAutomationActivity } from "@/lib/dashboard/commandCenter";
 import { listApprovals } from "@/lib/api/approvals";
 import { listInbox } from "@/lib/api/conversations";
+import { listOverdueInvoices } from "@/lib/api/accounting";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { LoadingState, EmptyState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
@@ -49,6 +58,26 @@ function PendingApprovalsLine({ tenantId }: { tenantId: string }) {
       title={`${query.data.length} ${query.data.length === 1 ? "actie wacht" : "acties wachten"} op goedkeuring`}
       tag="Bekijken →"
       tone="warning"
+    />
+  );
+}
+
+function OverdueInvoicesLine({ tenantId }: { tenantId: string }) {
+  const query = useApiQuery(() => listOverdueInvoices(tenantId), [tenantId]);
+
+  if (query.status === "error" || query.status === "loading") {
+    return null;
+  }
+  if (query.data.length === 0) {
+    return null;
+  }
+
+  return (
+    <DashboardListRow
+      lead="€"
+      title={`${query.data.length} ${query.data.length === 1 ? "factuur is" : "facturen zijn"} achterstallig`}
+      tag="Openstaand"
+      tone="danger"
     />
   );
 }
@@ -95,6 +124,7 @@ export function AttentionSection({ tenantId }: { tenantId: string }) {
       <div style={{ display: "flex", flexDirection: "column" }}>
         <PendingApprovalsLine tenantId={tenantId} />
         <NeedsReplyLine tenantId={tenantId} />
+        <OverdueInvoicesLine tenantId={tenantId} />
         <EmptyState
           title="Alles in orde"
           description="Er zijn momenteel geen automatiseringen die mislukt zijn en uw aandacht nodig hebben."
@@ -107,6 +137,7 @@ export function AttentionSection({ tenantId }: { tenantId: string }) {
     <div style={{ display: "flex", flexDirection: "column" }} data-testid="attention-list">
       <PendingApprovalsLine tenantId={tenantId} />
       <NeedsReplyLine tenantId={tenantId} />
+      <OverdueInvoicesLine tenantId={tenantId} />
       {failed.map((run) => (
         <DashboardListRow
           key={run.id}

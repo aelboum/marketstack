@@ -1,6 +1,13 @@
 """Tenant purge participant for the `accounting` schema (ADR-0014 Decision
-9). **`purge_tenant_data()` is a documented no-op -- no `accounting.*` row
-is ever deleted by tenant purge**, mirroring
+9, extended by Phase 25's own documents/payments per that Decision's own
+addendum). **`purge_tenant_data()` is a documented no-op -- no
+`accounting.*` row is ever deleted by tenant purge**, covering every table
+in the schema unconditionally (Phase 24's `accounts`/`periods`/
+`journal_entries`/`journal_lines` and Phase 25's `contact_profiles`/
+`tax_codes`/`invoices`/`invoice_lines`/`bills`/`bill_lines`/`payments`/
+`payment_allocations` alike) -- no code change was needed to extend this
+participant to the new tables, since it never enumerates a table list in
+the first place, mirroring
 `core/tenancy/retention.py::RetentionClass.FINANCIAL_RETAIN`'s own
 posture (already applied to `core.billing_subscriptions`). This is a
 deliberate, conservative default, not an oversight: once any

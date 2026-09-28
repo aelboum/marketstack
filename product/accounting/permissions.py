@@ -1,19 +1,26 @@
 """Product-defined permissions for `product/accounting/` (docs/ROADMAP.md
-Phase 24). Mirrors `product/reputation/permissions.py`'s own discipline
+Phase 24-25). Mirrors `product/reputation/permissions.py`'s own discipline
 exactly -- every permission here is this product's own invention;
 `accounting.*` tables have no SaaS-OS-provided authorization of any kind.
 
-**Three resources**, one per aggregate root this phase introduces:
-`ACCOUNT_RESOURCE`, `PERIOD_RESOURCE`, `JOURNAL_RESOURCE`
-(`journal_lines` has no independent access boundary apart from the entry
-it belongs to, the same "a child row is not its own resource"
-consolidation `product/websites/permissions.py`'s own module docstring
-already applies to `Page` under `Website`).
+**Six resources**, one per aggregate root: Phase 24's `ACCOUNT_RESOURCE`/
+`PERIOD_RESOURCE`/`JOURNAL_RESOURCE`, and Phase 25's `INVOICE_RESOURCE`/
+`BILL_RESOURCE`/`PAYMENT_RESOURCE` (`journal_lines`/`invoice_lines`/
+`bill_lines`/`payment_allocations`/`contact_profiles`/`tax_codes` have no
+independent access boundary apart from their own parent/primary
+aggregate -- the same "a child row is not its own resource" consolidation
+`product/websites/permissions.py`'s own module docstring already applies
+to `Page` under `Website`; `contact_profiles`/`tax_codes` are managed
+under `INVOICE_RESOURCE`'s own `create`/`read` actions since tagging a
+contact or defining a tax code is a prerequisite step of the same
+invoicing workflow, not a separate resource).
 
-**Action names**: `PERIOD_RESOURCE`'s `manage` action (close/reopen) and
-`JOURNAL_RESOURCE`'s `post`/`reverse` actions are named exactly as
-`docs/ADR/0014-mini-accounting-foundation.md` Decision 5 names them
-(`accounting.period.manage`, distinct from `accounting.journal.post`).
+**Action names**, per `docs/ADR/0014-mini-accounting-foundation.md`
+Decision 5/13 exactly: `PERIOD_RESOURCE.manage` (close/reopen),
+`JOURNAL_RESOURCE.post`/`.reverse`, `INVOICE_RESOURCE.post`/`.cancel`,
+`BILL_RESOURCE.post` (Decision 13's own deliberate asymmetry: bill
+approval/posting is owner-only, invoice posting is not),
+`PAYMENT_RESOURCE.allocate`/`.reverse_allocation`.
 """
 
 from __future__ import annotations
@@ -27,6 +34,9 @@ from product.accounting.errors import AccountingAccessDeniedError
 ACCOUNT_RESOURCE = "accounting.account"
 PERIOD_RESOURCE = "accounting.period"
 JOURNAL_RESOURCE = "accounting.journal"
+INVOICE_RESOURCE = "accounting.invoice"
+BILL_RESOURCE = "accounting.bill"
+PAYMENT_RESOURCE = "accounting.payment"
 
 
 def grant_to_role(
@@ -53,4 +63,13 @@ def require(actor_user_id: uuid.UUID, tenant_id: uuid.UUID, *, resource: str, ac
         )
 
 
-__all__ = ["ACCOUNT_RESOURCE", "JOURNAL_RESOURCE", "PERIOD_RESOURCE", "grant_to_role", "require"]
+__all__ = [
+    "ACCOUNT_RESOURCE",
+    "BILL_RESOURCE",
+    "INVOICE_RESOURCE",
+    "JOURNAL_RESOURCE",
+    "PAYMENT_RESOURCE",
+    "PERIOD_RESOURCE",
+    "grant_to_role",
+    "require",
+]

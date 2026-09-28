@@ -25,7 +25,14 @@
 # empirical check that `accounting.periods`' own non-overlap EXCLUDE
 # constraint and `accounting.journal_lines`' own exactly-one-side CHECK
 # constraint really exist post-migration, same discipline as the
-# double-booking EXCLUDE constraint check above. Proves a clean,
+# double-booking EXCLUDE constraint check above. Extended by Phase 25's own
+# accounting.* migrations (0056-0063): eight more tables (`contact_profiles`,
+# `tax_codes`, `invoices`, `invoice_lines`, `bills`, `bill_lines`,
+# `payments`, `payment_allocations`), all ordinary RLS-scoped tenant-owned
+# data -- RLS both enabled and forced on all twelve tables now, plus an
+# empirical check that the gapless-numbering partial unique index on
+# `accounting.invoices` and the supplier-reference dedup constraint on
+# `accounting.bills` really exist post-migration. Proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -139,10 +146,12 @@ with engine.connect() as conn:
     # capture/apply domain), plus (0049-0051) crm.opportunities
     # .assigned_user_id, websites.lead_submissions, and
     # appointments.calendar_events, plus (0052-0055) Phase 24's own
-    # accounting.accounts/periods/journal_entries/journal_lines.
+    # accounting.accounts/periods/journal_entries/journal_lines, plus
+    # (0056-0063) Phase 25's own accounting.contact_profiles/tax_codes/
+    # invoices/invoice_lines/bills/bill_lines/payments/payment_allocations.
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0055_accounting_journal_lines", (
-        f"expected product migrations at head 0055_accounting_journal_lines, "
+    assert product_version == "0063_accounting_payment_allocs", (
+        f"expected product migrations at head 0063_accounting_payment_allocs, "
         f"got {product_version!r}"
     )
 
@@ -395,6 +404,73 @@ with engine.connect() as conn:
             "'ck_accounting_journal_lines_exactly_one_side'"
         )
     ).all()
+    # docs/ROADMAP.md Phase 25: the eight new accounting.* tables
+    # (contact_profiles, tax_codes, invoices, invoice_lines, bills,
+    # bill_lines, payments, payment_allocations) are ordinary RLS-scoped,
+    # tenant-owned data (product/accounting/models.py's own module
+    # docstring) -- assert RLS is both ENABLED and FORCED on all eight,
+    # plus an empirical check that the gapless-numbering partial unique
+    # index on accounting.invoices really exists post-migration.
+    accounting_contact_profiles_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.contact_profiles'::regclass"
+        )
+    ).all()
+    accounting_tax_codes_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.tax_codes'::regclass"
+        )
+    ).all()
+    accounting_invoices_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.invoices'::regclass"
+        )
+    ).all()
+    accounting_invoice_lines_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.invoice_lines'::regclass"
+        )
+    ).all()
+    accounting_bills_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.bills'::regclass"
+        )
+    ).all()
+    accounting_bill_lines_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.bill_lines'::regclass"
+        )
+    ).all()
+    accounting_payments_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.payments'::regclass"
+        )
+    ).all()
+    accounting_payment_allocations_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.payment_allocations'::regclass"
+        )
+    ).all()
+    accounting_invoice_number_partial_unique_index_rows = conn.execute(
+        text(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'accounting' "
+            "AND indexname = 'uq_accounting_invoices_tenant_number'"
+        )
+    ).all()
+    accounting_bills_tenant_contact_reference_unique_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'uq_accounting_bills_tenant_contact_reference'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -606,7 +682,20 @@ assert len(templates_snapshots_payload_size_check_rows) == 1, (
     "on templates.snapshots"
 )
 accounting_tables_present = {row[0] for row in accounting_table_rows}
-expected_accounting_tables = {"accounts", "periods", "journal_entries", "journal_lines"}
+expected_accounting_tables = {
+    "accounts",
+    "periods",
+    "journal_entries",
+    "journal_lines",
+    "contact_profiles",
+    "tax_codes",
+    "invoices",
+    "invoice_lines",
+    "bills",
+    "bill_lines",
+    "payments",
+    "payment_allocations",
+}
 assert accounting_tables_present == expected_accounting_tables, (
     f"expected accounting tables {expected_accounting_tables}, "
     f"got {accounting_tables_present}"
@@ -616,13 +705,29 @@ accounting_rls_all_enabled_and_forced = (
     and accounting_periods_rls_rows == [(True, True)]
     and accounting_journal_entries_rls_rows == [(True, True)]
     and accounting_journal_lines_rls_rows == [(True, True)]
+    and accounting_contact_profiles_rls_rows == [(True, True)]
+    and accounting_tax_codes_rls_rows == [(True, True)]
+    and accounting_invoices_rls_rows == [(True, True)]
+    and accounting_invoice_lines_rls_rows == [(True, True)]
+    and accounting_bills_rls_rows == [(True, True)]
+    and accounting_bill_lines_rls_rows == [(True, True)]
+    and accounting_payments_rls_rows == [(True, True)]
+    and accounting_payment_allocations_rls_rows == [(True, True)]
 )
 assert accounting_rls_all_enabled_and_forced, (
-    "expected all four accounting.* tables to have ROW LEVEL SECURITY both "
+    "expected all twelve accounting.* tables to have ROW LEVEL SECURITY both "
     f"enabled and forced, got accounts={accounting_accounts_rls_rows}, "
     f"periods={accounting_periods_rls_rows}, "
     f"journal_entries={accounting_journal_entries_rls_rows}, "
-    f"journal_lines={accounting_journal_lines_rls_rows}"
+    f"journal_lines={accounting_journal_lines_rls_rows}, "
+    f"contact_profiles={accounting_contact_profiles_rls_rows}, "
+    f"tax_codes={accounting_tax_codes_rls_rows}, "
+    f"invoices={accounting_invoices_rls_rows}, "
+    f"invoice_lines={accounting_invoice_lines_rls_rows}, "
+    f"bills={accounting_bills_rls_rows}, "
+    f"bill_lines={accounting_bill_lines_rls_rows}, "
+    f"payments={accounting_payments_rls_rows}, "
+    f"payment_allocations={accounting_payment_allocations_rls_rows}"
 )
 assert len(accounting_period_no_overlap_exclude_rows) == 1, (
     "expected the non-overlap EXCLUDE constraint "
@@ -632,6 +737,14 @@ assert len(accounting_journal_lines_exactly_one_side_check_rows) == 1, (
     "expected the check constraint "
     "'ck_accounting_journal_lines_exactly_one_side' to exist on "
     "accounting.journal_lines"
+)
+assert len(accounting_invoice_number_partial_unique_index_rows) == 1, (
+    "expected the partial unique index 'uq_accounting_invoices_tenant_number' "
+    "to exist on accounting.invoices"
+)
+assert len(accounting_bills_tenant_contact_reference_unique_rows) == 1, (
+    "expected the unique constraint "
+    "'uq_accounting_bills_tenant_contact_reference' to exist on accounting.bills"
 )
 
 print(
@@ -662,11 +775,15 @@ print(
     f"templates tables present: {sorted(templates_tables_present)}; "
     f"templates.snapshots RLS enabled+forced: {templates_snapshots_rls_rows == [(True, True)]}; "
     f"accounting tables present: {sorted(accounting_tables_present)}; "
-    f"accounting.* RLS enabled+forced (all four): {accounting_rls_all_enabled_and_forced}; "
+    f"accounting.* RLS enabled+forced (all twelve): {accounting_rls_all_enabled_and_forced}; "
     f"accounting period non-overlap EXCLUDE constraint present: "
     f"{len(accounting_period_no_overlap_exclude_rows) == 1}; "
     f"accounting journal-lines exactly-one-side CHECK constraint present: "
-    f"{len(accounting_journal_lines_exactly_one_side_check_rows) == 1}"
+    f"{len(accounting_journal_lines_exactly_one_side_check_rows) == 1}; "
+    f"accounting invoice-number partial unique index present: "
+    f"{len(accounting_invoice_number_partial_unique_index_rows) == 1}; "
+    f"accounting bills tenant/contact/reference unique constraint present: "
+    f"{len(accounting_bills_tenant_contact_reference_unique_rows) == 1}"
 )
 PYEOF
 

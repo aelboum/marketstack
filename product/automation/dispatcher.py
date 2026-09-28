@@ -96,6 +96,24 @@ TRIGGER_EVENT_TYPES = (
     "appointments.appointment.reminder_sent",
     "appointments.appointment.completed",
     "appointments.appointment.no_show",
+    # docs/ROADMAP.md Phase 25 completion remediation ("Revenue & Money
+    # Workflow" Definition of Done: a real consumer for a real accounting
+    # domain event, not merely a name). This module's own docstring
+    # deferred "payment received"/"invoice overdue" pending Accounting's
+    # own existence; Accounting exists now, and `accounting.invoice
+    # .posted` is one of the two flagship events ADR-0014 Decision 10 and
+    # docs/ROADMAP.md's own Phase 25 Cross-domain integration section
+    # name explicitly. Its own payload
+    # (`product/accounting/invoices.py::post_invoice()`) already carries
+    # `contact_id` alongside `invoice_id` -- `create_task`/`send_email`/
+    # `send_webhook` already work against it completely unmodified, the
+    # identical "no new action was added" precedent Phase 23's own four
+    # Appointments triggers above establish. "invoice overdue" remains
+    # deferred -- it is a derived query condition
+    # (`Invoice.status == 'posted' AND outstanding_amount > 0 AND
+    # due_date < now`), never itself a published event, so there is
+    # nothing to wire a trigger to yet.
+    "accounting.invoice.posted",
 )
 
 _TRIGGER_ID_FIELD_BY_EVENT_TYPE: dict[str, str] = {
@@ -110,6 +128,7 @@ _TRIGGER_ID_FIELD_BY_EVENT_TYPE: dict[str, str] = {
     "appointments.appointment.reminder_sent": "appointment_id",
     "appointments.appointment.completed": "appointment_id",
     "appointments.appointment.no_show": "appointment_id",
+    "accounting.invoice.posted": "invoice_id",
 }
 
 

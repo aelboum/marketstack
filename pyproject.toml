@@ -130,6 +130,7 @@ select = ["E", "F", "I", "UP", "B"]
 "product/billing/routes.py" = ["B008"]
 "product/templates/routes.py" = ["B008"]
 "product/approvals/routes.py" = ["B008"]
+"product/accounting/routes.py" = ["B008"]
 
 # --- Pyright (type checking) -----------------------------------------------
 [tool.pyright]
@@ -546,17 +547,15 @@ layers = [
 
 # Phase 24 (docs/ROADMAP.md "Mini Accounting Foundation"): product.accounting
 # is deliberately removed from the blanket independence list above and given
-# its own precise, comprehensive forbidden contract instead -- narrower than
-# every other carved-out module's own pair, on purpose: Phase 24's own scope
-# (chart of accounts, periods, journal entries) touches no contact, so it
-# gets no CRM edge yet, unlike Templates/Marketing/Appointments above. This
-# includes `product.crm` in its own forbidden list below -- ADR-0014's
-# Decision 6 (the CRM-contact-role-tag customer/supplier relationship) is
-# Phase 25 scope, not this phase's; the one-directional
-# "product.accounting -> product.crm" layers contract that mirrors
-# Templates' own pair is added when Phase 25 actually needs it, not before.
+# its own precise, comprehensive forbidden contract instead. Phase 25
+# ("Revenue & Money Workflow", ADR-0014 Decision 6) gives it one narrow,
+# one-directional edge -- customer/supplier role-tagging on existing
+# crm.contacts rows via product.crm.contacts.get_contact(), plus the
+# Invoice/Bill contact_id FK -- so `product.crm` is removed from the
+# forbidden list below and given its own precise pair of contracts instead,
+# mirroring Templates' own pair exactly.
 [[tool.importlinter.contracts]]
-name = "Accounting does not depend on any product module (Phase 24)"
+name = "Accounting does not depend on any product module except CRM"
 type = "forbidden"
 source_modules = ["product.accounting"]
 forbidden_modules = [
@@ -570,10 +569,17 @@ forbidden_modules = [
     "product.reputation",
     "product.websites",
     "product.billing",
-    "product.crm",
     "product.templates",
     "product.reporting",
     "product.white_label",
     "product.integrations",
     "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Accounting may depend on CRM, never CRM on Accounting"
+type = "layers"
+layers = [
+    "product.accounting",
+    "product.crm",
 ]
