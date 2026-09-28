@@ -116,6 +116,7 @@ from product.foundation.workflow_actions import (
     UnknownWorkflowActionError,
     WorkflowActionConfigError,
     WorkflowActionDeniedError,
+    resolve_step_output_references,
 )
 
 # `execute_action()` deliberately does NOT normalize the underlying
@@ -199,11 +200,25 @@ def execute_step_action_activity(input: ExecuteStepActionInput) -> ExecuteStepAc
         return ExecuteStepActionOutput(result=reservation.result or {})
 
     try:
+        # Phase 26C: resolve any `$step_output` references against the
+        # run's own context immediately before the action itself runs --
+        # never inside the action implementation, never in workflow-replay
+        # code (`production_workflow.py`). Deliberately AFTER the replay
+        # short-circuit above (never re-executed on a cached replay) and
+        # deliberately NOT included in `fingerprint_payload` above (the
+        # fingerprint stays keyed on the raw, unresolved `action_config`,
+        # unchanged) -- resolution is a pure function of `input.action_config`
+        # and `input.context`, both of which Temporal guarantees identical
+        # across a genuine retry of this same activity invocation, so the
+        # same reference always resolves to the same value with no caching.
+        resolved_action_config = resolve_step_output_references(
+            input.action_config, input.context
+        )
         result = execute_action(
             input.action_type,
             uuid.UUID(input.actor_user_id),
             tenant_id,
-            input.action_config,
+            resolved_action_config,
             input.context,
         )
     except _PERMANENT_DENIAL_ERRORS as exc:

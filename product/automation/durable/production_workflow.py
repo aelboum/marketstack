@@ -99,6 +99,7 @@ with workflow.unsafe.imports_passed_through():
         STEP_TYPE_WAIT_FOR_EVENT,
     )
     from product.automation.durable.models import RUN_STATUS_COMPLETED, RUN_STATUS_FAILED
+    from product.foundation.workflow_actions import step_output_context_key
 
 # A distinct task queue from the Phase 10.3 infrastructure spike's own
 # `automation-durable-spike` default (`config.py::DEFAULT_TASK_QUEUE`) --
@@ -281,8 +282,16 @@ class DurableWorkflow:
             )
             return None, context, error_text
 
+        # Phase 26C: the existing flat merge is kept byte-for-byte (backward
+        # compatibility -- every existing flat-context consumer keeps working
+        # unchanged); the namespaced entry alongside it is additive, mirroring
+        # `_run_wait_step()`'s own established `f"{step_key}.event"` convention
+        # so a later step can address this step's own output unambiguously,
+        # never merely by accidental flat-key name match.
+        context_update = dict(output.result)
+        context_update[step_output_context_key(step_key)] = output.result
         new_context = dict(context)
-        new_context.update(output.result)
+        new_context.update(context_update)
         await workflow.execute_activity(
             record_step_finished_activity,
             StepFinishedInput(
@@ -290,7 +299,7 @@ class DurableWorkflow:
                 run_id=input.run_id,
                 step_key=step_key,
                 status="succeeded",
-                context_update=output.result,
+                context_update=context_update,
             ),
             start_to_close_timeout=_BOOKKEEPING_TIMEOUT,
         )

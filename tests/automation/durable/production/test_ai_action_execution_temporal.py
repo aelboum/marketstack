@@ -23,6 +23,7 @@ nothing here is AI-specific at the engine layer.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -49,6 +50,7 @@ from product.automation.durable.production_workflow import (
     PRODUCTION_TASK_QUEUE,
     DurableWorkflow,
 )
+from product.crm.activities import TaskView, list_activities
 from product.crm.contacts import create_contact
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -61,10 +63,29 @@ _TERMINAL = (RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_CANCELLED)
 _PROVIDER_NAME = "durable-test-double"
 
 
+#: The `decision` this file's own test double always returns -- exported
+#: as a constant so the Phase 26C chaining test below can assert the exact
+#: chained value a later step actually receives, rather than re-deriving
+#: it inline.
+_QUALIFY_LEAD_DECISION = "qualified"
+
+
 class _DurableTestDoubleProvider:
     """See `tests/ai/test_automation_action_integration.py`'s own module
     docstring for why a non-"fake"-named delegate is needed to exercise
-    `production_tool_registry()`'s real code path."""
+    `production_tool_registry()`'s real code path.
+
+    **Wraps the delegate's marker text as Phase 26A's structured JSON
+    contract.** `FakeLLMProvider.complete()` itself returns a fixed,
+    non-JSON marker by design (`product/ai/provider.py`'s own module
+    docstring) -- `ai.crm.qualify_lead`'s own handler
+    (`product/ai/tools/lead_qualification.py`) requires a JSON completion
+    since Phase 26A, so this double carries the delegate's own
+    deterministic marker text through as the `qualification` field,
+    alongside a fixed `decision`/`reason`, exactly mirroring
+    `tests/ai/test_automation_action_integration.py::_TestDoubleProvider`'s
+    own identical fix -- rather than changing the shared `FakeLLMProvider`
+    shape every other AI tool test relies on unmodified."""
 
     def __init__(self) -> None:
         self._delegate = FakeLLMProvider()
@@ -81,7 +102,14 @@ class _DurableTestDoubleProvider:
             user_content=user_content,
             max_output_chars=max_output_chars,
         )
-        return LLMCompletion(text=inner.text, provider_name=self.name)
+        structured = json.dumps(
+            {
+                "decision": _QUALIFY_LEAD_DECISION,
+                "reason": "Deterministic durable-test-double reason.",
+                "qualification": inner.text,
+            }
+        )
+        return LLMCompletion(text=structured, provider_name=self.name)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -119,12 +147,18 @@ def _ai_step(step_key: str, *, next_step_key: str | None = None) -> dict:
     }
 
 
-def _task_step(step_key: str, *, title: str, next_step_key: str | None = None) -> dict:
+def _task_step(
+    step_key: str,
+    *,
+    title: str | dict | None = None,
+    action_config: dict | None = None,
+    next_step_key: str | None = None,
+) -> dict:
     return {
         "step_key": step_key,
         "type": "action",
         "action_type": "create_task",
-        "action_config": {"title": title},
+        "action_config": action_config if action_config is not None else {"title": title},
         "next_step_key": next_step_key,
     }
 
@@ -283,6 +317,172 @@ def test_ai_action_and_create_task_coexist_in_the_same_run() -> None:
         step_views = runs.list_run_steps(owner.id, client.tenant_id, run_id)
         assert [s.step_key for s in step_views] == ["s1", "s2"]
         assert all(s.status == "succeeded" for s in step_views)
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+# --- step-output chaining (docs/ROADMAP.md Phase 26C) ----------------------
+
+
+def test_qualify_lead_decision_chained_into_a_later_create_task_title() -> None:
+    """The real chained-execution proof this phase calls for: `s1`
+    (`ai.crm.qualify_lead`) produces a structured `decision`
+    (docs/ROADMAP.md Phase 26A); `s2` (`create_task`) never hardcodes that
+    value -- its own `title` field is a `$step_output` reference resolved,
+    through the real Temporal activity boundary, to `s1`'s own recorded
+    output. Verified two ways: the second step's own real side effect (the
+    created task's title) carries the resolved value, and the workflow's
+    own final `context` exposes `s1`'s namespaced output alongside the
+    unchanged flat merge."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="Ada", last_name="L")
+        _approve(owner.id, client.tenant_id)
+        steps = [
+            _ai_step("s1", next_step_key="s2"),
+            _task_step(
+                "s2",
+                action_config={"title": {"$step_output": {"step": "s1", "field": "decision"}}},
+                next_step_key=None,
+            ),
+        ]
+        workflow, _version = _publish(owner.id, client.tenant_id, start_step_key="s1", steps=steps)
+
+        async def _run():
+            monkeypatch = pytest.MonkeyPatch()
+            try:
+                async with _harness(monkeypatch) as env:
+                    run_view = await runs.start_run(
+                        owner.id,
+                        client.tenant_id,
+                        workflow.id,
+                        context={"contact_id": str(contact.id)},
+                    )
+                    handle = env.client.get_workflow_handle(_temporal_id(run_view))
+                    result = await handle.result()
+                    # The default Temporal data converter deserializes the
+                    # workflow's own `DurableWorkflowResult` return value as
+                    # a plain dict here (no type hint given to `result()`),
+                    # not the dataclass instance itself.
+                    return run_view.id, result["context"]
+            finally:
+                monkeypatch.undo()
+
+        run_id, final_context = asyncio.run(_run())
+        final = _wait_for_terminal(owner.id, client.tenant_id, run_id)
+        assert final.status == RUN_STATUS_COMPLETED
+        step_views = runs.list_run_steps(owner.id, client.tenant_id, run_id)
+        assert [s.step_key for s in step_views] == ["s1", "s2"]
+        assert all(s.status == "succeeded" for s in step_views)
+
+        # The real side effect: create_task's own title carries the
+        # resolved decision, never a hardcoded literal.
+        activities_list = list_activities(owner.id, client.tenant_id, contact_id=contact.id)
+        titles = {a.title for a in activities_list if isinstance(a, TaskView)}
+        assert _QUALIFY_LEAD_DECISION in titles
+
+        # The namespaced entry (additive, Phase 26C) and the pre-existing
+        # flat merge (unchanged, Phase 10.3) both carry s1's own output.
+        assert final_context["s1.output"]["decision"] == _QUALIFY_LEAD_DECISION
+        assert final_context["decision"] == _QUALIFY_LEAD_DECISION
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+def test_qualify_lead_missing_field_reference_fails_deterministically() -> None:
+    """A reference naming a field the referenced step's own output does
+    not actually contain (`qualify_lead` never returns a `bogus_field`)
+    fails at runtime, deterministically -- publish-time cannot know this
+    (no action declares an output vocabulary), so this is exactly the
+    "field existence is runtime validation" boundary this phase draws."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="Ada", last_name="L")
+        _approve(owner.id, client.tenant_id)
+        steps = [
+            _ai_step("s1", next_step_key="s2"),
+            _task_step(
+                "s2",
+                action_config={"title": {"$step_output": {"step": "s1", "field": "bogus_field"}}},
+                next_step_key=None,
+            ),
+        ]
+        workflow, _version = _publish(owner.id, client.tenant_id, start_step_key="s1", steps=steps)
+
+        async def _run():
+            monkeypatch = pytest.MonkeyPatch()
+            try:
+                async with _harness(monkeypatch) as env:
+                    run_view = await runs.start_run(
+                        owner.id,
+                        client.tenant_id,
+                        workflow.id,
+                        context={"contact_id": str(contact.id)},
+                    )
+                    handle = env.client.get_workflow_handle(_temporal_id(run_view))
+                    await handle.result()
+                    return run_view.id
+            finally:
+                monkeypatch.undo()
+
+        run_id = asyncio.run(_run())
+        final = _wait_for_terminal(owner.id, client.tenant_id, run_id)
+        assert final.status == RUN_STATUS_FAILED
+        step_views = runs.list_run_steps(owner.id, client.tenant_id, run_id)
+        by_key = {s.step_key: s for s in step_views}
+        assert by_key["s1"].status == "succeeded"
+        assert by_key["s2"].status == "failed"
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+def test_chained_reference_resolves_identically_on_replay() -> None:
+    """Retry-safety proof: calling the real activity twice with the
+    identical `(run_id, step_key)` idempotency key (mirrors
+    `test_ai_action_duplicate_activity_invocation_remains_idempotent`'s
+    own established pattern) resolves the identical chained value both
+    times -- the second call is a pure idempotency replay, never a second
+    real resolution+execution."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="A", last_name="B")
+        _approve(owner.id, client.tenant_id)
+
+        from product.automation.durable.business_activities import (
+            ExecuteStepActionInput,
+            execute_step_action_activity,
+        )
+
+        run_id = str(uuid.uuid4())
+        ai_input = ExecuteStepActionInput(
+            tenant_id=str(client.tenant_id),
+            run_id=run_id,
+            step_key="s1",
+            actor_user_id=str(owner.id),
+            action_type=QUALIFY_LEAD_TOOL_KEY,
+            action_config={},
+            context={"contact_id": str(contact.id)},
+        )
+        ai_output = asyncio.run(_call_activity(execute_step_action_activity, ai_input))
+
+        task_input = ExecuteStepActionInput(
+            tenant_id=str(client.tenant_id),
+            run_id=run_id,
+            step_key="s2",
+            actor_user_id=str(owner.id),
+            action_type="create_task",
+            action_config={"title": {"$step_output": {"step": "s1", "field": "decision"}}},
+            context={"contact_id": str(contact.id), "s1.output": ai_output.result},
+        )
+        first = asyncio.run(_call_activity(execute_step_action_activity, task_input))
+        second = asyncio.run(_call_activity(execute_step_action_activity, task_input))
+        assert first.result == second.result  # the replayed result, not a second resolution
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)

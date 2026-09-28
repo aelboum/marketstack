@@ -220,6 +220,8 @@ def _execute(
         "contact_id": output.get("contact_id", str(contact_id)),
         "qualification": output.get("qualification", ""),
         "provider": output.get("provider", ""),
+        "decision": output.get("decision", ""),
+        "reason": output.get("reason", ""),
     }
 
 

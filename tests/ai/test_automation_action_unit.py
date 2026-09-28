@@ -126,7 +126,13 @@ def test_execute_ignores_config_and_reads_contact_id_only_from_payload(monkeypat
 
     async def _fake_invoke(actor_user_id, tenant_id, cid):
         seen.append(cid)
-        return {"contact_id": str(cid), "qualification": "x", "provider": "fake"}
+        return {
+            "contact_id": str(cid),
+            "qualification": "x",
+            "provider": "fake",
+            "decision": "qualified",
+            "reason": "y",
+        }
 
     monkeypatch.setattr(automation_action, "_invoke", _fake_invoke)
     spec = build_qualify_lead_workflow_action()
@@ -204,7 +210,8 @@ def test_successful_invocation_delegates_and_returns_bounded_result(monkeypatch)
     `product.ai.invocation.invoke_product_ai_tool()` +
     `product.ai.production.production_tool_registry()`) rather than
     fabricating a result -- and that the returned shape is bounded to
-    exactly the three expected keys, never anything unbounded."""
+    exactly the five expected keys (Phase 26A adds `decision`/`reason`
+    alongside the original three), never anything unbounded."""
     contact_id = uuid.uuid4()
     calls: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = []
 
@@ -214,6 +221,8 @@ def test_successful_invocation_delegates_and_returns_bounded_result(monkeypatch)
             "contact_id": str(cid),
             "qualification": "[FAKE_LLM_COMPLETION]",
             "provider": "fake",
+            "decision": "qualified",
+            "reason": "short reason",
         }
 
     monkeypatch.setattr(automation_action, "_invoke", _fake_invoke)
@@ -222,5 +231,7 @@ def test_successful_invocation_delegates_and_returns_bounded_result(monkeypatch)
     result = spec.execute(actor, tenant, {}, {"contact_id": str(contact_id)})
 
     assert calls == [(actor, tenant, contact_id)]
-    assert set(result) == {"contact_id", "qualification", "provider"}
+    assert set(result) == {"contact_id", "qualification", "provider", "decision", "reason"}
     assert result["contact_id"] == str(contact_id)
+    assert result["decision"] == "qualified"
+    assert result["reason"] == "short reason"

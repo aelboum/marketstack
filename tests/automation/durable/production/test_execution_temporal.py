@@ -70,12 +70,18 @@ def _agency_and_client(owner_id):
     return agency, client
 
 
-def _action_step(step_key: str, *, title: str, next_step_key: str | None = None) -> dict:
+def _action_step(
+    step_key: str,
+    *,
+    title: str | None = None,
+    action_config: dict | None = None,
+    next_step_key: str | None = None,
+) -> dict:
     return {
         "step_key": step_key,
         "type": "action",
         "action_type": "create_task",
-        "action_config": {"title": title},
+        "action_config": action_config if action_config is not None else {"title": title},
         "next_step_key": next_step_key,
     }
 
@@ -247,6 +253,110 @@ def test_multi_step_action_sequencing_and_completion() -> None:
         activities_list = list_activities(owner.id, client.tenant_id, contact_id=contact.id)
         titles = {a.title for a in activities_list if isinstance(a, TaskView)}
         assert {"first", "second"} <= titles
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+def test_step_output_reference_chains_task_id_into_a_later_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docs/ROADMAP.md Phase 26C, built-in actions only (no AI dependency,
+    see `test_ai_action_execution_temporal.py` for the qualify_lead ->
+    create_task case using Phase 26A's own structured `decision`): `s1`'s
+    own `task_id` result is referenced, unmodified, as `s2`'s `description`
+    -- proves the real Temporal activity boundary resolves a reference
+    end to end, and that an existing flat-context consumer
+    (`_extract_trigger_ids()`, reading `contact_id` from context) keeps
+    working unaffected alongside it."""
+    from product.crm.contacts import create_contact
+
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="A", last_name="B")
+        steps = [
+            _action_step("s1", title="first", next_step_key="s2"),
+            _action_step(
+                "s2",
+                action_config={
+                    "title": "second",
+                    "description": {"$step_output": {"step": "s1", "field": "task_id"}},
+                },
+                next_step_key=None,
+            ),
+        ]
+        workflow, _version = _publish(owner.id, client.tenant_id, start_step_key="s1", steps=steps)
+
+        async def _run():
+            async with _harness(monkeypatch) as env:
+                run_view = await runs.start_run(
+                    owner.id,
+                    client.tenant_id,
+                    workflow.id,
+                    context={"contact_id": str(contact.id)},
+                )
+                handle = env.client.get_workflow_handle(_temporal_id(run_view))
+                await handle.result()
+                return run_view.id
+
+        run_id = asyncio.run(_run())
+        final = _wait_for_terminal(owner.id, client.tenant_id, run_id)
+        assert final.status == RUN_STATUS_COMPLETED
+        step_views = runs.list_run_steps(owner.id, client.tenant_id, run_id)
+        assert all(s.status == "succeeded" for s in step_views)
+
+        activities_list = list_activities(owner.id, client.tenant_id, contact_id=contact.id)
+        tasks = {a.title: a for a in activities_list if isinstance(a, TaskView)}
+        first_task_id = str(tasks["first"].id)
+        # s2's own contact_id (unaffected, still the existing flat-context
+        # trigger-id extraction) AND its description (the newly-resolved
+        # reference to s1's task_id) both landed correctly.
+        assert tasks["second"].description == first_task_id
+        assert tasks["second"].contact_id == contact.id
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+def test_step_output_reference_to_missing_field_fails_the_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from product.crm.contacts import create_contact
+
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="A", last_name="B")
+        steps = [
+            _action_step("s1", title="first", next_step_key="s2"),
+            _action_step(
+                "s2",
+                action_config={"title": {"$step_output": {"step": "s1", "field": "no_such_field"}}},
+                next_step_key=None,
+            ),
+        ]
+        workflow, _version = _publish(owner.id, client.tenant_id, start_step_key="s1", steps=steps)
+
+        async def _run():
+            async with _harness(monkeypatch) as env:
+                run_view = await runs.start_run(
+                    owner.id,
+                    client.tenant_id,
+                    workflow.id,
+                    context={"contact_id": str(contact.id)},
+                )
+                handle = env.client.get_workflow_handle(_temporal_id(run_view))
+                await handle.result()
+                return run_view.id
+
+        run_id = asyncio.run(_run())
+        final = _wait_for_terminal(owner.id, client.tenant_id, run_id)
+        assert final.status == RUN_STATUS_FAILED
+        step_views = runs.list_run_steps(owner.id, client.tenant_id, run_id)
+        by_key = {s.step_key: s for s in step_views}
+        assert by_key["s1"].status == "succeeded"
+        assert by_key["s2"].status == "failed"
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
@@ -994,6 +1104,74 @@ def test_workflow_history_contains_only_bounded_synthetic_context() -> None:
         raw = str(history)
         assert "privacy-check" in raw  # the bounded synthetic input, expected to appear
         assert str(contact.id) in raw  # the bounded identifier, expected to appear
+        assert secret_email not in raw
+        assert secret_phone not in raw
+        assert secret_last_name not in raw
+        assert "notes" not in raw.lower()
+        assert "phone" not in raw.lower()
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+def test_workflow_history_with_step_output_chaining_stays_bounded() -> None:
+    """docs/ROADMAP.md Phase 26C: identical privacy proof as
+    `test_workflow_history_contains_only_bounded_synthetic_context` above,
+    with a `$step_output` reference added between two steps -- the
+    reference mechanism must not become a way for a full business record
+    to reach Temporal history. The chained value here is `s1`'s own
+    bounded `task_id`, never the contact's own PII."""
+    from product.crm.contacts import create_contact
+
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        secret_email = f"privacy-probe-{uuid.uuid4().hex[:8]}@example.invalid"
+        secret_phone = "+15550111999"
+        secret_last_name = f"Lastname{uuid.uuid4().hex[:8]}"
+        contact = create_contact(
+            owner.id,
+            client.tenant_id,
+            first_name="Privacy",
+            last_name=secret_last_name,
+            email=secret_email,
+            phone=secret_phone,
+        )
+        steps = [
+            _action_step("s1", title="privacy-check", next_step_key="s2"),
+            _action_step(
+                "s2",
+                action_config={
+                    "title": "chained",
+                    "description": {"$step_output": {"step": "s1", "field": "task_id"}},
+                },
+                next_step_key=None,
+            ),
+        ]
+        workflow, _version = _publish(owner.id, client.tenant_id, start_step_key="s1", steps=steps)
+
+        async def _run():
+            monkeypatch = pytest.MonkeyPatch()
+            try:
+                async with _harness(monkeypatch) as env:
+                    run_view = await runs.start_run(
+                        owner.id,
+                        client.tenant_id,
+                        workflow.id,
+                        context={"contact_id": str(contact.id)},
+                    )
+                    handle = env.client.get_workflow_handle(_temporal_id(run_view))
+                    await handle.result()
+                    history = await handle.fetch_history()
+                    return history
+            finally:
+                monkeypatch.undo()
+
+        history = asyncio.run(_run())
+        raw = str(history)
+        assert "privacy-check" in raw
+        assert "chained" in raw
+        assert str(contact.id) in raw
         assert secret_email not in raw
         assert secret_phone not in raw
         assert secret_last_name not in raw

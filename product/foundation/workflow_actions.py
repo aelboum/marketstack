@@ -54,6 +54,26 @@ authorization boundary -- exactly as `product/automation/actions.py`'s
 own actions already do. Nothing here caches, elevates, or stands in for
 an authorization decision, and there is no global mutable "current
 actor" anywhere in this contract.
+
+**Step-output chaining (docs/ROADMAP.md Phase 26C).** The durable engine
+already makes every prior action step's own bounded result available to
+later steps, via a flat context merge
+(`product/automation/durable/production_workflow.py::_run_action_step()`)
+plus, since this phase, one additional namespaced entry per step
+(`step_output_context_key()` below) -- this module owns only the
+generic, domain-neutral *reference* concept built on top of that: a
+closed marker shape a workflow author may place as a complete
+`action_config` field value (`parse_step_output_reference()`), and a
+pure function resolving every such marker against a run's own context
+(`resolve_step_output_references()`). Deliberately narrow: no
+expression language, no templating, no string interpolation, no
+recursive traversal into nested dicts/lists -- a config field's value is
+either an ordinary literal or exactly one complete reference, never a
+mix. This module still knows nothing about steps' *ordering* (whether
+one step is guaranteed to run before another) -- that is a workflow-graph
+property only `product/automation/durable/dsl.py` can determine, and
+remains that module's own responsibility; this one only recognizes and
+resolves a reference already known to be valid.
 """
 
 from __future__ import annotations
@@ -237,11 +257,143 @@ class WorkflowActionRegistry:
             )
 
 
+#: The one reserved marker key recognized by `parse_step_output_reference()`.
+#: No existing action_config field in this repository is ever dict-shaped
+#: (every one of `product/automation/actions.py`'s own actions reads flat
+#: strings only), so this key cannot collide with any legitimate existing
+#: configuration value.
+_STEP_OUTPUT_REFERENCE_KEY = "$step_output"
+
+#: The small, closed set of value types a referenced output field may
+#: resolve to -- never a list, dict, set, bytes, or other structured/
+#: arbitrary object (docs/ROADMAP.md Phase 26C's own explicit bound,
+#: matching `product/automation/durable/models.py::Run.context`'s own
+#: "ids and small scalars only" discipline).
+_SCALAR_TYPES: tuple[type, ...] = (bool, int, float, str, type(None))
+
+
+@dataclass(frozen=True, slots=True)
+class StepOutputReference:
+    """A parsed, shape-validated `{"$step_output": {"step": ...,
+    "field": ...}}` reference -- see `parse_step_output_reference()`.
+    Names a step_key and a field name only; nothing about what produced
+    them."""
+
+    step: str
+    field: str
+
+
+def parse_step_output_reference(value: object) -> StepOutputReference | None:
+    """Recognize a complete-value step-output reference.
+
+    Returns `None` for any ordinary, non-reference value -- a plain
+    string, a list, or a mapping that does not carry the reserved
+    `"$step_output"` key -- so no existing or future ordinary
+    `action_config` value is ever affected, and a reference nested inside
+    a list or another mapping is never unwrapped (this function inspects
+    exactly the value it is given, never recurses).
+
+    Once the reserved key is present, the shape is strict:
+    `"$step_output"` must be the value's *only* key, its own value must be
+    a mapping with *exactly* `"step"` and `"field"` keys, and both must be
+    non-empty strings. Any deviation raises `WorkflowActionConfigError`
+    rather than silently falling through as an ordinary (and then
+    presumably invalid) value -- an attempted reference is never
+    reinterpreted as literal configuration."""
+    if not isinstance(value, Mapping):
+        return None
+    if _STEP_OUTPUT_REFERENCE_KEY not in value:
+        return None
+    if set(value.keys()) != {_STEP_OUTPUT_REFERENCE_KEY}:
+        raise WorkflowActionConfigError(
+            f"a {_STEP_OUTPUT_REFERENCE_KEY!r} reference must be the field's only value."
+        )
+    inner = value[_STEP_OUTPUT_REFERENCE_KEY]
+    if not isinstance(inner, Mapping) or set(inner.keys()) != {"step", "field"}:
+        raise WorkflowActionConfigError(
+            f"{_STEP_OUTPUT_REFERENCE_KEY!r} must be an object with exactly 'step' and "
+            "'field' keys."
+        )
+    step = inner.get("step")
+    field_name = inner.get("field")
+    if not isinstance(step, str) or not step:
+        raise WorkflowActionConfigError(
+            f"{_STEP_OUTPUT_REFERENCE_KEY!r}.step must be a non-empty string."
+        )
+    if not isinstance(field_name, str) or not field_name:
+        raise WorkflowActionConfigError(
+            f"{_STEP_OUTPUT_REFERENCE_KEY!r}.field must be a non-empty string."
+        )
+    return StepOutputReference(step=step, field=field_name)
+
+
+def step_output_context_key(step_key: str) -> str:
+    """The reserved, collision-resistant context key a step's own action
+    output is namespaced under: `f"{step_key}.output"` -- the identical
+    dotted convention `product/automation/durable/production_workflow.py
+    ::_run_wait_step()` already established for its own
+    `f"{step_key}.event"` entry. A `step_key` can never itself contain
+    `"."` (`product/automation/durable/dsl.py::_STEP_KEY_PATTERN`), so this
+    key can never collide with another step's own namespaced entry or
+    with any pre-existing flat context key."""
+    return f"{step_key}.output"
+
+
+def resolve_step_output_references(
+    config: ActionConfig, context: Mapping[str, object]
+) -> ActionConfig:
+    """Pure, domain-neutral substitution: return a new mapping with every
+    top-level `$step_output` reference in `config` replaced by the bounded
+    scalar value it names in `context`, and every ordinary value carried
+    through unchanged. A pure function of exactly these two arguments --
+    no I/O, no clock, no randomness -- so the same `(config, context)`
+    pair always resolves identically, which is what lets a Temporal
+    activity retry re-resolve the same reference safely with no caching
+    (docs/ROADMAP.md Phase 26C).
+
+    Raises `WorkflowActionConfigError` -- already one of the durable
+    engine's existing permanent/non-retryable error types
+    (`product/automation/durable/business_activities.py`) -- when a
+    reference is malformed, names a step with no recorded output in
+    `context`, names a field absent from that step's own output, or names
+    a field whose value is not one of the small bounded scalar types this
+    phase allows to cross into workflow context (`None`/`bool`/`int`/
+    `float`/`str`) -- never a list, dict, or other structured value, and
+    never silently stringified."""
+    resolved: dict[str, object] = {}
+    for key, value in config.items():
+        reference = parse_step_output_reference(value)
+        if reference is None:
+            resolved[key] = value
+            continue
+        step_output = context.get(step_output_context_key(reference.step))
+        if not isinstance(step_output, Mapping):
+            raise WorkflowActionConfigError(
+                f"{_STEP_OUTPUT_REFERENCE_KEY!r} references step {reference.step!r}, which "
+                "has no recorded output in this run's context."
+            )
+        if reference.field not in step_output:
+            raise WorkflowActionConfigError(
+                f"{_STEP_OUTPUT_REFERENCE_KEY!r} references field {reference.field!r} on "
+                f"step {reference.step!r}, which its output does not contain."
+            )
+        field_value = step_output[reference.field]
+        if not isinstance(field_value, _SCALAR_TYPES):
+            raise WorkflowActionConfigError(
+                f"{_STEP_OUTPUT_REFERENCE_KEY!r} references field {reference.field!r} on "
+                f"step {reference.step!r}, whose value is not a scalar suitable for "
+                "workflow context."
+            )
+        resolved[key] = field_value
+    return resolved
+
+
 __all__ = [
     "ActionConfig",
     "ActionPayload",
     "ActionResult",
     "DuplicateWorkflowActionError",
+    "StepOutputReference",
     "UnknownWorkflowActionError",
     "WorkflowAction",
     "WorkflowActionConfigError",
@@ -249,4 +401,7 @@ __all__ = [
     "WorkflowActionExecutionError",
     "WorkflowActionRegistry",
     "WorkflowActionSpec",
+    "parse_step_output_reference",
+    "resolve_step_output_references",
+    "step_output_context_key",
 ]

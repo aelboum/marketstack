@@ -72,6 +72,22 @@ arbitrary payload content. This is a deliberate scope cut, not an
 oversight -- a template language is its own injection-adjacent surface,
 and the roadmap's own 10.2 scope names "single-step actions," not a
 templating engine.
+
+**One narrow, closed exception (docs/ROADMAP.md Phase 26C)**: a durable
+multi-step workflow's `action_config` field may hold, as its complete
+value, a `{"$step_output": {"step": ..., "field": ...}}` reference to an
+earlier step's own bounded output instead of a literal string --
+recognized and validated by `product.foundation.workflow_actions
+::parse_step_output_reference()`, never a general expression or
+templating mechanism (no interpolation, no nested/recursive references).
+`_config_string()` and the per-action `_validate_*_config()` functions
+below tolerate this one reference shape at publish time (the concrete
+value cannot be known until a run's own context exists); by the time an
+action actually executes, `product/automation/durable
+/business_activities.py::execute_step_action_activity()` has already
+replaced every reference with its resolved, plain scalar value, so
+`_execute_*` functions below are entirely unaware references exist at
+all and are unchanged by this phase.
 """
 
 from __future__ import annotations
@@ -94,8 +110,10 @@ from product.crm.contacts import update_contact
 from product.crm.opportunities import assign_opportunity, change_stage
 from product.foundation.workflow_actions import (
     UnknownWorkflowActionError,
+    WorkflowActionConfigError,
     WorkflowActionRegistry,
     WorkflowActionSpec,
+    parse_step_output_reference,
 )
 
 MAX_ACTION_CONFIG_STRING_CHARS = 4_000
@@ -164,6 +182,20 @@ def _config_string(config: Mapping[str, object], key: str, *, required: bool) ->
             f"action_config.{key} exceeds {MAX_ACTION_CONFIG_STRING_CHARS} characters."
         )
     return raw
+
+
+def _is_step_output_reference(config: Mapping[str, object], key: str) -> bool:
+    """`True` if `action_config[key]` is a well-formed
+    `{"$step_output": {...}}` reference (Phase 26C) -- publish-time
+    validation treats this the same as "present and valid" for the
+    purposes of a `required` field, and skips any further value-specific
+    check (string-shape, UUID, HTTPS) that cannot be evaluated before the
+    reference resolves against a real run's own context. Raises
+    `WorkflowActionConfigError` for a malformed reference attempt (caught
+    and converted to `AutomationValidationError` by
+    `validate_action_config()` below, this module's own uniform publish-
+    time error type)."""
+    return parse_step_output_reference(config.get(key)) is not None
 
 
 # --- create_task --------------------------------------------------------
@@ -384,6 +416,8 @@ def _execute_send_webhook(
 
 
 def _validate_create_task_config(action_config: Mapping[str, object]) -> None:
+    if _is_step_output_reference(action_config, "title"):
+        return
     _config_string(action_config, "title", required=True)
 
 
@@ -393,6 +427,8 @@ def _validate_update_contact_config(action_config: Mapping[str, object]) -> None
 
 
 def _validate_move_opportunity_config(action_config: Mapping[str, object]) -> None:
+    if _is_step_output_reference(action_config, "to_stage_id"):
+        return  # UUID shape cannot be checked before a reference resolves
     raw = _config_string(action_config, "to_stage_id", required=True)
     try:
         uuid.UUID(raw)  # type: ignore[arg-type]
@@ -401,6 +437,8 @@ def _validate_move_opportunity_config(action_config: Mapping[str, object]) -> No
 
 
 def _validate_assign_opportunity_config(action_config: Mapping[str, object]) -> None:
+    if _is_step_output_reference(action_config, "assigned_user_id"):
+        return  # UUID shape cannot be checked before a reference resolves
     raw = _config_string(action_config, "assigned_user_id", required=True)
     try:
         uuid.UUID(raw)  # type: ignore[arg-type]
@@ -411,12 +449,15 @@ def _validate_assign_opportunity_config(action_config: Mapping[str, object]) -> 
 
 
 def _validate_send_email_config(action_config: Mapping[str, object]) -> None:
-    _config_string(action_config, "to", required=True)
-    _config_string(action_config, "subject", required=True)
-    _config_string(action_config, "body", required=True)
+    for key in ("to", "subject", "body"):
+        if _is_step_output_reference(action_config, key):
+            continue
+        _config_string(action_config, key, required=True)
 
 
 def _validate_send_webhook_config(action_config: Mapping[str, object]) -> None:
+    if _is_step_output_reference(action_config, "url"):
+        return  # HTTPS/SSRF shape cannot be checked before a reference resolves
     url = _config_string(action_config, "url", required=True)
     _validate_webhook_url(url)  # type: ignore[arg-type]
 
@@ -532,7 +573,18 @@ def validate_action_config(action_type: str, action_config: Mapping[str, object]
         action = _REGISTRY.get(action_type)
     except UnknownWorkflowActionError as exc:
         raise AutomationValidationError(f"unknown action_type: {action_type!r}") from exc
-    action.validate_config(action_config)
+    try:
+        action.validate_config(action_config)
+    except WorkflowActionConfigError as exc:
+        # A domain adapter outside `product.automation` (or this module's
+        # own step-output-reference check above) cannot/does not raise
+        # `AutomationValidationError` directly -- converted here so every
+        # publish-time failure this function can produce is the one
+        # familiar error type callers (product/automation/durable/dsl.py)
+        # already handle uniformly, never a
+        # `product.foundation.workflow_actions` exception leaking through
+        # this module's own public surface.
+        raise AutomationValidationError(str(exc)) from exc
 
 
 def execute_action(

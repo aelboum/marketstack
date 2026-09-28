@@ -48,6 +48,7 @@ and never touches the real, persisted policy outside this test process.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -80,7 +81,17 @@ class _TestDoubleProvider:
     """See module docstring -- deliberately NOT named "fake"/"stub"/
     "mock"/"test", so `register_production_llm_provider()` accepts it,
     while its own `.complete()` delegates to a real `FakeLLMProvider` for
-    genuinely deterministic, network-free output."""
+    genuinely deterministic, network-free output.
+
+    **Wraps the delegate's marker text as Phase 26A's structured JSON
+    contract.** `FakeLLMProvider.complete()` itself returns a fixed,
+    non-JSON marker by design (`product/ai/provider.py`'s own module
+    docstring) -- `ai.crm.qualify_lead`'s own handler
+    (`product/ai/tools/lead_qualification.py`) now requires a JSON
+    completion, so this double carries the delegate's own deterministic
+    marker text through as the `qualification` field, alongside a fixed
+    `decision`/`reason`, rather than changing the shared `FakeLLMProvider`
+    shape every other AI tool test relies on unmodified."""
 
     def __init__(self) -> None:
         self._delegate = FakeLLMProvider()
@@ -97,7 +108,14 @@ class _TestDoubleProvider:
             user_content=user_content,
             max_output_chars=max_output_chars,
         )
-        return LLMCompletion(text=inner.text, provider_name=self.name)
+        structured = json.dumps(
+            {
+                "decision": "qualified",
+                "reason": "Deterministic integration-test-double reason.",
+                "qualification": inner.text,
+            }
+        )
+        return LLMCompletion(text=structured, provider_name=self.name)
 
 
 @pytest.fixture(autouse=True)
@@ -201,6 +219,8 @@ def test_allowed_capability_and_authorized_resource_proceeds() -> None:
         assert result["contact_id"] == str(contact.id)
         assert result["provider"] == "integration-test-double"
         assert result["qualification"]
+        assert result["decision"] == "qualified"
+        assert result["reason"] == "Deterministic integration-test-double reason."
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
@@ -230,7 +250,13 @@ def test_allowed_capability_proceeds_through_the_real_openai_provider(
 
         def create(self, **kwargs: object) -> object:
             class _Response:
-                output_text = "OpenAI-backed qualification note."
+                output_text = json.dumps(
+                    {
+                        "decision": "qualified",
+                        "reason": "OpenAI-backed reason.",
+                        "qualification": "OpenAI-backed qualification note.",
+                    }
+                )
 
             return _Response()
 
@@ -258,6 +284,8 @@ def test_allowed_capability_proceeds_through_the_real_openai_provider(
         assert result["contact_id"] == str(contact.id)
         assert result["provider"] == "openai"
         assert result["qualification"] == "OpenAI-backed qualification note."
+        assert result["decision"] == "qualified"
+        assert result["reason"] == "OpenAI-backed reason."
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)

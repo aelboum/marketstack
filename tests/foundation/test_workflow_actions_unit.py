@@ -19,10 +19,15 @@ from product.foundation.workflow_actions import (
     ActionPayload,
     ActionResult,
     DuplicateWorkflowActionError,
+    StepOutputReference,
     UnknownWorkflowActionError,
     WorkflowAction,
+    WorkflowActionConfigError,
     WorkflowActionRegistry,
     WorkflowActionSpec,
+    parse_step_output_reference,
+    resolve_step_output_references,
+    step_output_context_key,
 )
 
 _ALLOWED = frozenset({"alpha", "beta"})
@@ -191,3 +196,123 @@ def test_a_foreign_domain_can_supply_an_action_without_automation_importing_it()
     }
     with pytest.raises(ValueError):
         registry.get("beta").validate_config({})
+
+
+# --- step-output reference parsing/resolution (docs/ROADMAP.md Phase 26C) --
+
+
+def test_step_output_context_key_is_dotted_and_step_scoped() -> None:
+    assert step_output_context_key("qualify_lead") == "qualify_lead.output"
+    assert step_output_context_key("s1") != step_output_context_key("s2")
+
+
+def test_parse_ordinary_values_are_not_references() -> None:
+    assert parse_step_output_reference("a plain string") is None
+    assert parse_step_output_reference(123) is None
+    assert parse_step_output_reference(None) is None
+    assert parse_step_output_reference([1, 2, 3]) is None
+    assert parse_step_output_reference({"an": "ordinary dict"}) is None
+
+
+def test_parse_valid_reference() -> None:
+    reference = parse_step_output_reference(
+        {"$step_output": {"step": "qualify_lead", "field": "decision"}}
+    )
+    assert reference == StepOutputReference(step="qualify_lead", field="decision")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"$step_output": {}},
+        {"$step_output": {"step": "x"}},
+        {"$step_output": {"field": "decision"}},
+        {"$step_output": {"step": 123, "field": "decision"}},
+        {"$step_output": {"step": "x", "field": 123}},
+        {"$step_output": {"step": "", "field": "decision"}},
+        {"$step_output": {"step": "x", "field": ""}},
+        {"$step_output": {"step": "x", "field": "decision", "extra": True}},
+        {"$step_output": "not an object"},
+        {"$step_output": {"step": "x", "field": "decision"}, "extra_outer_key": True},
+    ],
+)
+def test_parse_malformed_reference_rejected(value: object) -> None:
+    with pytest.raises(WorkflowActionConfigError):
+        parse_step_output_reference(value)
+
+
+def test_resolve_scalar_string_value() -> None:
+    context = {"qualify_lead.output": {"decision": "qualified", "contact_id": "c1"}}
+    config = {"title": {"$step_output": {"step": "qualify_lead", "field": "decision"}}}
+    assert resolve_step_output_references(config, context) == {"title": "qualified"}
+
+
+@pytest.mark.parametrize("value", [True, False, 42, 3.14, None])
+def test_resolve_other_supported_scalar_types(value: object) -> None:
+    context = {"s1.output": {"field": value}}
+    config = {"x": {"$step_output": {"step": "s1", "field": "field"}}}
+    assert resolve_step_output_references(config, context) == {"x": value}
+
+
+def test_resolve_ordinary_values_pass_through_unchanged() -> None:
+    config = {"title": "a literal string", "count": 5}
+    assert resolve_step_output_references(config, {}) == config
+
+
+def test_resolve_missing_step_output_fails() -> None:
+    config = {"title": {"$step_output": {"step": "nope", "field": "decision"}}}
+    with pytest.raises(WorkflowActionConfigError):
+        resolve_step_output_references(config, {})
+
+
+def test_resolve_missing_field_fails() -> None:
+    context = {"qualify_lead.output": {"decision": "qualified"}}
+    config = {"title": {"$step_output": {"step": "qualify_lead", "field": "reason"}}}
+    with pytest.raises(WorkflowActionConfigError):
+        resolve_step_output_references(config, context)
+
+
+@pytest.mark.parametrize("value", [["a", "list"], {"a": "dict"}, {1, 2, 3}, b"bytes"])
+def test_resolve_non_scalar_output_rejected(value: object) -> None:
+    context = {"qualify_lead.output": {"decision": value}}
+    config = {"title": {"$step_output": {"step": "qualify_lead", "field": "decision"}}}
+    with pytest.raises(WorkflowActionConfigError):
+        resolve_step_output_references(config, context)
+
+
+def test_resolve_malformed_reference_still_fails_inside_resolver() -> None:
+    config = {"title": {"$step_output": {"step": "x"}}}
+    with pytest.raises(WorkflowActionConfigError):
+        resolve_step_output_references(config, {})
+
+
+def test_resolve_is_a_pure_function_stable_across_repeated_calls() -> None:
+    """Retry-safety (docs/ROADMAP.md Phase 26C): the same `(config,
+    context)` pair must resolve identically every time, with no hidden
+    state or caching."""
+    context = {"qualify_lead.output": {"decision": "qualified"}}
+    config = {"title": {"$step_output": {"step": "qualify_lead", "field": "decision"}}}
+    first = resolve_step_output_references(config, context)
+    second = resolve_step_output_references(config, context)
+    assert first == second == {"title": "qualified"}
+
+
+def test_reference_embedded_in_a_string_is_not_resolved() -> None:
+    """No string interpolation -- a reference is recognized only as a
+    field's complete value, never as text inside an ordinary string."""
+    config = {"title": "Decision: {$step_output}"}
+    assert resolve_step_output_references(config, {}) == config
+
+
+def test_reference_nested_inside_a_list_is_not_unwrapped() -> None:
+    reference = {"$step_output": {"step": "qualify_lead", "field": "decision"}}
+    config = {"title": [reference]}
+    # Not recognized as a top-level reference -- carried through unchanged,
+    # exactly like any other ordinary (here, list-shaped) config value.
+    assert resolve_step_output_references(config, {}) == config
+
+
+def test_reference_nested_inside_another_dict_is_not_unwrapped() -> None:
+    reference = {"$step_output": {"step": "qualify_lead", "field": "decision"}}
+    config = {"title": {"nested": reference}}
+    assert resolve_step_output_references(config, {}) == config

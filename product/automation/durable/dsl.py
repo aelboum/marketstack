@@ -29,6 +29,29 @@ by every step's own destination fields and rejects it if any cycle
 exists -- a published version's own step graph is always a finite DAG,
 so a run is structurally guaranteed to reach a terminal step (or run out
 of the bounded step-count budget below) rather than loop forever.
+
+**Step-output reference validation (docs/ROADMAP.md Phase 26C).** After
+the graph is confirmed acyclic, every `action` step's own `action_config`
+is scanned (top-level values only, never recursively) for a
+`{"$step_output": {...}}` reference
+(`product.foundation.workflow_actions.parse_step_output_reference()`).
+Each one found must name a step that (a) exists in this same definition
+and (b) **dominates** the referencing step -- every path from
+`start_step_key` to the referencing step must pass through the referenced
+step (`_compute_dominators()` below, a standard iterative dominator
+computation over the graph already proven acyclic and bounded to at most
+`MAX_STEPS` nodes). This is a purely structural check: it never evaluates
+a `condition` step's own predicate, so a step reachable only down one
+branch can never be mistaken for one guaranteed to have already run --
+exactly the "smallest deterministic rule" this phase calls for, not a
+general branch-aware data-flow analysis. Field-level correctness (does
+the referenced step's *actual* output really contain that field) is not,
+and cannot be, checked here -- no action declares an output vocabulary
+(`product.foundation.workflow_actions.ActionResult` is schema-free by
+design) -- so that check is deferred to runtime
+(`product/automation/durable/business_activities.py`
+::execute_step_action_activity()`, immediately before the action itself
+runs).
 """
 
 from __future__ import annotations
@@ -40,6 +63,10 @@ from product.automation.actions import validate_action_config, validate_action_t
 from product.automation.conditions import validate_conditions
 from product.automation.dispatcher import TRIGGER_EVENT_TYPES
 from product.automation.errors import AutomationValidationError
+from product.foundation.workflow_actions import (
+    WorkflowActionConfigError,
+    parse_step_output_reference,
+)
 
 STEP_TYPE_ACTION = "action"
 STEP_TYPE_CONDITION = "condition"
@@ -207,6 +234,108 @@ def validate_workflow_definition(start_step_key: str, steps: list) -> None:
                 )
 
     _reject_cycles(start_step_key, by_key)
+    _validate_step_output_references(start_step_key, by_key)
+
+
+def _predecessors(by_key: Mapping[str, Mapping[str, object]]) -> dict[str, set[str]]:
+    preds: dict[str, set[str]] = {key: set() for key in by_key}
+    for step_key, step in by_key.items():
+        for destination in _destinations(step):
+            preds[destination].add(step_key)
+    return preds
+
+
+def _reachable_from(start_step_key: str, by_key: Mapping[str, Mapping[str, object]]) -> set[str]:
+    seen = {start_step_key}
+    stack = [start_step_key]
+    while stack:
+        current = stack.pop()
+        for destination in _destinations(by_key[current]):
+            if destination not in seen:
+                seen.add(destination)
+                stack.append(destination)
+    return seen
+
+
+def _compute_dominators(
+    start_step_key: str, by_key: Mapping[str, Mapping[str, object]]
+) -> dict[str, frozenset[str]]:
+    """Standard iterative dominator computation, restricted to the steps
+    reachable from `start_step_key` -- the graph is already a validated,
+    finite, cycle-free DAG of at most `MAX_STEPS` nodes by the time this
+    runs (`_reject_cycles()` above), so a fixed-point iteration converges
+    in a handful of passes at most.
+
+    A step unreachable from `start_step_key` is deliberately excluded from
+    the result entirely, rather than assigned a dominator set some other
+    way: "every path from start reaches it" would otherwise be vacuously
+    true for a step no path from start can ever reach at all, which would
+    let it appear to dominate everything -- a soundness trap, not a
+    useful guarantee. Callers must treat a step key absent from this
+    result as "not provably ordered relative to anything."""
+    reachable = _reachable_from(start_step_key, by_key)
+    preds = _predecessors(by_key)
+
+    dominators: dict[str, frozenset[str]] = {start_step_key: frozenset({start_step_key})}
+    for step_key in reachable:
+        if step_key != start_step_key:
+            dominators[step_key] = frozenset(reachable)
+
+    changed = True
+    while changed:
+        changed = False
+        for step_key in reachable:
+            if step_key == start_step_key:
+                continue
+            reachable_preds = [p for p in preds[step_key] if p in reachable]
+            if not reachable_preds:
+                continue  # unreachable in practice: every non-start reachable
+                # step was, by construction, reached via at least one edge
+                # from another reachable step
+            new_dom = frozenset.intersection(*(dominators[p] for p in reachable_preds))
+            new_dom = new_dom | {step_key}
+            if new_dom != dominators[step_key]:
+                dominators[step_key] = new_dom
+                changed = True
+    return dominators
+
+
+def _validate_step_output_references(
+    start_step_key: str, by_key: Mapping[str, Mapping[str, object]]
+) -> None:
+    dominators = _compute_dominators(start_step_key, by_key)
+    for step_key, step in by_key.items():
+        if step.get("type") != STEP_TYPE_ACTION:
+            continue
+        action_config = step.get("action_config") or {}
+        if not isinstance(action_config, Mapping):
+            continue  # already rejected by _validate_step_shape() above
+        for field_name, value in action_config.items():
+            try:
+                reference = parse_step_output_reference(value)
+            except WorkflowActionConfigError as exc:
+                raise AutomationValidationError(
+                    f"step {step_key!r}.action_config.{field_name} has a malformed "
+                    f"$step_output reference: {exc}"
+                ) from exc
+            if reference is None:
+                continue
+            if reference.step not in by_key:
+                raise AutomationValidationError(
+                    f"step {step_key!r}.action_config.{field_name} references unknown "
+                    f"step {reference.step!r}."
+                )
+            if reference.step == step_key:
+                raise AutomationValidationError(
+                    f"step {step_key!r}.action_config.{field_name} references its own "
+                    "step; a step cannot reference its own output."
+                )
+            if reference.step not in dominators.get(step_key, frozenset()):
+                raise AutomationValidationError(
+                    f"step {step_key!r}.action_config.{field_name} references step "
+                    f"{reference.step!r}, which is not guaranteed to execute before it "
+                    "(not a dominating predecessor)."
+                )
 
 
 def _reject_cycles(start_step_key: str, by_key: Mapping[str, Mapping[str, object]]) -> None:

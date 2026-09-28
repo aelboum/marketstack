@@ -7,7 +7,9 @@ Authorization), tenant isolation, bounded input, and audit behavior
 
 from __future__ import annotations
 
+import json
 import uuid
+from dataclasses import dataclass, field
 
 import pytest
 from control_plane.data_authorization import TenantAIDataPolicy
@@ -20,7 +22,7 @@ from control_plane.orchestration.errors import (
 from core.audit_log import list as list_audit_log
 from product.agency.provisioning import provision_agency, provision_client
 from product.ai.invocation import invoke_product_ai_tool
-from product.ai.provider import MAX_USER_CONTENT_CHARS, FakeLLMProvider
+from product.ai.provider import MAX_USER_CONTENT_CHARS, FakeLLMProvider, LLMCompletion
 from product.ai.tools.conversation_summarization import build_conversation_summarization_tool
 from product.ai.tools.lead_qualification import build_lead_qualification_tool
 from product.ai.tools.suggested_next_actions import build_suggested_next_actions_tool
@@ -33,6 +35,36 @@ from product.crm.opportunities import create_opportunity
 from product.crm.pipelines import create_pipeline, create_stage
 
 from tests.ai._cleanup import cleanup_tenant_tree, cleanup_users, make_user
+
+
+@dataclass
+class _StructuredFakeLLMProvider:
+    """A `LLMProvider` test double shaped for `ai.crm.qualify_lead`'s own
+    Phase 26A structured JSON contract -- the shared `FakeLLMProvider`
+    (`product/ai/provider.py`) returns a fixed non-JSON marker by design
+    (deliberately, visibly synthetic, and used unmodified by every other
+    tool in this suite), so it cannot exercise a real structured-decision
+    parse. This double stays local to this test file rather than changing
+    the shared `FakeLLMProvider` shape every other AI tool test relies on.
+    """
+
+    decision: str = "qualified"
+    reason: str = "Contact has a name, email, and phone on file."
+    qualification: str = "Looks like a promising lead."
+    requests: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        return "fake"
+
+    def complete(
+        self, *, system_prompt: str, user_content: str, max_output_chars: int
+    ) -> LLMCompletion:
+        self.requests.append((system_prompt, user_content))
+        payload = json.dumps(
+            {"decision": self.decision, "reason": self.reason, "qualification": self.qualification}
+        )
+        return LLMCompletion(text=payload[:max_output_chars], provider_name=self.name)
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
@@ -67,7 +99,7 @@ def _permissive_policy(tenant_id: uuid.UUID, purpose: str) -> TenantAIDataPolicy
 async def test_qualify_lead_authorized_invocation_succeeds() -> None:
     owner = make_user()
     agency, client = _agency_and_client(owner.id)
-    provider = FakeLLMProvider()
+    provider = _StructuredFakeLLMProvider()
     registry = ToolRegistry()
     registry.register(build_lead_qualification_tool(provider))
     try:
@@ -84,7 +116,99 @@ async def test_qualify_lead_authorized_invocation_succeeds() -> None:
         )
         assert outcome.output["contact_id"] == str(contact.id)
         assert outcome.output["provider"] == "fake"
+        assert outcome.output["decision"] == "qualified"
+        assert outcome.output["reason"] == provider.reason
+        assert outcome.output["qualification"] == provider.qualification
         assert provider.requests  # the fake provider was actually called
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+@pytest.mark.parametrize("decision", ["qualified", "not_qualified", "needs_more_info"])
+async def test_qualify_lead_returns_each_allowed_decision(decision: str) -> None:
+    """Phase 26A's closed decision vocabulary -- one case per allowed
+    value, each carrying its own `reason`/`qualification` through
+    unchanged alongside the always-present `contact_id`/`provider`."""
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    provider = _StructuredFakeLLMProvider(
+        decision=decision, reason=f"reason for {decision}", qualification=f"note for {decision}"
+    )
+    registry = ToolRegistry()
+    registry.register(build_lead_qualification_tool(provider))
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="Ada", last_name="Lovelace")
+        outcome = await invoke_product_ai_tool(
+            "ai.crm.qualify_lead",
+            actor_user_id=owner.id,
+            tenant_id=client.tenant_id,
+            resource_type="crm.contact",
+            resource_id=str(contact.id),
+            payload={"contact_id": str(contact.id)},
+            tenant_policy=_permissive_policy(client.tenant_id, "ai.crm.qualify_lead"),
+            registry=registry,
+        )
+        assert outcome.output["contact_id"] == str(contact.id)
+        assert outcome.output["provider"] == "fake"
+        assert outcome.output["decision"] == decision
+        assert outcome.output["reason"] == f"reason for {decision}"
+        assert outcome.output["qualification"] == f"note for {decision}"
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+
+
+@pytest.mark.parametrize(
+    "raw_completion",
+    [
+        json.dumps({"decision": "maybe", "reason": "x", "qualification": "y"}),
+        json.dumps({"decision": "", "reason": "x", "qualification": "y"}),
+        json.dumps({"decision": None, "reason": "x", "qualification": "y"}),
+        json.dumps({"reason": "x", "qualification": "y"}),  # decision missing
+        json.dumps({"decision": "qualified", "qualification": "y"}),  # reason missing
+        json.dumps({"decision": "qualified", "reason": "x"}),  # qualification missing
+        json.dumps({"decision": 123, "reason": "x", "qualification": "y"}),  # wrong type
+        json.dumps({"decision": "qualified", "reason": [], "qualification": "y"}),  # wrong type
+        json.dumps({"decision": "qualified", "reason": "x", "qualification": {}}),  # wrong type
+        # oversized reason
+        json.dumps({"decision": "qualified", "reason": "x" * 241, "qualification": "y"}),
+        # oversized qualification
+        json.dumps({"decision": "qualified", "reason": "x", "qualification": "y" * 2001}),
+        "not json at all",
+        "[]",
+    ],
+)
+async def test_qualify_lead_rejects_malformed_structured_completion(raw_completion: str) -> None:
+    """Every deterministically-invalid model completion this phase's own
+    contract names -- invalid/missing/wrong-typed/oversized -- fails
+    explicitly as a `ToolExecutionError` (the Control Plane's own generic
+    handler-failure wrapping of the `AIProviderError` the tool itself
+    raises), never a silently-invented decision and never a truncation."""
+
+    class _RawCompletionProvider:
+        name = "fake"
+
+        def complete(self, *, system_prompt, user_content, max_output_chars):
+            return LLMCompletion(text=raw_completion, provider_name=self.name)
+
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    registry = ToolRegistry()
+    registry.register(build_lead_qualification_tool(_RawCompletionProvider()))
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="Ada", last_name="Lovelace")
+        with pytest.raises(ToolExecutionError):
+            await invoke_product_ai_tool(
+                "ai.crm.qualify_lead",
+                actor_user_id=owner.id,
+                tenant_id=client.tenant_id,
+                resource_type="crm.contact",
+                resource_id=str(contact.id),
+                payload={"contact_id": str(contact.id)},
+                tenant_policy=_permissive_policy(client.tenant_id, "ai.crm.qualify_lead"),
+                registry=registry,
+            )
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
@@ -177,7 +301,7 @@ async def test_qualify_lead_cross_tenant_contact_rejected() -> None:
 async def test_qualify_lead_invocation_is_audited_allow_and_deny() -> None:
     owner = make_user()
     agency, client = _agency_and_client(owner.id)
-    provider = FakeLLMProvider()
+    provider = _StructuredFakeLLMProvider()
     registry = ToolRegistry()
     registry.register(build_lead_qualification_tool(provider))
     try:
