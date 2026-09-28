@@ -186,6 +186,8 @@ from api.platform import build_platform_app
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from product.accounting import event_handlers as _accounting_event_handlers  # noqa: F401
+from product.accounting.purge import register as register_accounting_purge_participant
 from product.action_registry_composition import wire_production_automation_actions
 from product.agency.routes import router as agency_router
 from product.ai import event_handlers as _ai_event_handlers  # noqa: F401
@@ -282,6 +284,7 @@ def create_app() -> FastAPI:
     register_ai_purge_participant()
     register_websites_purge_participant()
     register_templates_purge_participant()
+    register_accounting_purge_participant()
     wire_production_automation_actions()
     return app
 

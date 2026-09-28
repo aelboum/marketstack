@@ -18,7 +18,14 @@
 # `reviews`, `review_responses`) are ordinary RLS-scoped, tenant-owned
 # data (`product/reputation/models.py`'s own module docstring) -- RLS
 # both enabled and forced on all three, same assertion shape as
-# `websites.pages`/`ai.tenant_policies`. Proves a clean,
+# `websites.pages`/`ai.tenant_policies`. Extended by Phase 24's own
+# accounting.* migrations (0052-0055): all four tables (`accounts`,
+# `periods`, `journal_entries`, `journal_lines`) are ordinary RLS-scoped,
+# tenant-owned data -- RLS both enabled and forced on all four, plus an
+# empirical check that `accounting.periods`' own non-overlap EXCLUDE
+# constraint and `accounting.journal_lines`' own exactly-one-side CHECK
+# constraint really exist post-migration, same discipline as the
+# double-booking EXCLUDE constraint check above. Proves a clean,
 # disposable PostgreSQL database can be taken from nothing to both
 # migration histories at head via the real two-step path
 # (scripts/bootstrap-db.py) -- never the developer's own persistent `db`
@@ -129,10 +136,13 @@ with engine.connect() as conn:
     # reputation.review_responses (12.1-12.3's own review-request/review/
     # response domain), plus billing.resale_plans (13.2's own reseller
     # catalog domain), plus templates.snapshots (14.1's own snapshot
-    # capture/apply domain).
+    # capture/apply domain), plus (0049-0051) crm.opportunities
+    # .assigned_user_id, websites.lead_submissions, and
+    # appointments.calendar_events, plus (0052-0055) Phase 24's own
+    # accounting.accounts/periods/journal_entries/journal_lines.
     product_version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert product_version == "0051_appointments_cal_events", (
-        f"expected product migrations at head 0051_appointments_cal_events, "
+    assert product_version == "0055_accounting_journal_lines", (
+        f"expected product migrations at head 0055_accounting_journal_lines, "
         f"got {product_version!r}"
     )
 
@@ -156,6 +166,7 @@ with engine.connect() as conn:
                 "reputation",
                 "billing",
                 "templates",
+                "accounting",
             ]
         },
     ).all()
@@ -341,6 +352,49 @@ with engine.connect() as conn:
             "'ck_templates_snapshots_payload_size'"
         )
     ).all()
+    accounting_table_rows = conn.execute(
+        text("SELECT tablename FROM pg_tables WHERE schemaname = 'accounting' ORDER BY tablename")
+    ).all()
+    # docs/ROADMAP.md Phase 24: all four accounting.* tables are ordinary
+    # RLS-scoped, tenant-owned data (product/accounting/models.py's own
+    # module docstring) -- assert RLS is both ENABLED and FORCED on all
+    # four, same assertion shape as templates.snapshots/reputation.* above.
+    accounting_accounts_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.accounts'::regclass"
+        )
+    ).all()
+    accounting_periods_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.periods'::regclass"
+        )
+    ).all()
+    accounting_journal_entries_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.journal_entries'::regclass"
+        )
+    ).all()
+    accounting_journal_lines_rls_rows = conn.execute(
+        text(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+            "WHERE oid = 'accounting.journal_lines'::regclass"
+        )
+    ).all()
+    accounting_period_no_overlap_exclude_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'ex_accounting_periods_no_overlap_per_tenant'"
+        )
+    ).all()
+    accounting_journal_lines_exactly_one_side_check_rows = conn.execute(
+        text(
+            "SELECT conname FROM pg_constraint WHERE conname = "
+            "'ck_accounting_journal_lines_exactly_one_side'"
+        )
+    ).all()
 schemas_present = {row[0] for row in schema_rows}
 expected = {
     "core",
@@ -359,6 +413,7 @@ expected = {
     "reputation",
     "billing",
     "templates",
+    "accounting",
 }
 assert schemas_present == expected, f"expected {expected}, got {schemas_present}"
 crm_tables_present = {row[0] for row in crm_table_rows}
@@ -550,6 +605,34 @@ assert len(templates_snapshots_payload_size_check_rows) == 1, (
     "expected the check constraint 'ck_templates_snapshots_payload_size' to exist "
     "on templates.snapshots"
 )
+accounting_tables_present = {row[0] for row in accounting_table_rows}
+expected_accounting_tables = {"accounts", "periods", "journal_entries", "journal_lines"}
+assert accounting_tables_present == expected_accounting_tables, (
+    f"expected accounting tables {expected_accounting_tables}, "
+    f"got {accounting_tables_present}"
+)
+accounting_rls_all_enabled_and_forced = (
+    accounting_accounts_rls_rows == [(True, True)]
+    and accounting_periods_rls_rows == [(True, True)]
+    and accounting_journal_entries_rls_rows == [(True, True)]
+    and accounting_journal_lines_rls_rows == [(True, True)]
+)
+assert accounting_rls_all_enabled_and_forced, (
+    "expected all four accounting.* tables to have ROW LEVEL SECURITY both "
+    f"enabled and forced, got accounts={accounting_accounts_rls_rows}, "
+    f"periods={accounting_periods_rls_rows}, "
+    f"journal_entries={accounting_journal_entries_rls_rows}, "
+    f"journal_lines={accounting_journal_lines_rls_rows}"
+)
+assert len(accounting_period_no_overlap_exclude_rows) == 1, (
+    "expected the non-overlap EXCLUDE constraint "
+    "'ex_accounting_periods_no_overlap_per_tenant' to exist on accounting.periods"
+)
+assert len(accounting_journal_lines_exactly_one_side_check_rows) == 1, (
+    "expected the check constraint "
+    "'ck_accounting_journal_lines_exactly_one_side' to exist on "
+    "accounting.journal_lines"
+)
 
 print(
     f"OK: saas-os core migrations at {saas_os_version}; "
@@ -577,7 +660,13 @@ print(
     f"billing tables present: {sorted(billing_tables_present)}; "
     f"billing.resale_plans RLS enabled+forced: {billing_resale_plans_rls_rows == [(True, True)]}; "
     f"templates tables present: {sorted(templates_tables_present)}; "
-    f"templates.snapshots RLS enabled+forced: {templates_snapshots_rls_rows == [(True, True)]}"
+    f"templates.snapshots RLS enabled+forced: {templates_snapshots_rls_rows == [(True, True)]}; "
+    f"accounting tables present: {sorted(accounting_tables_present)}; "
+    f"accounting.* RLS enabled+forced (all four): {accounting_rls_all_enabled_and_forced}; "
+    f"accounting period non-overlap EXCLUDE constraint present: "
+    f"{len(accounting_period_no_overlap_exclude_rows) == 1}; "
+    f"accounting journal-lines exactly-one-side CHECK constraint present: "
+    f"{len(accounting_journal_lines_exactly_one_side_check_rows) == 1}"
 )
 PYEOF
 
