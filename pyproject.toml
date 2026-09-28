@@ -47,6 +47,14 @@ dependencies = [
     # RS256 validation), declared here explicitly for the same reason as
     # httpx above.
     "cryptography",
+    # docs/ROADMAP.md Phase 26: the official OpenAI Python SDK, used only by
+    # `product/ai/openai_provider.py` -- the one concrete `LLMProvider`
+    # adapter behind the existing neutral boundary (`product/ai/provider.py`).
+    # Not pinned to an exact version (unlike `temporalio` above): a plain,
+    # stateless HTTP-API client call has no workflow-replay/determinism
+    # hazard, the same reasoning that already leaves `httpx`/`cryptography`
+    # unpinned here.
+    "openai>=3.19.2",
 ]
 
 [project.optional-dependencies]

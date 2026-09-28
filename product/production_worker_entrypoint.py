@@ -6,11 +6,13 @@ worker, same task queue
 (`product/automation/durable/production_workflow.py::PRODUCTION_TASK_QUEUE`),
 same activities
 (`product/automation/durable/business_activities.py::ACTIVITIES`),
-unchanged -- with the one composition step
-(`product/action_registry_composition.py::wire_production_automation_actions()`)
-applied first, so a durable run reaching an `ai.crm.qualify_lead` step in
-*this* worker process resolves it exactly as the API process's own 10.2
-synchronous path does.
+unchanged -- with two composition steps
+(`product/action_registry_composition.py::wire_production_automation_actions()`,
+`product/ai/production.py::configure_production_llm_provider_from_environment()`,
+the latter added by docs/ROADMAP.md Phase 26) applied first, so a durable
+run reaching an `ai.crm.qualify_lead` step in *this* worker process
+resolves it exactly as the API process's own 10.2 synchronous path does,
+against the same OpenAI-or-unconfigured production-provider state.
 
 **Why not inside `product/automation/durable/production_worker.py`
 itself.** That module is part of `product.automation`, which the
@@ -32,11 +34,13 @@ this phase's own scope.
 from __future__ import annotations
 
 from product.action_registry_composition import wire_production_automation_actions
+from product.ai.production import configure_production_llm_provider_from_environment
 from product.automation.durable.production_worker import main as _run_production_worker
 
 
 def main() -> None:
     wire_production_automation_actions()
+    configure_production_llm_provider_from_environment()
     _run_production_worker()
 
 

@@ -142,8 +142,9 @@ Phase 9.4 adds `product.ai.event_handlers` for its own module-level
 roles -- the same "registered at import time" discipline every other
 `event_handlers.py` here follows) and one more purge participant for the
 new `ai.tenant_policies` table. **Still no AI route and no dedicated AI
-execution path is mounted**: production AI execution stays fail-closed at
-`product/ai/production.py` because no AI vendor has been approved.
+execution path is mounted**: production AI execution was fail-closed at
+`product/ai/production.py` at this point because no AI vendor had yet
+been approved -- see the Phase 26 paragraph below for what changed.
 
 Phase 10.4A adds one explicit composition-root call,
 `wire_production_automation_actions()`
@@ -151,15 +152,27 @@ Phase 10.4A adds one explicit composition-root call,
 own `ai.crm.qualify_lead` Automation-action adapter into Automation's
 neutral action registry (`product/foundation/workflow_actions.py`,
 Phase 10.3A) -- so an Automation workflow can invoke it through the
-existing `/v1/automation`/`/v1/automation/durable` surface, still gated
-by the same fail-closed production-AI boundary above (no provider
-configured means the action still fails, safely, on execution). Pure
-in-memory, no database dependency, safe alongside every other
+existing `/v1/automation`/`/v1/automation/durable` surface, gated by the
+production-AI boundary described in the Phase 26 paragraph immediately
+below. Pure in-memory, no database dependency, safe alongside every other
 registration in `create_app()` below. This is the *only* place this file
 touches Phase 10.4A -- `product.automation` still never imports
 `product.ai`, and `product.ai` still never imports `product.automation`;
 `product/action_registry_composition.py` is the one module allowed to
 import both, precisely because it is neither.
+
+Phase 26 adds a second explicit composition-root call,
+`configure_production_llm_provider_from_environment()`
+(`product/ai/production.py`) -- builds and registers the OpenAI adapter
+(`product/ai/openai_provider.py::OpenAIProvider`) when
+`OPENAI_API_KEY`/`OPENAI_MODEL` are both set in this process's own
+environment, otherwise a harmless no-op that leaves production AI
+execution fail-closed exactly as it was before this phase (a test
+process or an environment with no OpenAI credential configured keeps
+booting normally). Pure in-memory, no database dependency, no new import
+edge -- `product.ai` was already imported by this file; this call adds
+no module `product.automation`/`product.ai` boundary does not already
+have.
 
 Phase 11.1 adds `product/websites/routes.py` (`/v1/websites`, plus one
 public, unauthenticated `/v1/websites/public/{website_slug}/{page_slug}`
@@ -192,6 +205,7 @@ from product.accounting.routes import router as accounting_router
 from product.action_registry_composition import wire_production_automation_actions
 from product.agency.routes import router as agency_router
 from product.ai import event_handlers as _ai_event_handlers  # noqa: F401
+from product.ai.production import configure_production_llm_provider_from_environment
 from product.ai.purge import register as register_ai_purge_participant
 from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
 from product.appointments.purge import register as register_appointments_purge_participant
@@ -307,6 +321,7 @@ def create_app() -> FastAPI:
     register_templates_purge_participant()
     register_accounting_purge_participant()
     wire_production_automation_actions()
+    configure_production_llm_provider_from_environment()
     if os.environ.get("ENVIRONMENT") == "development" and os.environ.get("DEV_AUTH_BYPASS") == "1":
         _install_dev_auth_bypass(app)
     return app

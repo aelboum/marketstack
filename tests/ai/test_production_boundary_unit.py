@@ -4,8 +4,14 @@ fail-closed provider/registry (docs/ROADMAP.md Phase 9.4,
 no network -- a plain unit test, part of the default `pytest` run.
 
 The central property proven here is the one this phase exists to
-guarantee: **production AI execution is disabled and cannot be enabled by
-accident**, because no AI vendor has been approved for this product.
+guarantee: **production AI execution cannot be enabled by accident**.
+Before docs/ROADMAP.md Phase 26, this held because no AI vendor had been
+approved at all; since Phase 26 (OpenAI approved, see the "OpenAI
+production registration" section below), it holds because an
+*unconfigured* environment (no `OPENAI_API_KEY`/`OPENAI_MODEL` set) still
+fails closed exactly as before -- registration is never automatic, and a
+test-double provider can still never become production regardless of
+what is configured.
 """
 
 from __future__ import annotations
@@ -18,8 +24,12 @@ from product.ai.capabilities import (
     validate_capability,
 )
 from product.ai.errors import AIProviderNotConfiguredError, AIValidationError
+from product.ai.openai_config import get_openai_config
+from product.ai.openai_provider import OpenAIProvider
+from product.ai.policy import PLATFORM_PROVIDER_POLICY
 from product.ai.production import (
     clear_production_llm_provider,
+    configure_production_llm_provider_from_environment,
     get_production_llm_provider,
     production_llm_provider_configured,
     production_tool_registry,
@@ -166,3 +176,77 @@ def test_importing_product_ai_registers_no_production_provider() -> None:
 
     importlib.reload(product.ai)
     assert production_llm_provider_configured() is False
+
+
+# --- OpenAI production registration (docs/ROADMAP.md Phase 26) --------------
+
+
+def test_openai_is_platform_eligible() -> None:
+    assert "openai" in PLATFORM_PROVIDER_POLICY.eligible_providers
+
+
+def test_fake_remains_platform_eligible_alongside_openai() -> None:
+    """Phase 26 adds `"openai"`; it must never remove `"fake"` -- existing
+    tests elsewhere (`tests/ai/test_automation_action_integration.py`)
+    depend on `"fake"`-shaped test doubles remaining platform-eligible."""
+    assert "fake" in PLATFORM_PROVIDER_POLICY.eligible_providers
+
+
+def test_openai_registers_and_is_retrievable_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No SDK call happens here -- constructing `openai.OpenAI(...)`
+    performs no network I/O (verified: only `complete()` does), so this
+    proves real registration/retrieval without mocking the SDK client."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-test-model")
+    get_openai_config.cache_clear()
+    try:
+        provider = OpenAIProvider()
+        register_production_llm_provider(provider)
+
+        assert production_llm_provider_configured() is True
+        assert get_production_llm_provider() is provider
+        assert get_production_llm_provider().name == "openai"
+
+        registry = production_tool_registry()
+        assert registry.get(QUALIFY_LEAD_TOOL_KEY).key == QUALIFY_LEAD_TOOL_KEY
+    finally:
+        get_openai_config.cache_clear()
+
+
+def test_configure_from_environment_registers_openai_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`configure_production_llm_provider_from_environment()` is the one
+    real composition-root call (`product/api/main.py`,
+    `product/production_worker_entrypoint.py`) -- proves it actually
+    registers OpenAI end-to-end from nothing but environment state."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-test-model")
+    get_openai_config.cache_clear()
+    try:
+        configure_production_llm_provider_from_environment()
+        assert production_llm_provider_configured() is True
+        assert get_production_llm_provider().name == "openai"
+    finally:
+        get_openai_config.cache_clear()
+
+
+def test_configure_from_environment_is_a_harmless_noop_when_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The composition-root call must never crash application startup in
+    an environment with no OpenAI credential -- mirrors `core/email`'s own
+    "must not crash unrelated application startup unless email is
+    explicitly configured as mandatory" precedent."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    get_openai_config.cache_clear()
+    try:
+        configure_production_llm_provider_from_environment()
+        assert production_llm_provider_configured() is False
+        with pytest.raises(AIProviderNotConfiguredError):
+            get_production_llm_provider()
+    finally:
+        get_openai_config.cache_clear()

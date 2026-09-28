@@ -31,13 +31,17 @@ against `product/ai/capabilities.py`'s own closed production vocabulary
 on every write. Neither is a free-text field a tenant can widen into
 something the platform never approved.
 
-**Platform-wide provider eligibility still names only `"fake"`**, and
-that is still the honest state: no AI vendor has been approved in this
-repository (`docs/RISKS-AND-OPEN-QUESTIONS.md` item 6 names SMS,
-WhatsApp, telephony, and calendar sync -- not LLM). Production execution
-does not become possible merely because a policy row now exists: it also
-requires a configured production provider, and there is none --
-`product/ai/production.py` fails closed on exactly that.
+**Platform-wide provider eligibility now also names `"openai"`**
+(docs/ROADMAP.md Phase 26 -- the approved production vendor,
+`product/ai/openai_provider.py::OpenAIProvider`). `"fake"` remains
+eligible too, unchanged -- existing tests that exercise the allow path
+with a test double still depend on it being platform-eligible. Production
+execution does not become possible merely because a policy row now names
+`"openai"`: it also requires `OPENAI_API_KEY`/`OPENAI_MODEL` to be
+actually configured in the running process's own environment, or
+`product/ai/production.py::get_production_llm_provider()` still fails
+closed (`AIProviderNotConfiguredError`) regardless of what any tenant's
+own policy allows.
 """
 
 from __future__ import annotations
@@ -55,7 +59,9 @@ from product.ai.errors import AIValidationError
 from product.ai.models import TenantAIPolicy
 from product.ai.permissions import AI_POLICY_RESOURCE, require
 
-PLATFORM_PROVIDER_POLICY = ProviderEligibilityPolicy(eligible_providers=frozenset({"fake"}))
+PLATFORM_PROVIDER_POLICY = ProviderEligibilityPolicy(
+    eligible_providers=frozenset({"fake", "openai"})
+)
 
 #: The data classification every production capability operates on today.
 #: `control_plane.data_authorization` validates this against its own

@@ -23,9 +23,9 @@ from __future__ import annotations
 from product.ai.policy import PLATFORM_PROVIDER_POLICY
 
 
-def test_platform_provider_policy_only_allows_fake() -> None:
-    """No real LLM vendor has been approved for this product, so `"fake"`
-    remains the only globally eligible provider -- and a tenant policy can
-    only ever narrow this list, never widen it
-    (`product/ai/policy.py`'s own module docstring)."""
-    assert PLATFORM_PROVIDER_POLICY.eligible_providers == frozenset({"fake"})
+def test_platform_provider_policy_allows_exactly_fake_and_openai() -> None:
+    """`"fake"` (the test double) and `"openai"` (docs/ROADMAP.md Phase 26's
+    approved production vendor) are the only two globally eligible
+    providers -- a tenant policy can only ever narrow this list, never
+    widen it (`product/ai/policy.py`'s own module docstring)."""
+    assert PLATFORM_PROVIDER_POLICY.eligible_providers == frozenset({"fake", "openai"})

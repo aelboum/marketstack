@@ -53,10 +53,15 @@ class AIAccessDeniedError(Exception):
 
 class AIProviderNotConfiguredError(RuntimeError):
     """Raised when production AI execution is requested but no production
-    LLM provider is configured (Phase 9.4). **This is the intended
-    resting state of the system**, not a misconfiguration to work around:
-    no AI vendor has been approved in this repository, so there is no
-    production adapter to select, and the production path fails closed
-    here rather than silently substituting the deterministic
-    `FakeLLMProvider` (`product/ai/production.py`'s own module
-    docstring)."""
+    LLM provider is configured. Two call sites raise this today, both
+    "fails closed rather than silently substituting a default" cases: (1)
+    `product/ai/production.py::get_production_llm_provider()`, when no
+    provider has been registered at all (Phase 9.4's own original resting
+    state, e.g. no vendor approved, or approved but not yet deployed in
+    this environment); and (2) `product/ai/openai_provider.py`'s own
+    environment-configuration check (Phase 26), when `OPENAI_API_KEY`/
+    `OPENAI_MODEL` are not set in an environment that otherwise expects
+    the OpenAI adapter to be constructed -- deployment-configuration
+    incompleteness, not a code defect, and never worked around by
+    substituting the deterministic `FakeLLMProvider`
+    (`product/ai/production.py`'s own module docstring)."""

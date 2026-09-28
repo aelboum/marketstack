@@ -55,6 +55,8 @@ from control_plane.data_authorization import ProviderEligibilityPolicy
 from core.audit_log import list as list_audit_log
 from product.agency.provisioning import provision_agency, provision_client
 from product.ai.automation_action import build_qualify_lead_workflow_action
+from product.ai.openai_config import get_openai_config
+from product.ai.openai_provider import OpenAIProvider
 from product.ai.policy import set_tenant_ai_policy
 from product.ai.production import (
     clear_production_llm_provider,
@@ -202,6 +204,64 @@ def test_allowed_capability_and_authorized_resource_proceeds() -> None:
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
+
+
+def test_allowed_capability_proceeds_through_the_real_openai_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docs/ROADMAP.md Phase 26 -- the identical allow-path proof above,
+    but through the real, shipped `product.ai.openai_provider.OpenAIProvider`
+    class instead of this file's own `_TestDoubleProvider`, proving the
+    full chain: tenant policy -> provider eligibility -> Data Authorization
+    -> AI invocation -> `OpenAIProvider` -> `LLMCompletion`. Only the
+    OpenAI SDK's own `responses.create()` call is mocked (mirrors
+    `tests/ai/test_openai_provider_unit.py`'s own technique exactly) --
+    everything else in this chain is the real, unmodified production code,
+    and no real OpenAI API key or network access is used anywhere."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-test-model")
+    get_openai_config.cache_clear()
+
+    class _FakeOpenAIClient:
+        def __init__(
+            self, *, api_key: str, base_url: str, timeout: float, max_retries: int
+        ) -> None:
+            self.responses = self
+
+        def create(self, **kwargs: object) -> object:
+            class _Response:
+                output_text = "OpenAI-backed qualification note."
+
+            return _Response()
+
+    monkeypatch.setattr("product.ai.openai_provider.openai.OpenAI", _FakeOpenAIClient)
+
+    widened = ProviderEligibilityPolicy(
+        eligible_providers=frozenset({"integration-test-double", "openai"})
+    )
+    monkeypatch.setattr("product.ai.policy.PLATFORM_PROVIDER_POLICY", widened)
+    monkeypatch.setattr("product.ai.invocation.PLATFORM_PROVIDER_POLICY", widened)
+    register_production_llm_provider(OpenAIProvider())
+
+    owner = make_user()
+    agency, client = _agency_and_client(owner.id)
+    try:
+        contact = create_contact(owner.id, client.tenant_id, first_name="Ada", last_name="L")
+        set_tenant_ai_policy(
+            owner.id,
+            client.tenant_id,
+            enabled=True,
+            approved_capabilities=(QUALIFY_LEAD_TOOL_KEY,),
+            allowed_providers=("openai",),
+        )
+        result = _spec_execute(owner.id, client.tenant_id, contact.id)
+        assert result["contact_id"] == str(contact.id)
+        assert result["provider"] == "openai"
+        assert result["qualification"] == "OpenAI-backed qualification note."
+    finally:
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
+        cleanup_users(owner.id)
+        get_openai_config.cache_clear()
 
 
 def test_policy_revocation_before_execution_denies() -> None:

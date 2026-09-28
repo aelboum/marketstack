@@ -1,22 +1,25 @@
 """The production AI execution boundary (docs/ROADMAP.md Phase 9.4):
 production provider selection and the production tool registry.
 
-**No AI vendor has been approved in this repository, and this module does
-not pick one.** Searched before writing this: `docs/INTEGRATIONS.md` and
-`docs/RESPONSIBILITY-MATRIX.md` mention "Claude/OpenAI/etc." only as
-illustrative examples of the Category D class sitting *behind* the Data
-Authorization boundary, never as a decision; `docs/RISKS-AND-OPEN-
-QUESTIONS.md` item 6 enumerates the still-open provider decisions and
-names SMS, WhatsApp, telephony, and calendar sync -- not LLM. So there is
-no approved provider to configure, and inventing one here would be a
-decision this phase has no authority to make.
+**OpenAI is the approved production vendor (docs/ROADMAP.md Phase 26).**
+`product/ai/openai_provider.py::OpenAIProvider` is the one concrete
+`LLMProvider` adapter this repository registers, wired in through this
+module's own `configure_production_llm_provider_from_environment()`
+below -- never a second vendor, never a multi-provider registry. Before
+Phase 26, no vendor had been approved at all (`docs/RISKS-AND-OPEN-
+QUESTIONS.md` item 6 named only SMS/WhatsApp/telephony/calendar-sync as
+open provider decisions, never LLM); that gap is what this phase closes.
 
-**What that means concretely: production AI execution fails closed.**
-`get_production_llm_provider()` raises `AIProviderNotConfiguredError`
-unless a real adapter has been registered, and none is registered,
-because none exists. `production_tool_registry()` therefore cannot be
-built either. This is the intended resting state, not a gap to work
-around -- and it is enforced structurally rather than by convention:
+**Being approved is not the same as being configured in every
+environment.** `configure_production_llm_provider_from_environment()`
+only registers `OpenAIProvider` when `OPENAI_API_KEY`/`OPENAI_MODEL` are
+both actually set in the current process's own environment -- an
+environment without them (a test process, a local dev machine with no
+`.env` configured) still leaves `get_production_llm_provider()` raising
+`AIProviderNotConfiguredError`, the identical fail-closed behavior this
+module has always had. This is deployment-configuration incompleteness,
+never worked around by silently substituting the deterministic
+`FakeLLMProvider`:
 
 - **The Fake provider can never become the production provider.**
   `register_production_llm_provider()` rejects any provider whose `name`
@@ -25,10 +28,11 @@ around -- and it is enforced structurally rather than by convention:
   Fake provider remains exactly what it has always been: a deterministic
   test double, used by tests that construct their own registry.
 - **Production registration is explicit, not an import side effect.**
-  A provider is registered by an explicit call, and the production
-  registry is *built on demand* from the approved capability list, so
-  importing `product.ai` (or anything else) registers nothing and changes
-  nothing.
+  `configure_production_llm_provider_from_environment()` is called once
+  by each real process's own composition root
+  (`product/api/main.py::create_app()`,
+  `product/production_worker_entrypoint.py`) -- importing `product.ai`
+  (or anything else) registers nothing and changes nothing.
 - **Only approved capabilities are ever registered.**
   `production_tool_registry()` builds from
   `product/ai/capabilities.py::PRODUCTION_CAPABILITIES` -- the closed
@@ -73,10 +77,9 @@ _production_provider: LLMProvider | None = None
 
 def register_production_llm_provider(provider: LLMProvider) -> None:
     """Register the production `LLMProvider`. Called by a deployment's own
-    composition root once a real vendor has been approved and an adapter
-    written -- there is no such adapter in this repository today, so in
-    practice nothing calls this outside tests that verify the boundary
-    itself.
+    composition root -- `configure_production_llm_provider_from_environment()`
+    below is the one production call site (Phase 26); a test that
+    exercises this boundary directly is the other.
 
     Refuses any test-double provider by name, which is what makes
     "the Fake provider silently becomes production" unrepresentable
@@ -107,15 +110,48 @@ def get_production_llm_provider() -> LLMProvider:
     """The configured production provider, or `AIProviderNotConfiguredError`.
 
     No fallback, no default, no Fake substitution -- see this module's own
-    docstring for why the absence of a provider is the correct and
-    intended production state today."""
+    docstring for why an unconfigured environment fails closed rather than
+    silently substituting one."""
     if _production_provider is None:
         raise AIProviderNotConfiguredError(
-            "no production AI provider is configured -- no AI vendor has been approved "
-            "for this product, so production AI execution is disabled. See "
-            "product/ai/production.py's own module docstring."
+            "no production AI provider is configured in this environment -- "
+            "OPENAI_API_KEY/OPENAI_MODEL may be unset here, so production AI "
+            "execution is disabled. See product/ai/production.py's own module "
+            "docstring."
         )
     return _production_provider
+
+
+def configure_production_llm_provider_from_environment() -> None:
+    """Explicit, idempotent composition-root call (docs/ROADMAP.md Phase
+    26) -- never an import-time side effect. Builds and registers the
+    OpenAI adapter (`product/ai/openai_provider.py::OpenAIProvider`) when
+    `OPENAI_API_KEY`/`OPENAI_MODEL` are both configured in this process's
+    own environment; does nothing otherwise, leaving
+    `get_production_llm_provider()` in its existing fail-closed state
+    (mirrors `core/email`'s own "must not crash unrelated application
+    startup unless email is explicitly configured as mandatory" posture --
+    a test or local-dev environment with no OpenAI credential set must
+    keep booting normally, exactly as it does today).
+
+    Called once from each real process's own startup composition root
+    (`product/api/main.py::create_app()`,
+    `product/production_worker_entrypoint.py`) -- never from a module's
+    own import, mirroring `product/action_registry_composition.py
+    ::wire_production_automation_actions()`'s identical "explicit call,
+    not an import side effect" discipline. Safe to call more than once in
+    the same process: re-registering the same already-configured provider
+    is a harmless re-assignment, not an error. Not called from any test --
+    tests that need a configured production provider register their own
+    explicitly, mirroring every other test's own precedent in this
+    module."""
+    from product.ai.openai_provider import OpenAIProvider
+
+    try:
+        provider = OpenAIProvider()
+    except AIProviderNotConfiguredError:
+        return
+    register_production_llm_provider(provider)
 
 
 def production_tool_registry() -> ToolRegistry:
@@ -141,6 +177,7 @@ def production_tool_registry() -> ToolRegistry:
 
 __all__ = [
     "clear_production_llm_provider",
+    "configure_production_llm_provider_from_environment",
     "get_production_llm_provider",
     "production_llm_provider_configured",
     "production_tool_registry",
