@@ -91,3 +91,23 @@ class TelephonyInvalidStateTransitionError(Exception):
         super().__init__(
             f"call {call_id} cannot transition from {current_status!r} to {requested_status!r}."
         )
+
+
+class CallSessionInvalidTransitionError(Exception):
+    """Raised when an ephemeral call-session turn (docs/ROADMAP.md Phase
+    27.1) is asked to transition from a lifecycle state that does not
+    permit it, or when a turn id no longer matches the session's own
+    current active turn (a stale/out-of-order delivery -- never silently
+    applied against superseded state). Mirrors
+    `TelephonyInvalidStateTransitionError`'s identical shape and identical
+    "duplicate delivery of the same, already-applied transition is a
+    no-op, not this error" discipline -- see
+    `product/telephony/call_session.py`'s own module docstring."""
+
+    def __init__(self, turn_id: uuid.UUID, *, current_state: str, requested_state: str) -> None:
+        self.turn_id = turn_id
+        self.current_state = current_state
+        self.requested_state = requested_state
+        super().__init__(
+            f"turn {turn_id} cannot transition from {current_state!r} to {requested_state!r}."
+        )
