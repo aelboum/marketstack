@@ -319,7 +319,5 @@ def test_complete_route_requires_authentication() -> None:
     from product.api.main import create_app
 
     api = TestClient(create_app())
-    resp = api.post(
-        f"/v1/appointments/tenants/{uuid.uuid4()}/appointments/{uuid.uuid4()}/complete"
-    )
+    resp = api.post(f"/v1/appointments/tenants/{uuid.uuid4()}/appointments/{uuid.uuid4()}/complete")
     assert resp.status_code == 401

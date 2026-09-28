@@ -211,9 +211,7 @@ def execute_step_action_activity(input: ExecuteStepActionInput) -> ExecuteStepAc
         # and `input.context`, both of which Temporal guarantees identical
         # across a genuine retry of this same activity invocation, so the
         # same reference always resolves to the same value with no caching.
-        resolved_action_config = resolve_step_output_references(
-            input.action_config, input.context
-        )
+        resolved_action_config = resolve_step_output_references(input.action_config, input.context)
         result = execute_action(
             input.action_type,
             uuid.UUID(input.actor_user_id),

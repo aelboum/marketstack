@@ -7,19 +7,31 @@ disposable Postgres:
 Marked `integration`, excluded from the default `pytest` run.
 
 **Every allow-path test here supplies its own `ToolRegistry` built on
-`FakeLLMProvider`.** That is not a shortcut around production: it is the
-only honest way to exercise the chain, because no AI vendor has been
-approved, so `product/ai/production.py` has no adapter to build a
+`_StructuredFakeLLMProvider`.** That is not a shortcut around production:
+it is the only honest way to exercise the chain, because no AI vendor has
+been approved, so `product/ai/production.py` has no adapter to build a
 production registry from and fails closed by design (proven separately
 in `tests/ai/test_production_boundary_unit.py`). What these tests prove
 is that the *policy and authorization* half of the production path is
 real: a persisted, per-tenant, audited policy now decides what Data
 Authorization allows, where Phase 9.1-9.3 hardcoded `None` for everyone.
+
+**Not the shared `FakeLLMProvider`.** `product/ai/provider.py`'s own
+`FakeLLMProvider` returns a fixed, deliberately non-JSON marker string by
+design -- it can never satisfy `ai.crm.qualify_lead`'s own Phase 26A
+structured-decision contract (`product/ai/tools/lead_qualification.py`'s
+own module docstring is explicit about this). `_StructuredFakeLLMProvider`
+below mirrors `tests/ai/test_tools_integration.py`'s own identically-named,
+identically-shaped local test double -- kept local to each test file
+rather than changing the shared `FakeLLMProvider` shape every other AI
+tool test relies on.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
+from dataclasses import dataclass, field
 
 import pytest
 from control_plane.orchestration import ToolRegistry
@@ -37,7 +49,7 @@ from product.ai.policy import (
     resolve_tenant_ai_policy,
     set_tenant_ai_policy,
 )
-from product.ai.provider import FakeLLMProvider
+from product.ai.provider import LLMCompletion
 from product.ai.tools.lead_qualification import TOOL_KEY as QUALIFY_LEAD_TOOL_KEY
 from product.ai.tools.lead_qualification import build_lead_qualification_tool
 from product.crm.contacts import create_contact
@@ -52,6 +64,30 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+@dataclass
+class _StructuredFakeLLMProvider:
+    """A `LLMProvider` test double shaped for `ai.crm.qualify_lead`'s own
+    Phase 26A structured JSON contract -- see module docstring."""
+
+    decision: str = "qualified"
+    reason: str = "Contact has a name, email, and phone on file."
+    qualification: str = "Looks like a promising lead."
+    requests: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        return "fake"
+
+    def complete(
+        self, *, system_prompt: str, user_content: str, max_output_chars: int
+    ) -> LLMCompletion:
+        self.requests.append((system_prompt, user_content))
+        payload = json.dumps(
+            {"decision": self.decision, "reason": self.reason, "qualification": self.qualification}
+        )
+        return LLMCompletion(text=payload[:max_output_chars], provider_name=self.name)
+
+
 def _name(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
@@ -64,7 +100,7 @@ def _agency_and_client(owner_id):
 
 def _registry() -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(build_lead_qualification_tool(FakeLLMProvider()))
+    registry.register(build_lead_qualification_tool(_StructuredFakeLLMProvider()))
     return registry
 
 
@@ -331,7 +367,7 @@ async def test_approved_capability_and_authorized_resource_is_allowed() -> None:
         contact = create_contact(owner.id, client.tenant_id, first_name="Ada", last_name="L")
         _approve(owner.id, client.tenant_id)
 
-        provider = FakeLLMProvider()
+        provider = _StructuredFakeLLMProvider()
         registry = ToolRegistry()
         registry.register(build_lead_qualification_tool(provider))
 

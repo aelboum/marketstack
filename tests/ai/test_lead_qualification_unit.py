@@ -66,17 +66,13 @@ def test_wrong_typed_field_rejected(raw: str) -> None:
 
 
 def test_oversized_reason_rejected_not_truncated() -> None:
-    raw = _completion(
-        decision="qualified", reason="x" * (MAX_REASON_CHARS + 1), qualification="y"
-    )
+    raw = _completion(decision="qualified", reason="x" * (MAX_REASON_CHARS + 1), qualification="y")
     with pytest.raises(AIProviderError):
         parse_qualify_lead_completion(raw)
 
 
 def test_oversized_qualification_rejected_not_truncated() -> None:
-    raw = _completion(
-        decision="qualified", reason="x", qualification="y" * (MAX_OUTPUT_CHARS + 1)
-    )
+    raw = _completion(decision="qualified", reason="x", qualification="y" * (MAX_OUTPUT_CHARS + 1))
     with pytest.raises(AIProviderError):
         parse_qualify_lead_completion(raw)
 

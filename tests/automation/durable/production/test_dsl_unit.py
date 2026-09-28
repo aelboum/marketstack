@@ -182,17 +182,13 @@ def test_malformed_reference_shape_rejected() -> None:
 
 def test_reference_wrong_step_and_field_types_rejected() -> None:
     steps = [
-        _action_step(
-            "s1", action_config={"title": {"$step_output": {"step": 123, "field": "x"}}}
-        )
+        _action_step("s1", action_config={"title": {"$step_output": {"step": 123, "field": "x"}}})
     ]
     with pytest.raises(AutomationValidationError):
         validate_workflow_definition("s1", steps)
 
     steps = [
-        _action_step(
-            "s1", action_config={"title": {"$step_output": {"step": "s1", "field": 123}}}
-        )
+        _action_step("s1", action_config={"title": {"$step_output": {"step": "s1", "field": 123}}})
     ]
     with pytest.raises(AutomationValidationError):
         validate_workflow_definition("s1", steps)
@@ -202,9 +198,7 @@ def test_reference_with_extra_keys_rejected() -> None:
     steps = [
         _action_step(
             "s1",
-            action_config={
-                "title": {"$step_output": {"step": "s1", "field": "x", "extra": True}}
-            },
+            action_config={"title": {"$step_output": {"step": "s1", "field": "x", "extra": True}}},
         )
     ]
     with pytest.raises(AutomationValidationError):

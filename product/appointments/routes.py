@@ -578,9 +578,7 @@ def staff_complete_appointment_route(
     appointment_id: uuid.UUID,
     actor_id: uuid.UUID = Depends(get_current_actor),
 ) -> dict[str, object]:
-    return _appointment_dict(
-        _call(staff_complete_appointment, actor_id, tenant_id, appointment_id)
-    )
+    return _appointment_dict(_call(staff_complete_appointment, actor_id, tenant_id, appointment_id))
 
 
 @router.post("/tenants/{tenant_id}/appointments/{appointment_id}/no-show")
@@ -589,9 +587,7 @@ def staff_no_show_appointment_route(
     appointment_id: uuid.UUID,
     actor_id: uuid.UUID = Depends(get_current_actor),
 ) -> dict[str, object]:
-    return _appointment_dict(
-        _call(staff_no_show_appointment, actor_id, tenant_id, appointment_id)
-    )
+    return _appointment_dict(_call(staff_no_show_appointment, actor_id, tenant_id, appointment_id))
 
 
 @router.post("/tenants/{tenant_id}/appointments/{appointment_id}/reschedule")

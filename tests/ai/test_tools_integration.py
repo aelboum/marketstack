@@ -66,6 +66,7 @@ class _StructuredFakeLLMProvider:
         )
         return LLMCompletion(text=payload[:max_output_chars], provider_name=self.name)
 
+
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
 

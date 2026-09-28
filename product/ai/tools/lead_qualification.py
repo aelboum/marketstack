@@ -56,9 +56,7 @@ TOOL_KEY = "ai.crm.qualify_lead"
 #: explicitly out of scope for this phase.
 QualifyLeadDecision = Literal["qualified", "not_qualified", "needs_more_info"]
 
-_VALID_DECISIONS: frozenset[str] = frozenset(
-    {"qualified", "not_qualified", "needs_more_info"}
-)
+_VALID_DECISIONS: frozenset[str] = frozenset({"qualified", "not_qualified", "needs_more_info"})
 
 #: `reason` is a short explanation, deliberately bounded well under the
 #: existing `MAX_OUTPUT_CHARS` (2000) the free-form `qualification` note
@@ -88,23 +86,17 @@ def parse_qualify_lead_completion(raw_text: str) -> tuple[QualifyLeadDecision, s
     try:
         parsed = json.loads(raw_text)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise AIProviderError(
-            "model returned a completion that was not valid JSON."
-        ) from exc
+        raise AIProviderError("model returned a completion that was not valid JSON.") from exc
     if not isinstance(parsed, dict):
         raise AIProviderError("model returned a JSON completion that was not an object.")
 
     decision = parsed.get("decision")
     if decision not in _VALID_DECISIONS:
-        raise AIProviderError(
-            "model returned a completion with a missing or invalid 'decision'."
-        )
+        raise AIProviderError("model returned a completion with a missing or invalid 'decision'.")
 
     reason = parsed.get("reason")
     if not isinstance(reason, str) or not reason:
-        raise AIProviderError(
-            "model returned a completion with a missing or invalid 'reason'."
-        )
+        raise AIProviderError("model returned a completion with a missing or invalid 'reason'.")
     if len(reason) > MAX_REASON_CHARS:
         raise AIProviderError(f"model completion 'reason' exceeds {MAX_REASON_CHARS} characters.")
 
