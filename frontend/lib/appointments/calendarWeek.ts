@@ -70,6 +70,19 @@ export type EventLayout = {
    * start time -- used only to decide whether an event actually falls
    * inside the rendered 08:00-18:00 grid window. */
   startHour: number;
+  /** Mirrors the mockup's own `dir`/`pad` (`design/Calendar.dc.html`):
+   * an event under an hour is too short to stack a title line above a
+   * details line without either clipping (a 24px-tall 30-minute slot
+   * cannot fit two 16px-line-height lines plus padding) or, worse,
+   * `overflow: hidden` silently hiding the second line entirely -- so
+   * short events lay their title and time side by side instead of
+   * stacked, with tighter padding to match. */
+  direction: "row" | "column";
+  paddingPx: [vertical: number, horizontal: number];
+  /** An event under an hour shows only its start time (mockup: `dur < 1
+   * ? fmt(h) : fmt(h)+'–'+fmt(h+dur)`) -- the row layout has no room for
+   * a full time range next to the title. */
+  compactTime: boolean;
 };
 
 /** Pixel position/height for one event block within the day column,
@@ -83,7 +96,16 @@ export function eventLayout(appointment: Appointment): EventLayout {
   const durationHours = Math.max((end.getTime() - start.getTime()) / 3_600_000, 0);
   const topPx = (startHour - GRID_START_HOUR) * ROW_HEIGHT_PX;
   const heightPx = Math.max(durationHours * ROW_HEIGHT_PX - 4, 20);
-  return { topPx, heightPx, startHour };
+  const paddingPx: [number, number] =
+    durationHours < 0.5 ? [2, 8] : durationHours < 1 ? [3, 8] : [6, 8];
+  return {
+    topPx,
+    heightPx,
+    startHour,
+    direction: durationHours < 1 ? "row" : "column",
+    paddingPx,
+    compactTime: durationHours < 1,
+  };
 }
 
 export function isWithinGridWindow(appointment: Appointment): boolean {

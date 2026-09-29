@@ -10,6 +10,7 @@ export type { MenuAction } from "./Menu";
 export { StatePanel, Spinner } from "./StatePanel";
 export { LoadingState, EmptyState, ErrorState, PermissionDeniedState, UnauthorizedState } from "./states";
 export { Dialog, ConfirmDialog } from "./Dialog";
+export { SidePanel } from "./SidePanel";
 export { InlineNotice } from "./InlineNotice";
 export type { NoticeTone } from "./InlineNotice";
 export { ApiErrorPanel } from "./ApiErrorPanel";

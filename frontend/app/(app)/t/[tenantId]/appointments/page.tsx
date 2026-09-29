@@ -36,10 +36,11 @@ import { Page } from "@/components/shell/Page";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
+import { SidePanel } from "@/components/ui/SidePanel";
 import {
   AppointmentsSubNav,
   BookAppointmentForm,
-  AppointmentCard,
+  AppointmentDetailPanel,
   CalendarEventForm,
   CalendarWeekView,
   CalendarDayView,
@@ -162,7 +163,12 @@ export default function AppointmentsWeekPage() {
 
       <div className={styles.toolbar}>
         <div className={styles.toolbarStart}>
-          <Button variant="secondary" size="sm" onClick={() => setCursor(new Date())}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className={styles.todayButton}
+            onClick={() => setCursor(new Date())}
+          >
             Vandaag
           </Button>
           <Button
@@ -271,29 +277,51 @@ export default function AppointmentsWeekPage() {
         />
       </Dialog>
 
+      {manageAppointment ? (
+        <AppointmentDetailPanel
+          tenantId={tenantId}
+          appointment={manageAppointment}
+          calendars={calendars}
+          onChanged={(updated) => {
+            setManageAppointment(updated);
+            setReloadKey((key) => key + 1);
+          }}
+          onClose={() => setManageAppointment(null)}
+        />
+      ) : null}
+
+      {/* A brand-new event is a centered form dialog (mockup layout
+          parity: design/Calendar.dc.html's own separate `ev-dialog`) --
+          only clicking an *existing* event opens the side panel below,
+          matching the same appointment/event distinction the mockup's
+          own `openEvent`/`e.open` handlers make. */}
       <Dialog
-        open={manageAppointment !== null}
-        onClose={() => setManageAppointment(null)}
-        title="Afspraak beheren"
+        open={eventDialog !== undefined && eventDialog.event === undefined}
+        onClose={() => setEventDialog(undefined)}
+        title="Nieuw evenement"
       >
-        {manageAppointment ? (
-          <AppointmentCard
+        {eventDialog !== undefined && eventDialog.event === undefined ? (
+          <CalendarEventForm
             tenantId={tenantId}
-            appointment={manageAppointment}
-            onChanged={(updated) => {
-              setManageAppointment(updated);
+            calendars={calendars}
+            defaultCalendarId={activeCalendarId ?? undefined}
+            defaultDate={cursor}
+            onCancel={() => setEventDialog(undefined)}
+            onSaved={() => {
+              setEventDialog(undefined);
               setReloadKey((key) => key + 1);
             }}
           />
         ) : null}
       </Dialog>
 
-      <Dialog
-        open={eventDialog !== undefined}
+      <SidePanel
+        open={eventDialog?.event !== undefined}
         onClose={() => setEventDialog(undefined)}
-        title={eventDialog?.event ? "Evenement bewerken" : "Nieuw evenement"}
+        kicker="Evenement"
+        title={eventDialog?.event?.title ?? "Evenement"}
       >
-        {eventDialog !== undefined ? (
+        {eventDialog?.event ? (
           <CalendarEventForm
             tenantId={tenantId}
             calendars={calendars}
@@ -311,7 +339,7 @@ export default function AppointmentsWeekPage() {
             }}
           />
         ) : null}
-      </Dialog>
+      </SidePanel>
 
       {toast ? (
         <div className={styles.toast} role="status">

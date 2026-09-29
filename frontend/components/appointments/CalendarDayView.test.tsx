@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CalendarDayView } from "./CalendarDayView";
 
@@ -90,7 +90,15 @@ describe("CalendarDayView", () => {
   it("shows a real CalendarEvent alongside an appointment, visually distinguished", async () => {
     setDefaultMocks();
     listAppointmentsMock.mockResolvedValue({ results: [appointment()], hasMore: false });
-    listCalendarEventsMock.mockResolvedValue({ results: [calendarEvent()], hasMore: false });
+    // An hour long specifically: a sub-hour event's own row layout has no
+    // room for the "· where · Agendapunt" suffix this test asserts on
+    // (see CalendarDayView.tsx's own `layout.direction === "row"` case) --
+    // this test is about the label/tone existing at all, not about the
+    // sub-hour layout, which has its own coverage below.
+    listCalendarEventsMock.mockResolvedValue({
+      results: [calendarEvent({ ends_at: new Date(2026, 8, 22, 12, 0).toISOString() })],
+      hasMore: false,
+    });
 
     render(
       <CalendarDayView tenantId="t1" day={DAY} onItemClick={vi.fn()} onNewAppointment={vi.fn()} />,
@@ -106,6 +114,25 @@ describe("CalendarDayView", () => {
         calendar_id: undefined,
       }),
     );
+  });
+
+  it("lays a sub-hour appointment's title and time side by side, dropping the status suffix", async () => {
+    // The default `appointment()` fixture is 09:00-09:30 -- 30 minutes,
+    // squarely inside the row layout's own sub-hour threshold.
+    setDefaultMocks();
+    listAppointmentsMock.mockResolvedValue({ results: [appointment()], hasMore: false });
+    listCalendarEventsMock.mockResolvedValue({ results: [], hasMore: false });
+
+    render(
+      <CalendarDayView tenantId="t1" day={DAY} onItemClick={vi.fn()} onNewAppointment={vi.fn()} />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    // Scoped to the event button itself -- "09:00" alone is ambiguous
+    // against the hour-column's own "09:00" row label.
+    const card = screen.getByText("Jane Doe").closest("button")!;
+    expect(within(card).getByText("09:00")).toBeInTheDocument();
+    expect(within(card).queryByText(/Bevestigd/)).not.toBeInTheDocument();
   });
 
   it("calls onItemClick with an appointment-kind item when an appointment is clicked", async () => {

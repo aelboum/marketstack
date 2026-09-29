@@ -44,6 +44,7 @@ import {
   eventLayout,
   isWithinGridWindow,
   weekDays,
+  type EventLayout,
 } from "@/lib/appointments/calendarWeek";
 import { LoadingState } from "@/components/ui/states";
 import { ApiErrorPanel } from "@/components/ui/ApiErrorPanel";
@@ -62,12 +63,17 @@ function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
-function formatEventTime(item: AgendaItem): string {
-  const fmt = (iso: string) => {
-    const d = new Date(iso);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  };
-  return `${fmt(item.startsAt)}–${fmt(item.endsAt)}`;
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Full range normally; just the start time when `compact` (mirrors the
+ * mockup's own `dur < 1 ? fmt(h) : fmt(h)+'–'+fmt(h+dur)` -- a sub-hour
+ * event's row layout has no room for a full range next to the title). */
+function formatEventTime(item: AgendaItem, compact: boolean): string {
+  if (compact) return fmtTime(item.startsAt);
+  return `${fmtTime(item.startsAt)}–${fmtTime(item.endsAt)}`;
 }
 
 /** `eventLayout()`/`isWithinGridWindow()` (`lib/appointments/calendarWeek.ts`)
@@ -177,18 +183,29 @@ export function CalendarWeekView({
     return { name, where, statusOrLabel, tone, isAppointment };
   }
 
-  function EventBlock({ item }: { item: AgendaItem }) {
+  function EventBlock({ item, layout }: { item: AgendaItem; layout: EventLayout }) {
     const { name, where, statusOrLabel, tone } = itemDisplay(item);
+    const [paddingV, paddingH] = layout.paddingPx;
     return (
       <button
         type="button"
         className={`${styles.event} ${tone}`}
+        style={{
+          flexDirection: layout.direction,
+          alignItems: layout.direction === "row" ? "center" : "stretch",
+          gap: layout.direction === "row" ? "0 6px" : "1px",
+          padding: `${paddingV}px ${paddingH}px`,
+        }}
         onClick={() => onItemClick(item)}
       >
         <span className={styles.eventTitle}>{name}</span>
-        <span className={styles.eventMeta}>
-          {formatEventTime(item)} · {where} · {statusOrLabel}
-        </span>
+        {layout.direction === "row" ? (
+          <span className={styles.eventMeta}>{formatEventTime(item, layout.compactTime)}</span>
+        ) : (
+          <span className={styles.eventMeta}>
+            {formatEventTime(item, layout.compactTime)} · {where} · {statusOrLabel}
+          </span>
+        )}
       </button>
     );
   }
@@ -226,7 +243,7 @@ export function CalendarWeekView({
                     className={styles.eventPosition}
                     style={{ top: `${layout.topPx}px`, height: `${layout.heightPx}px` }}
                   >
-                    <EventBlock item={item} />
+                    <EventBlock item={item} layout={layout} />
                   </div>
                 );
               })}
@@ -256,7 +273,7 @@ export function CalendarWeekView({
                         onClick={() => onItemClick(item)}
                       >
                         <span className={`${styles.agendaTone} ${tone}`} aria-hidden="true" />
-                        <span className={styles.agendaTime}>{formatEventTime(item)}</span>
+                        <span className={styles.agendaTime}>{formatEventTime(item, false)}</span>
                         <span className={styles.agendaRowBody}>
                           <span className={styles.agendaTitle}>{name}</span>
                           <span className={styles.agendaWhere}>

@@ -11,5 +11,6 @@ export { AvailableSlotsPicker } from "./AvailableSlotsPicker";
 export { BookingLinkPanel } from "./BookingLinkPanel";
 export { BookAppointmentForm } from "./BookAppointmentForm";
 export { AppointmentCard } from "./AppointmentCard";
+export { AppointmentDetailPanel } from "./AppointmentDetailPanel";
 export { ManageAppointmentPanel } from "./ManageAppointmentPanel";
 export { RemindersPanel } from "./RemindersPanel";

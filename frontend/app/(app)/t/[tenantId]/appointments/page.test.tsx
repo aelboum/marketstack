@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AppointmentsWeekPage from "./page";
 import { getWeekStart } from "@/lib/appointments/calendarWeek";
@@ -156,7 +156,7 @@ describe("AppointmentsWeekPage", () => {
     expect(listAppointmentsMock.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it("clicking a real calendar event in the Agenda/List view opens it for editing", async () => {
+  it("clicking a real calendar event in the Agenda/List view opens it for editing in a side panel", async () => {
     setDefaultMocks();
     listCalendarEventsMock.mockResolvedValue({
       results: [
@@ -182,12 +182,14 @@ describe("AppointmentsWeekPage", () => {
     await waitFor(() => expect(screen.getByText("Team meeting")).toBeInTheDocument());
     await user.click(screen.getByText("Team meeting"));
 
-    const dialog = await screen.findByRole("dialog", { name: "Evenement bewerken" });
-    expect(dialog).toBeInTheDocument();
+    // An existing event opens the side panel (its title is the event's
+    // own title), not the centered "Nieuw evenement" create dialog.
+    const panel = await screen.findByRole("dialog", { name: "Team meeting" });
+    expect(panel).toBeInTheDocument();
     expect(screen.getByLabelText("Titel")).toHaveValue("Team meeting");
   });
 
-  it("opens the real AppointmentCard in a manage dialog when a real event is clicked", async () => {
+  it("opens the real appointment detail side panel when a real event is clicked", async () => {
     setDefaultMocks();
     listCalendarsMock.mockResolvedValue({
       results: [{ id: "cal1", tenant_id: "t1", name: "Hoofdagenda", owner_user_id: "u1", timezone: "Europe/Amsterdam", created_at: "", updated_at: "" }],
@@ -227,12 +229,15 @@ describe("AppointmentsWeekPage", () => {
     const [firstEvent] = screen.getAllByText("Jane Doe");
     await user.click(firstEvent);
 
-    const dialog = await screen.findByRole("dialog", { name: "Afspraak beheren" });
-    // AppointmentCard's own real content -- the appointment id, proof
-    // the already-fetched object was handed straight through, no
-    // fabricated re-lookup.
-    expect(screen.getByText("a1")).toBeInTheDocument();
-    expect(dialog).toBeInTheDocument();
+    // AppointmentDetailPanel's own real content, proof the already-
+    // fetched appointment (and its resolved contact/calendar) was handed
+    // straight through, no fabricated re-lookup: the panel's title is the
+    // contact's real name, and its body shows the real calendar name and
+    // status -- never the raw appointment/calendar/contact id.
+    const panel = await screen.findByRole("dialog", { name: "Jane Doe" });
+    expect(within(panel).getByText("Hoofdagenda")).toBeInTheDocument();
+    expect(within(panel).getByText("Bevestigd")).toBeInTheDocument();
+    expect(within(panel).queryByText("a1")).not.toBeInTheDocument();
   });
 
   it("offers a real calendar selector once more than one calendar exists", async () => {

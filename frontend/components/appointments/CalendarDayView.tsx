@@ -46,7 +46,11 @@ function formatTime(iso: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function formatEventTime(item: AgendaItem): string {
+/** Full range normally; just the start time when `compact` (mirrors the
+ * mockup's own `dur < 1 ? fmt(h) : fmt(h)+'–'+fmt(h+dur)` -- a sub-hour
+ * event's row layout has no room for a full range next to the title). */
+function formatEventTime(item: AgendaItem, compact: boolean): string {
+  if (compact) return formatTime(item.startsAt);
   return `${formatTime(item.startsAt)}–${formatTime(item.endsAt)}`;
 }
 
@@ -179,10 +183,15 @@ export function CalendarDayView({
             const where = isAppointment
               ? (calendarNames[item.appointment.calendar_id] ?? "Agenda")
               : (calendarNames[item.event.calendar_id] ?? "Agenda");
-            const meta = isAppointment
-              ? `${formatEventTime(item)} · ${where} · ${STATUS_LABEL_NL[item.appointment.status]}`
-              : `${formatEventTime(item)} · ${where} · Agendapunt`;
+            const time = formatEventTime(item, layout.compactTime);
+            const meta =
+              layout.direction === "row"
+                ? time
+                : isAppointment
+                  ? `${time} · ${where} · ${STATUS_LABEL_NL[item.appointment.status]}`
+                  : `${time} · ${where} · Agendapunt`;
             const tone = isAppointment ? TONE_CLASS[STATUS_TONE[item.appointment.status]] : styles.toneEvent;
+            const [paddingV, paddingH] = layout.paddingPx;
             return (
               <div
                 key={item.id}
@@ -192,6 +201,12 @@ export function CalendarDayView({
                 <button
                   type="button"
                   className={`${styles.event} ${tone}`}
+                  style={{
+                    flexDirection: layout.direction,
+                    alignItems: layout.direction === "row" ? "center" : "stretch",
+                    gap: layout.direction === "row" ? "0 6px" : "1px",
+                    padding: `${paddingV}px ${paddingH}px`,
+                  }}
                   onClick={() => onItemClick(item)}
                 >
                   <span className={styles.eventTitle}>{name}</span>

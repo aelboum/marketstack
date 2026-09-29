@@ -54,15 +54,19 @@
   width: 100%;
   height: 100%;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: var(--space-1) var(--space-3);
+  /* flex-direction/align-items/gap/padding are set inline per event
+     (CalendarDayView.tsx) -- mirrors CalendarWeekView.tsx's own fix: a
+     sub-hour event lays title+time side by side with tighter padding
+     instead of stacking them (mockup: design/Calendar.dc.html's `dir`/
+     `pad` by duration), since a 30-minute slot (24px tall) cannot fit
+     two stacked lines without clipping. */
   border: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
   text-align: left;
   cursor: pointer;
   font: inherit;
+  min-width: 0;
 }
 
 .event:hover {
@@ -71,18 +75,25 @@
 
 .eventTitle {
   font-size: var(--font-size-sm);
+  line-height: 1rem;
   font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .eventMeta {
   font-size: var(--font-size-xs);
+  line-height: 1rem;
   opacity: 0.85;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Row layout (sub-hour events): just the short start time -- keep it
+     visible and let the title truncate first. Harmless in the column
+     layout, where this is the only item on its own line. */
+  flex-shrink: 0;
 }
 
 .toneInfo {

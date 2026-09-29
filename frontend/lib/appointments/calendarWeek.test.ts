@@ -99,6 +99,46 @@ describe("eventLayout", () => {
 
     expect(eventLayout(fiveMin).heightPx).toBe(20);
   });
+
+  // Mirrors design/Calendar.dc.html's own `dir`/`pad` thresholds -- a
+  // sub-hour event lays title+time side by side with tighter padding
+  // instead of stacking them, since its own pixel height cannot fit two
+  // stacked lines without clipping.
+  it("lays a sub-30-minute event out as a row with the tightest padding", () => {
+    const layout = eventLayout(
+      appointment({
+        starts_at: new Date(2026, 8, 22, 9, 0).toISOString(),
+        ends_at: new Date(2026, 8, 22, 9, 20).toISOString(),
+      }),
+    );
+    expect(layout.direction).toBe("row");
+    expect(layout.paddingPx).toEqual([2, 8]);
+    expect(layout.compactTime).toBe(true);
+  });
+
+  it("lays a 30-59 minute event out as a row with medium padding", () => {
+    const layout = eventLayout(
+      appointment({
+        starts_at: new Date(2026, 8, 22, 9, 0).toISOString(),
+        ends_at: new Date(2026, 8, 22, 9, 30).toISOString(),
+      }),
+    );
+    expect(layout.direction).toBe("row");
+    expect(layout.paddingPx).toEqual([3, 8]);
+    expect(layout.compactTime).toBe(true);
+  });
+
+  it("lays an hour-or-longer event out as a stacked column with full padding", () => {
+    const layout = eventLayout(
+      appointment({
+        starts_at: new Date(2026, 8, 22, 9, 0).toISOString(),
+        ends_at: new Date(2026, 8, 22, 10, 0).toISOString(),
+      }),
+    );
+    expect(layout.direction).toBe("column");
+    expect(layout.paddingPx).toEqual([6, 8]);
+    expect(layout.compactTime).toBe(false);
+  });
 });
 
 describe("isWithinGridWindow", () => {

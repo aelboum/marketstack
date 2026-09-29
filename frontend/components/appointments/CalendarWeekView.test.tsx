@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CalendarWeekView } from "./CalendarWeekView";
 import { getWeekStart } from "@/lib/appointments/calendarWeek";
@@ -228,6 +228,30 @@ describe("CalendarWeekView", () => {
     expect(screen.getAllByText("Team meeting").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Bevestigd/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Agendapunt/).length).toBeGreaterThan(0);
+  });
+
+  it("lays a sub-hour appointment's title and time side by side in the desktop grid, dropping the status suffix there", async () => {
+    // The default `appointment()` fixture is 09:00-09:30 -- 30 minutes,
+    // squarely inside the row layout's own sub-hour threshold. The
+    // always-rendered mobile agenda list (a separate markup tree, toggled
+    // by CSS, not JS -- see this component's own module docstring) still
+    // shows the full "time · where · status" line regardless of duration,
+    // so this test scopes its assertion to the desktop grid specifically.
+    setDefaultMocks();
+    listAppointmentsMock.mockResolvedValue({ results: [appointment()], hasMore: false });
+
+    const { container } = render(
+      <CalendarWeekView tenantId="t1" weekStart={WEEK_START} isToday={() => false} onItemClick={vi.fn()} />,
+    );
+
+    await waitFor(() => expect(screen.getAllByText("Jane Doe").length).toBeGreaterThan(0));
+    const grid = container.querySelector<HTMLElement>('[aria-label="Weekagenda"]')!;
+    // Scoped to the grid's own event button -- "09:00" alone is ambiguous
+    // against the hour-column's own "09:00" row label, and "Jane Doe"
+    // alone is ambiguous against the always-rendered mobile agenda list.
+    const card = within(grid).getByText("Jane Doe").closest("button")!;
+    expect(within(card).getByText("09:00")).toBeInTheDocument();
+    expect(within(card).queryByText(/Bevestigd/)).not.toBeInTheDocument();
   });
 
   it("does not render an appointment-backed CalendarEvent as a second item", async () => {
