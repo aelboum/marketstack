@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { FormRow } from "@/components/ui/FormRow";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 import { InlineNotice } from "@/components/ui/InlineNotice";
 import { Badge } from "@/components/ui/Badge";
 
@@ -117,6 +118,7 @@ function ActivityRow({
   activity: Activity;
   onChanged: () => void;
 }) {
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const { run: runComplete, state: completeState } = useAsyncAction(() =>
     completeTask(tenantId, activity.id),
   );
@@ -163,15 +165,27 @@ function ActivityRow({
             variant="danger"
             size="sm"
             disabled={pending}
-            onClick={async () => {
-              await runDelete();
-              onChanged();
-            }}
+            onClick={() => setConfirmDeleteOpen(true)}
           >
             Delete
           </Button>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title={activity.kind === "task" ? "Delete this task?" : "Delete this note?"}
+        description="This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Keep it"
+        danger
+        pending={deleteState.status === "pending"}
+        onConfirm={async () => {
+          await runDelete();
+          setConfirmDeleteOpen(false);
+          onChanged();
+        }}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </Card>
   );
 }
