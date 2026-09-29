@@ -1,13 +1,18 @@
 # Implementation Roadmap
 
-Status: PROPOSED sequencing. Nothing below is implemented. Each phase follows
-the same template `saas-os`'s own `docs/IMPLEMENTATION-ROADMAP.md` uses:
-Objective, Dependencies, Scope, Tests, Security, Acceptance Criteria,
-Rollback, Outcome, Checkpoint. "Outcome" is `not started` for every phase in
-this document — it is filled in as each phase actually ships, the same
-discipline `saas-os` follows. "Checkpoint" states what gets reviewed with you
-before the next phase starts; no phase begins before its predecessor's
-checkpoint is cleared.
+Status: **Phases 0–14 implemented** (corrected 2026-09-22 — see "Status
+reconciliation" below); Phases 15–20 not started; Phases 21–30 (below,
+added 2026-09-22) are the canonical forward-looking sequence following the
+Full Product Experience & Smart-System Design Audit. Each historical phase
+(0–20) follows the template `saas-os`'s own
+`docs/IMPLEMENTATION-ROADMAP.md` uses: Objective, Dependencies, Scope,
+Tests, Security, Acceptance Criteria, Rollback, Outcome, Checkpoint. Each
+new phase (21–30) extends that template with three fields the audit found
+necessary and this document now requires going forward — **Business
+outcome**, **User-visible result**, and **Cross-domain integration** — per
+"Definition of Done for Future Phases," below. "Checkpoint" states what
+gets reviewed with you before the next phase starts; no phase begins
+before its predecessor's checkpoint is cleared.
 
 Every phase respects `docs/RESPONSIBILITY-MATRIX.md`: Category A capability
 is consumed, never rebuilt; Category B is built here as an interim, cleanly
@@ -16,19 +21,78 @@ permanently; Category D is adapter-isolated. Every phase respects
 `docs/ARCHITECTURE.md` §2's internal module-boundary rule. No phase modifies
 `saas-os`.
 
-As of 2026-09-20 (Phases 0–7 checkpointed, per the outcomes recorded in each
-phase below and `de26edc` for Phase 7), this document decomposes into **two
-coordinated tracks** rather than one: the **Product Backend Track** (Phase 0
-through Phase 20, unchanged below) and the **UI Track** (`UI-1` through
-`UI-9`, added at the end of this document, after Phase 20). The UI Track
-begins now, in parallel with the remaining backend phases, rather than
-waiting for Phase 20 to close — see "UI Track" for the sequencing principle,
-the frontend-first/backend-first rule, the feedback-loop and mock-data
-policies, and `docs/ARCHITECTURE.md` §6.1 for the non-negotiable
-frontend/backend layering both tracks are reviewed against. Nothing in
-Phases 0–20 below is renumbered, resequenced, or reworded by this addition.
+## Status reconciliation (2026-09-22)
 
-### Roadmap Overview — Two Parallel Tracks
+This document's own "Outcome" field silently stopped being updated after
+Phase 7's checkpoint (`de26edc`) even as Phases 8–14 were implemented,
+audited, checkpointed, and (Phase 13/14) pushed — a Full Product
+Capability Re-Audit and a follow-on Full Product Experience & Smart-System
+Design Audit (both 2026-09-22) found and corrected every stale entry
+in-place, phase by phase, below (each corrected line is marked "Status
+corrected 2026-09-22" with the commit that actually shipped it). Phases
+1–7's individual subphases carry a lower-severity version of the same
+staleness (never individually filled in, though the overview table below
+was always correct) — see the note at the top of Phase 1. Nothing in
+Phases 0–20's original Objective/Scope/Dependencies/Tests text was
+rewritten; only stale status fields were corrected, with citations.
+
+## Core product principle (added 2026-09-22)
+
+> **Users should not need to understand the internal modules to operate
+> the business.** An owner should be able to think "what needs my
+> attention," "who hasn't replied," "which appointments are coming up,"
+> "which AI actions need my approval" — never "which CRM/Automation/RBAC
+> screen do I need." Technical concepts (tenant, RBAC, snapshot, autonomy
+> tier, durable workflow, raw UUIDs, internal event names, backend module
+> names) remain implementation detail, never primary user-facing product
+> concepts, except on the narrow admin-only screens (e.g. agency access
+> delegation) where a technical audience genuinely needs them.
+
+This principle governs every Phase 21–30 acceptance criterion below and is
+the reason Phases 21–30 exist at all: the Full Product Experience audit
+found every individual Layer-2 business engine (CRM, Conversations,
+Marketing, Appointments, Automation, Reputation, Websites, Billing,
+Templates) to be genuinely real and well-built in isolation, but almost
+entirely disconnected from its neighbors, and surfaced to the user as a
+flat list of backend module names rather than as business workflows. See
+"The Three-Layer Architecture" immediately below.
+
+## The Three-Layer Architecture (added 2026-09-22)
+
+```text
+Layer 3 — Smart Business Experience   (Phases 21-23, 28-30; NEW direction)
+    Cross-domain workflows, Command Center, Approval Inbox, Unified
+    Inbox, business-language UI, default workflows. Composes Layer 2;
+    never duplicates it.
+        ▲
+Layer 2 — Business Engines             (Phases 3-14, real, independent)
+    CRM · Conversations · Marketing · Appointments · Automation ·
+    Reputation · Websites · Templates · Billing · AI infrastructure ·
+    Telephony foundations · Accounting (Phases 24-25, not yet started)
+        ▲
+Layer 1 — Technical Foundation         (SaaS-OS; consumed, never modified)
+    Tenancy · RBAC · delegation · RLS · audit · lifecycle · billing
+    primitives · approvals · autonomy tiers · orchestration · security
+```
+
+Layer 1 is complete and correctly never touched by this product. Layer 2
+is where every phase from 3 through 14 (and, later, 24–25) lives — these
+remain independent business/domain engines and this reorganization does
+not merge them into one giant domain. **Layer 3 is the gap this roadmap's
+new Phases 21–23 and 28–30 exist to close.** It sits above Layer 2,
+composes its existing capabilities (new events, new subscribers, new
+read-models, new UI compositions), and — critically — must never
+reimplement anything Layer 1 or Layer 2 already provides. The clearest
+concrete proof this is achievable without new infrastructure:
+`control_plane.approvals`' complete `propose_action()` → `approve()`/
+`reject()` → `execute_approved()` workflow, and the `autonomy_tier`
+gate that enforces it, are **already fully built in SaaS-OS and
+completely unused** by this product today (zero tools declare
+`autonomy_tier >= 1`) — Phase 29 (Approval Inbox) is pure Layer-3
+composition over infrastructure that has been sitting there paid-for
+since Phase 9.
+
+### Roadmap Overview — Two Parallel Tracks (corrected 2026-09-22)
 
 ```text
 PRODUCT BACKEND TRACK
@@ -42,13 +106,13 @@ PRODUCT BACKEND TRACK
 5  Conversations                     ✓
 6  Marketing                         ✓
 7  Appointments                      ✓  (de26edc)
-8  Telephony
-9  AI
-10 Automation
-11 Websites
-12 Reputation
-13 SaaS Resale / Billing
-14 Templates / Snapshots
+8  Telephony                         ✓  (foundation only — no live call orchestration)
+9  AI                                ✓  (substrate + fail-closed gate — zero live vendor)
+10 Automation                        ✓  (10.1-10.3A; 10.4A wired but non-functional; 10.4B blocked on 15)
+11 Websites                          ✓  (11.1 only — no lead capture; 11.2/11.3 genuinely not started)
+12 Reputation                        ✓  (12.1/12.3; 12.2 deliberately deferred, per ADR-0010)
+13 SaaS Resale / Billing             ✓  (8cb0ebc)
+14 Templates / Snapshots             ✓  (144b693, 478b029)
 15 Mini Accounting
 16 Reporting
 17 Integrations Hardening
@@ -56,27 +120,139 @@ PRODUCT BACKEND TRACK
 19 Prospecting & Lead Intelligence
 20 Prospecting Automation & AI Agents
 
+── Smart Business Experience direction (added 2026-09-22) ──────────────
+
+21 Agency Provisioning Loop         ✓  \
+22 Lead Capture & Qualification Loop ✓  > Business-engine completion,
+23 Customer Lifecycle Loop             /  Layer 2→3 wiring (not committed)
+
+24 Mini Accounting Foundation          \
+25 Revenue & Money Workflow             > (= old Phase 15, split)
+
+26 AI Vendor + AI Write-Back           \
+27 Inbound AI Call                      > makes AI/Telephony live
+
+28 Command Center & Navigation Redesign ✓ (substantially — see Phase 28's
+                                            own corrected Outcome; nav
+                                            labels still Dutch, not the
+                                            English Product Reset target)
+29 Approval Inbox                        > Layer 3 proper — see note below
+30 Unified Inbox                        /
+
 
 UI TRACK
 ────────
 
-UI-1  Application Shell & Frontend Foundation   ← next
-UI-2  Agency / Dashboard
-UI-3  CRM
-UI-4  Conversations
-UI-5  Marketing
-UI-6  Appointments
-UI-7  Settings / Branding / Tenant Configuration
-UI-8  Responsive / Accessibility / UX Hardening
-UI-9  Mature Design System & Reusable Components
+UI-1  Application Shell & Frontend Foundation        ✓
+UI-2  Agency / Dashboard                             ✓
+UI-3  CRM                                            ✓
+UI-4  Conversations                                  ✓
+UI-5  Marketing                                      ✓
+UI-6  Appointments                                   ✓
+UI-7  Settings / Branding / Tenant Configuration     ✓
+UI-8  Responsive / Accessibility / UX Hardening       △  (substantial,
+                                                          2026-09-29 —
+                                                          confirmation
+                                                          audit + fix,
+                                                          Menu keyboard
+                                                          nav, CSRF
+                                                          verified,
+                                                          keyboard-nav/
+                                                          screen-reader
+                                                          pass all done;
+                                                          responsive/
+                                                          performance
+                                                          not audited)
+UI-9  Mature Design System & Reusable Components      ✓  (also shipped,
+                                                          ahead of this
+                                                          plan and now
+                                                          given their own
+                                                          numbers below:
+                                                          Automation,
+                                                          Websites, and
+                                                          Reputation UI —
+                                                          UI-10)
+
+── Corrected 2026-09-27, retroactive numbering for already-shipped work ──
+
+UI-10 Automation, Websites & Reputation UI            ✓  (git log
+                                                          `532c376`,
+                                                          `a187c7d`,
+                                                          `3000591`)
+UI-11 Self-Service Tenant Creation                    △  (create-and-own
+                                                          is real; plan/
+                                                          trial/billing/
+                                                          guided onboarding
+                                                          are not)
+UI-12 Command Center & Business Navigation            ✓  (Backend Phase 28
+                                                          — its UI half)
+UI-13 Approval Inbox                                  ✓  (Backend Phase 29
+                                                          — its UI half)
+
+── Added — UI Track coverage for backend capability that had no UI-#  ──
+── yet (see "UI Track" below, after UI-13, for full phase text)       ──
+
+UI-14 Billing, Plans & Subscription Management           (Backend Phase 13
+                                                          — no UI exists yet)
+UI-15 Accounting & Financial Workspace                    (Backend Phases
+                                                          24-25 — no UI
+                                                          exists yet;
+                                                          backend itself
+                                                          not started per
+                                                          those phases' own
+                                                          Outcome fields)
+UI-16 Reporting & Business Analytics                      (Backend Phase 16
+                                                          — no UI exists
+                                                          yet)
+UI-17 Telephony & Call Center                             (Backend Phase 8
+                                                          foundation-only,
+                                                          Phase 27 not
+                                                          implementation-
+                                                          ready — no UI
+                                                          exists yet; must
+                                                          not be read as
+                                                          production-
+                                                          complete)
+UI-18 AI Control Center                                   (Backend Phase 9
+                                                          partial, Phase 26
+                                                          not started — no
+                                                          UI exists yet;
+                                                          approvals surface
+                                                          is UI-13, not
+                                                          duplicated here)
+UI-19 Integrations & Connected Services                   (Backend Phase 17
+                                                          — no UI exists
+                                                          yet)
+UI-20 Notifications & Activity Center                     (`core.notifications`,
+                                                          SaaS-OS Category
+                                                          A — no dedicated
+                                                          UI exists yet,
+                                                          distinct from
+                                                          UI-12's Command
+                                                          Center)
+UI-21 Prospecting / Lead Generation                       (Backend Phases
+                                                          19-20, PROPOSED —
+                                                          no UI exists yet)
 ```
 
 The two tracks run side by side: a UI phase begins once its corresponding
 backend capability is sufficiently stable, not once the entire backend
-track (through Phase 20) is complete. See "UI Track" below for the full
-phase breakdown, dependencies, and the principles governing how the two
-tracks stay in sync without the UI Track becoming a second, divergent
+track (through Phase 20) is complete. The UI Track is capability-driven
+rather than numerically coupled to the backend roadmap — a UI phase does
+not imply that every preceding backend phase has completed, only that its
+own named backend dependency has. See "UI Track" below for the full phase
+breakdown, dependencies, and the principles governing how the two tracks
+stay in sync without the UI Track becoming a second, divergent
 architecture.
+
+**Phase 28 does not require Phases 24–27 to begin** — it is the highest-
+leverage single Layer-3 change available and needs no new Accounting, AI
+vendor, or live telephony capability, only composition over data that
+already exists (CRM, Appointments, Automation run history, and the
+already-built-but-unused approvals infrastructure once Phase 29 lands
+alongside it). See "Recommended strategic sequencing" after Phase 30 for
+the full reasoning; phases are not silently reordered — every dependency
+is stated explicitly where it exists.
 
 ---
 
@@ -110,6 +286,22 @@ architecture.
 Establishes the repository itself, the `saas-os` dependency, migrations, and
 CI — before any product-specific module exists. Mirrors `saas-os`'s own
 Phase 1 (Repository Foundations) at one remove.
+
+**Status note (added 2026-09-22, Full Product Capability Re-Audit)**: every
+individual subphase from here through Phase 7 still carries its original
+template placeholder, `- **Outcome**: not started.` — that field was never
+filled in per-subphase for these seven phases, even though the "Roadmap
+Overview" table above has correctly shown all of Phase 0–7 checked off
+(`✓`) since Phase 7's own checkpoint (`de26edc`). This is a lower-severity
+instance of the same staleness pattern found and corrected throughout
+Phases 8–14 below (see "Technical / Documentation Debt" after Phase 20):
+unlike 8–14, there is no ambiguity at the phase level here — the overview
+table, the git history (`c7dfaba` through `de26edc`), and every later
+phase's own working code all agree Phases 1–7 are complete — so this note
+records the correction once, here, rather than mechanically editing all
+~33 individual subphase `Outcome` lines with citations this audit did not
+re-verify at that granularity. Treat every subphase Outcome field in
+Phases 1–7 as **implemented**, not as its literal stale text.
 
 ### 1.1 Repository scaffold from the reference-consumer pattern
 - **Objective**: create this repository's physical structure — `product/`
@@ -344,7 +536,26 @@ scoped per client tenant — the hierarchy must exist first.
 - **Acceptance criteria**: agency onboarding → first client creation works
   end-to-end.
 - **Rollback**: standard — no production tenant data yet at this phase.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (this entry previously
+  said "not started," covered only by Phase 1-7's blanket staleness note
+  above, never individually verified until now). **Self-service agency/
+  tenant creation** — this subphase's own "agency signup creates a root
+  tenant" half — is real: `POST /agencies` (`product/agency/routes.py:173`)
+  → `provision_agency()` (`product/agency/provisioning.py:106`, whose own
+  docstring calls it "Self-service agency signup") creates the tenant and
+  assigns the calling user as owner, and the frontend wires this to a real
+  "Create agency" form that redirects to the new tenant's dashboard on
+  success (UI-2). This is a distinct capability from Phase 3.2's
+  invitation-based membership below — no invitation token is involved; any
+  authenticated identity with no tenant yet can create one and becomes its
+  owner. **Not part of this implemented capability**: commercial plan
+  selection, trial handling, signup billing/checkout (Phase 13 remains an
+  agency→client resale model, never invoked from this path), and any
+  guided onboarding wizard beyond the one-field creation form — those are
+  separate, not-yet-scoped future work, not a gap in what this subphase
+  itself set out to do. The "agency creates client tenants as children"
+  half of this subphase's Objective is Phase 21's own scope, corrected
+  separately below.
 - **Checkpoint**: demo agency + client creation before building
   role/delegation UI on top.
 
@@ -829,7 +1040,13 @@ receive through it.
 - **Acceptance criteria**: a number can be provisioned and correctly
   attributed to a tenant.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented (foundation only) — `product/telephony/`
+  (`d878dcf`): number provisioning/assignment, `TelephonyProvider`
+  Protocol, real HMAC-SHA256 webhook-signature verification. No real
+  provider adapter is registered (provider-neutral by design, per
+  `docs/RISKS-AND-OPEN-QUESTIONS.md` item 6 — vendor not yet chosen).
+  Status corrected 2026-09-22 (Full Product Capability Re-Audit); this
+  entry previously read "not started."
 - **Checkpoint**: none.
 
 ### 8.2 Inbound/outbound calls, routing
@@ -845,7 +1062,11 @@ receive through it.
 - **Acceptance criteria**: an inbound call routes correctly and its state
   is tracked accurately.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented (data model/CRUD + routing-target table only)
+  — `d878dcf`. **No live call orchestration exists**: a receiver function
+  for the inbound webhook exists in code but is not mounted to any route
+  in `product/api/main.py`, so no real call reaches this product today.
+  Status corrected 2026-09-22.
 - **Checkpoint**: none.
 
 ### 8.3 Call records, recordings, history
@@ -870,7 +1091,9 @@ receive through it.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard; recordings can be disabled per-tenant without
   affecting call functionality.
-- **Outcome**: not started.
+- **Outcome**: implemented (data model only) — `d878dcf`. Call-record/
+  recording storage schema exists; no live call ever populates it today
+  (8.2's own gap). Status corrected 2026-09-22.
 - **Checkpoint**: dedicated security review before recordings are enabled
   for any real tenant — this is one of the highest-sensitivity data types
   in this entire product.
@@ -929,7 +1152,12 @@ subphases — **9.4** below is the follow-on that closes it, and
   kill-switch anticipation (`saas-os` `docs/AI-CONTROL-PLANE.md` §9) once
   available, or simply unregister it — no production risk from a disabled
   tool.
-- **Outcome**: not started.
+- **Outcome**: implemented (tool definitions only, exactly this
+  subphase's own stated scope) — `9b5bb84`: `product/ai/tools/`
+  (`lead_qualification.py`, `conversation_summarization.py`,
+  `suggested_next_actions.py`), each `autonomy_tier=0`,
+  `side_effect="read_only"`, RBAC/Data-Authorization-gated, correctly
+  none production-registered. Status corrected 2026-09-22.
 - **Checkpoint**: security review of the Data Authorization wiring
   specifically, before any tool goes live against real tenant data.
 
@@ -953,7 +1181,12 @@ subphases — **9.4** below is the follow-on that closes it, and
   behalf, and was it approved").
 - **Rollback**: disable the AI receptionist tool; calls fall back to
   ordinary human routing (Phase 8.2).
-- **Outcome**: not started.
+- **Outcome**: partially implemented (advisory decision logic only) —
+  `9b5bb84`: `product/ai/receptionist.py::decide_receptionist_action()`
+  is a real confidence-threshold function, but by its own docstring
+  there is no STT/TTS vendor, no LLM vendor, and no live audio/media
+  stream anywhere in the codebase — Phase 8 carries call *metadata*
+  only. Zero live wiring exists. Status corrected 2026-09-22.
 - **Checkpoint**: security + UX review before this is enabled for any real
   tenant's live phone number — this is the highest-blast-radius AI
   capability in the initial roadmap (real customers interacting with an
@@ -971,7 +1204,11 @@ subphases — **9.4** below is the follow-on that closes it, and
 - **Acceptance criteria**: a drafted reply never sends without explicit
   human action.
 - **Rollback**: disable the tool.
-- **Outcome**: not started.
+- **Outcome**: implemented (tool definitions only, mirrors 9.1) —
+  `9b5bb84`: `product/ai/tools/suggested_reply.py`, `autonomy_tier=0`,
+  `side_effect="read_only"`. Not wired into any Conversations UI surface
+  yet, and non-functional pending 9.4's vendor decision. Status corrected
+  2026-09-22.
 - **Checkpoint**: none beyond 9.1's standing review.
 
 ### 9.4 Production AI readiness (follow-on)
@@ -1010,7 +1247,16 @@ subphases — **9.4** below is the follow-on that closes it, and
 - **Rollback**: unregister the production tool(s) / remove the tenant
   policy — the default-deny posture is the safe resting state, and
   returning to it is always available.
-- **Outcome**: not started.
+- **Outcome**: implemented (provider boundary + fail-closed gate) —
+  `6738b3c`: `product/ai/production.py::get_production_llm_provider()`
+  unconditionally raises `AIProviderNotConfiguredError` — no vendor
+  adapter exists in this repository at all, and a fake/test provider is
+  structurally refused from ever being registered as production
+  (`_NON_PRODUCTION_PROVIDER_NAMES`). `PRODUCTION_CAPABILITIES`
+  (`product/ai/capabilities.py`) names exactly one approved capability,
+  `qualify_lead` — correctly, deliberately, still zero live vendor. This
+  is the gate working as designed, not a gap. Status corrected
+  2026-09-22.
 - **Checkpoint**: dedicated security review before any real tenant data
   can reach a real provider — this is the gate that decision passes
   through, and it is reviewed on its own, never bundled.
@@ -1040,7 +1286,9 @@ the triggers exist would be speculative.
 - **Acceptance criteria**: an ADR is written and reviewed with you before
   10.2 begins.
 - **Rollback**: n/a.
-- **Outcome**: not started.
+- **Outcome**: implemented — Temporal chosen (`9661be0` spike,
+  `docs/ADR/0007-automation-execution-substrate.md`). Status corrected
+  2026-09-22.
 - **Checkpoint**: **review the engine decision with you before committing**
   — this is a significant new infrastructure dependency, warranting the
   same scrutiny `saas-os` gives its own infrastructure ADRs.
@@ -1071,7 +1319,18 @@ the triggers exist would be speculative.
   trigger type.
 - **Rollback**: a misbehaving automation can be paused/disabled per-tenant
   without affecting the rest of the platform.
-- **Outcome**: not started.
+- **Outcome**: implemented — `e091264`: `product/automation/` real
+  trigger/condition/action engine. Confirmed real cross-domain trigger
+  reach today: `crm.opportunity.stage_changed`, `crm.contact.created`,
+  `appointments.appointment.booked`, `telephony.call.completed` — with a
+  recursion guard (`MAX_AUTOMATION_DEPTH=1`) and `WorkflowRun`
+  dedup. Real action vocabulary: `create_task`, `update_contact`,
+  `move_opportunity`, `send_email`, `send_webhook` (plus 10.4A's
+  `ai.crm.qualify_lead`, see below). No trigger/action reaches Marketing,
+  Reputation, Websites, or Billing yet — those modules publish nothing
+  this engine subscribes to (a Phase 22/23 gap, see the Smart Business
+  Experience section below, not a 10.2 defect). Status corrected
+  2026-09-22.
 - **Checkpoint**: review the privilege-escalation adversarial test
   specifically before this ships.
 
@@ -1091,7 +1350,8 @@ the triggers exist would be speculative.
 - **Rollback**: a bad workflow definition can be halted mid-execution;
   already-executed steps are not retroactively undone (each action's own
   rollback, if any, is that action's own concern, per action).
-- **Outcome**: not started.
+- **Outcome**: implemented — `f4dce23`: `product/automation/durable/`,
+  Temporal-backed. Status corrected 2026-09-22.
 - **Checkpoint**: review the restart-survival test specifically — this is
   the entire reason the durable engine was adopted in 10.1.
 
@@ -1141,7 +1401,17 @@ the triggers exist would be speculative.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard — the registry boundary is additive; removing a
   registered implementation returns the engine to its current vocabulary.
-- **Outcome**: not started.
+- **Outcome**: implemented — `a4112da`:
+  `product/foundation/workflow_actions.py` (the generic protocol/registry
+  Automation owns) + `product/action_registry_composition.py` (the one
+  module allowed to import both `product.automation` and `product.ai`,
+  precisely because it is neither, wiring
+  `wire_production_automation_actions()` into `create_app()`). No
+  import-linter contract was relaxed to build this. Status corrected
+  2026-09-22 — `docs/ARCHITECTURE.md` §5.1 previously still described this
+  as "not started"/"no such registry exists"; corrected in the Product
+  Reset documentation pass, same date (see Technical/Documentation Debt
+  item 2 below, updated accordingly).
 - **Checkpoint**: architecture review, recorded as its own ADR when the
   subphase is actually scheduled (referenced from here rather than
   written twice — this roadmap entry is not itself the decision record).
@@ -1237,12 +1507,23 @@ the vocabulary's closed nature or either execution path.
   produces the same audit trail a direct tool invocation produces.
 - **Rollback**: standard — the action can be removed from the vocabulary
   without affecting the rest of the engine.
-- **Outcome**: not started — blocked on prerequisites (10.3A, 9.4). An
-  earlier revision of this entry recorded it as "ready to implement";
-  the 10.4A implementation audit disproved that and produced no code.
-  A deny-only AI action — one wired correctly but guaranteed to fail for
-  every real tenant until 9.4 lands — is explicitly **not** an acceptable
-  way to close this subphase.
+- **Outcome**: implemented, and reachable, but non-functional for every
+  real tenant today — `18906b2`: `product/ai/automation_action.py`
+  is a real, fully-built adapter (re-checks RBAC/autonomy-tier/Data
+  Authorization fresh on every call, no cached decision), registered via
+  `wire_production_automation_actions()` in `product/api/main.py`. Both
+  prerequisites (10.3A, 9.4) are done. **However**: since 9.4's own
+  `PRODUCTION_CAPABILITIES` names no vendor and none is configured
+  anywhere in the repository, this action will fail every single
+  invocation, for every tenant, today. This is precisely the
+  "guaranteed to fail" state this entry's prior revision explicitly
+  forbade calling "done" — status corrected 2026-09-22 to reflect that
+  the code exists and is wired, while the underlying capability remains
+  genuinely not live pending Phase 26 (AI Vendor + AI Write-Back, see
+  below) and durable step-output chaining (also Phase 26 — no mechanism
+  exists today for a later workflow step to consume this action's
+  output, so even a configured vendor could not yet close the loop into
+  a CRM write).
 - **Checkpoint**: none beyond 10.2's standing security review, extended to
   the AI action specifically (the "no second AI authorization system" rule
   above is the thing to review), plus 10.3A's and 9.4's own checkpoints,
@@ -1295,7 +1576,12 @@ the vocabulary's closed nature or either execution path.
   correctly under the tenant's own branding and (optionally) custom domain.
 - **Rollback**: standard; a bad publish can be reverted to the prior
   version.
-- **Outcome**: not started.
+- **Outcome**: implemented (page CRUD + publish/draft state machine +
+  one public render route only) — `a187c7d`. **`product/websites/`
+  contains no form/lead-capture entity and no CRM or automation import
+  anywhere in the module** — a published website cannot generate a lead
+  today; that is 11.2's own gap, not built despite 11.1 being complete.
+  Status corrected 2026-09-22.
 - **Checkpoint**: none beyond the public-surface security review.
 
 ### 11.2 Funnels (multi-page flows) and lead capture integration
@@ -1426,6 +1712,15 @@ the vocabulary's closed nature or either execution path.
 Maps mostly onto `core.billing` (Category A) plus the reseller-specific UI
 (Category C) per `docs/RESPONSIBILITY-MATRIX.md`.
 
+This phase's subphases below are written in agency vocabulary, which must
+not be read as an Agency-only customer model: when this phase is actually
+scoped, its commercial model must distinguish `Platform → Direct Client`
+from `Platform → Agency → Agency Client` where applicable, and must
+separately establish plan ownership, subscription ownership, the
+reseller/seller relationship, and the entitlement recipient. See
+`docs/ADR/0011-one-frontend-multiple-user-contexts.md`. Scope, status and
+subphase content below are unchanged by that ADR.
+
 ### 13.1 Agency subscription (this product's own SaaS revenue)
 - **Objective**: agency onboarding subscribes to a plan via `core.billing`,
   unchanged mechanism.
@@ -1538,7 +1833,16 @@ Maps mostly onto `core.billing` (Category A) plus the reseller-specific UI
   excluded from the export, tested.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, checkpointed, pushed — `144b693`
+  ("feat: add tenant configuration snapshots"), wired into
+  `product/api/main.py` at `478b029`. **Scope narrowed at implementation
+  time from this entry's original ambition**: `docs/ADR/0013-templates
+  -snapshot-scope-and-crm-dependency.md` scopes Phase 14 to exactly one
+  configuration domain, `crm.pipelines` — forms, campaigns, automation,
+  calendars, and email/SMS templates are explicitly deferred, not
+  captured by any snapshot today. The "no tenant business data, no
+  secrets" invariant this entry's own tests describe is met exactly as
+  specified. Status corrected 2026-09-22.
 - **Checkpoint**: review the secret-exclusion test specifically before
   import/clone (14.2) is built on top of export.
 
@@ -1560,8 +1864,21 @@ Maps mostly onto `core.billing` (Category A) plus the reseller-specific UI
   reference, into another tenant).
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: a failed/partial clone leaves no partially-created data —
-  the import is transactional, all-or-nothing.
-- **Outcome**: not started.
+  the import is transactional, all-or-nothing **at the validation layer**:
+  `docs/ADR/0013-...` Decision 3 documents that `apply_snapshot()` is
+  **not** fully cross-call-transactional in the narrower sense this entry
+  originally assumed — CRM's own `pipelines.py` has no delete API to
+  compensate a partial failure mid-loop, so every validation that can
+  fail (authorization, schema version, payload structure) runs before
+  the first write, leaving only a genuine infrastructure fault as a
+  residual, disclosed, non-hidden failure window. This is a deliberate,
+  reviewed decision, not an oversight — see the ADR for the full
+  reasoning.
+- **Outcome**: implemented, checkpointed, pushed — `144b693`/`478b029`,
+  same as 14.1. ID-remapping is real: every cloned entity is created
+  fresh in the target tenant via CRM's own `create_pipeline()`/
+  `create_stage()`, never a copied identifier. Status corrected
+  2026-09-22.
 - **Checkpoint**: dedicated review of the ID-remapping logic and its
   adversarial test before this ships to any agency managing multiple
   clients.
@@ -2319,6 +2636,1413 @@ Automation.
 
 ---
 
+# The Smart Business Experience (Phases 21–30, added 2026-09-22)
+
+Added by the Full Product Experience & Smart-System Design Audit
+(2026-09-22), following directly from the Full Product Capability
+Re-Audit's finding earlier the same day that Phases 3–14 individually
+cross the bar of "real capability," but are almost entirely disconnected
+from each other and surfaced to the user as backend module names rather
+than business workflows (see "Core product principle" and "The
+Three-Layer Architecture" at the top of this document).
+
+**Nothing here replaces or restarts Phases 0–20.** Phases 21–23 and 26–27
+close specific, named wiring gaps in already-shipped Layer-2 engines.
+Phases 24–25 are Phase 15 itself, split (see Phase 24's own note). Phases
+28–30 are the first real Layer-3 work — genuinely new, but composing
+existing Layer-1/Layer-2 capability rather than duplicating any of it. No
+phase below introduces a new authorization system, a new event bus, a new
+workflow engine, or any SaaS-OS modification.
+
+## Product Reset - Product Composition & Information Architecture Correction (2026-09-22)
+
+Documentation-only correction, produced from a read-only competitor survey
+(`docs/highlevel.md`, HighLevel/GoHighLevel, conducted 2026-09-22) that
+this product's own leadership asked to be reconciled against this
+roadmap. **No code, migration, dependency, test, or frontend
+implementation change accompanies this section** - it corrects product
+composition, information architecture, and sequencing, and states which
+follow-on phases (not yet started) would carry the actual changes.
+
+- **Conclusion, stated up front, because it is the one this section must
+  not be misread as avoiding**: existing technical foundations remain
+  valuable. This reset changes product composition, information
+  architecture, and sequencing - it does not require a repository
+  restart, and nothing below asks for one.
+
+### Product vision
+
+Marketstack is a **business operating system organized around the
+customer relationship and the business's own lifecycle** - not a
+collection of independently-branded modules (CRM, Automation, AI,
+Reputation, ...) that a user has to learn to operate individually. A
+small business owner should be able to open the product and answer "what
+does my business need from me right now," across every channel and every
+stage of a customer relationship, without first learning which backend
+module owns which fact. This restates and extends, rather than replaces,
+the "Core product principle" and "The Three-Layer Architecture" already
+recorded above (added 2026-09-22, same audit) - see those sections for
+the underlying layering this vision composes on top of, unchanged.
+
+### Core business loop
+
+The lifecycle a real customer relationship moves through in this product,
+named explicitly so every phase below can state which stage it owns:
+
+```text
+Lead -> Contact -> Qualification -> Opportunity -> Appointment
+     -> Customer -> Payment -> Retention -> Review / Referral
+```
+
+This is a **loop customers move through, not a rigid state machine** -
+nothing in this product enforces a single linear path through it, no new
+"lifecycle stage" enum or state-machine table is introduced by this
+section, and no phase below is asked to build one. It exists so this
+roadmap can say, precisely, which existing phase already owns each stage
+(see "Lifecycle ownership" below) rather than leaving stage ownership
+implicit and rediscovering gaps by accident, the way the 2026-09-22 Full
+Product Capability Re-Audit had to.
+
+**Lifecycle ownership** (existing phases only - no new implementation is
+proposed by this table):
+
+| Stage | Owned by | Status |
+|---|---|---|
+| Lead | Websites (capture), Marketing (form submit) | Phase 22, implemented |
+| Contact | CRM | Phase 3, implemented |
+| Qualification | CRM (assignment) today; AI-assisted qualification is `ai.crm.qualify_lead` | Assignment: Phase 22, implemented. AI-assisted: 10.4A implemented but non-functional pending Phase 26 (see "Prerequisite status" below) |
+| Opportunity | CRM (pipelines/stages, `is_won`/`is_lost`) | Phase 4, implemented - `docs/highlevel.md`'s own comparison claim of "no opportunity/pipeline object" is stale/incorrect, see "HighLevel findings" below |
+| Appointment | Appointments | Phase 7/10.2, implemented |
+| Customer | CRM Contact + Appointments completion + Reputation auto-request | Phase 23, implemented |
+| Payment | Accounting (not started) | Phase 24/25, not started |
+| Retention | Automation (reminders/follow-up triggers) | Phase 21-23, implemented for the trigger surface that exists today |
+| Review / Referral | Reputation | Phase 10.2/23, implemented |
+
+No stage above requires a new domain module. Where a stage's real owner
+is "not started" (Payment), that is Phase 24/25's existing scope,
+unchanged by this section.
+
+### Product architecture
+
+- **Customer as the central business hub.** The Contact record is where
+  Timeline, Conversations, Opportunities, Appointments, Tasks, Notes,
+  Payments (once Phase 24/25 exist), Marketing history, Automation
+  activity, Reputation requests, and AI-assisted actions (once Phase 26
+  exists) all surface - a documentation/IA conclusion only. Every one of
+  those relationships is real and queryable in the backend today (CRM
+  contacts, Conversations threads, CRM opportunities, Appointments,
+  Automation `WorkflowRun` history, Reputation requests) without any new
+  schema; what does not exist yet is a single frontend surface that
+  composes them onto the contact record, which is Layer-3 work for a
+  future UI phase (a candidate extension of Phase 28's own Command
+  Center pattern, not proposed as a new phase number here - no new phase
+  is opened by this section beyond the one this section itself is).
+- **Automation as the connective business engine.** Automation is not "a
+  module among modules" - it is the mechanism by which every other
+  domain's events become another domain's actions, already true in
+  today's architecture (`product/automation/dispatcher.py` subscribes
+  across CRM/Appointments/Marketing/Websites/Reputation event types with
+  zero import-linter edges to any of them, per the existing subscribe-by-
+  event-type-string boundary). The Trigger -> Condition -> Action ->
+  Wait/Follow-up -> Next Event shape HighLevel exposes as a visual
+  builder is already the real shape of `product/automation/` today
+  (Phase 10.2 dispatcher, Phase 10.3 durable engine for the
+  delay/wait-for-event half) - the gap is exposure (see "HighLevel
+  findings" below), not engine shape.
+- **AI as a capability operating on top of the business system, never a
+  separate silo.** AI must never become a second product a user has to
+  separately learn to operate - every AI capability shows up inside the
+  business context it serves (lead qualification inside CRM/Sales,
+  reception inside Inbox/Calendar, once Phase 26/27 exist), the same
+  principle Phase 28 already applies to Automation/Reputation/Billing not
+  being forced into top-level nav items. This does **not** relax the
+  standing dependency-inversion requirement: `product.automation` must
+  never import `product.ai` directly, and no future phase may reintroduce
+  that edge - the 10.3A registry boundary exists specifically so AI
+  capability can be exposed through Automation without that edge, and
+  this section extends that same discipline to every future domain <-> AI
+  integration point, not just Automation's.
+
+### Information architecture - target navigation
+
+Target top-level navigation concepts, in order: **Dashboard, Inbox,
+Customers, Sales, Calendar, Growth, Automations, Accounting, Reputation,
+AI** - then a separator - **Manage**.
+
+| Item | Replaces / is | Notes |
+|---|---|---|
+| Dashboard | Cockpit - "what needs my attention now" | Composes Phase 28's own Command Center requirements (real data only, never fabricated) |
+| Inbox | Unified communications center | Existing Conversations module, already the real backing data |
+| Customers | Central relationship workspace | Not "Contacts" - signals the hub role described above |
+| Sales | Opportunities/pipeline | Deliberately not "Opportunities" as a top-level label - matches HighLevel's business-first naming, same underlying CRM data |
+| Calendar | Appointments/bookings | Existing Appointments module |
+| Growth | Marketing + Websites + lead capture | Deliberately not "Marketing" alone - matches the broader business job this group already answers in `frontend/lib/nav/config.ts`'s "Marketing" group (Marketing + Websites), renamed to the less technical, broader business term |
+| Automations | Rules/workflows, for power users | Not a default top-level distraction - surfaced advanced, matching Phase 28's own "Automation folds into Vandaag... plus an advanced Rules sub-page" design, renamed at the concept level only |
+| Accounting | Mini-Exact/mini-Dext direction - invoices, expenses, VAT, payments, banking, bookkeeping, reports | Documentation only; not implemented. Backing module is Phase 24/25, not started. Deliberately not "Money" - this is a real bookkeeping surface, not a generic wallet |
+| Reputation | Reviews/referrals | Existing Reputation module |
+| AI | Also contextual elsewhere (qualification inside Sales, reception inside Calendar/Inbox once live) | Top-level entry point exists once Phase 26 lands; until then this remains empty/hidden, matching Phase 28's own "Geld... empty/hidden until Phase 25 exists" precedent - never faked |
+| Manage (separator) | Business/Team/Services/Calendars/Communication/Integrations/Billing/Branding/Domains/Advanced | Deliberately not the technical word "Settings" |
+
+**Reconciliation with Phase 28, stated honestly.** *(Updated 2026-09-22,
+second pass — Phase 28's own Outcome field is now corrected in place; the
+paragraph below is kept, lightly amended, as the record of how that
+correction was found.)* `frontend/lib/nav/config.ts`, read directly during
+this pass, showed a grouped, business-labeled, Dutch-language navigation
+(Vandaag/Inbox/Goedkeuringen/Klanten/Agenda/Verkoop/Marketing/Geld/
+Instellingen) that already implements Phase 28's underlying principle -
+including a real Phase 29 (Goedkeuringen/Approvals) entry - corroborated
+by real commits (`c58edb2` "feat: add command center and business
+navigation", plus `4cc23d8`/`3000591`/`77e35fe`/`7cce234`). Phase 28's own
+"Outcome" field has since been corrected in place to "substantially
+implemented," rather than left stale - see that entry above for the full
+implemented/remaining breakdown (Command Center read-model, grouped Dutch
+nav, and both named translation-layer fixes are done; the Templates/
+Snapshots "Business Setup" nav placement and the English/HighLevel target
+labels below are not). The target navigation above is the **English, ten-item, HighLevel-
+informed target concept set**; reconciling it against the already-shipped
+Dutch grouping (merging "Growth" into the existing Marketing group,
+promoting Reputation and a future AI entry to top-level, replacing
+"Instellingen" with the broader "Manage" grouping described above) is
+frontend implementation work for a future UI phase, not done here.
+
+### HighLevel findings (summary, not a copy)
+
+Read in full (`docs/highlevel.md`, 113 lines) and treated as a benchmark,
+never a feature-parity checklist. Its own comparison section already
+identified where marketstack leads (double-booking prevention via a
+Postgres `EXCLUDE USING gist` constraint - more robust than HighLevel's
+implied application-layer check; a real event-driven automation
+dispatcher; the Phase 23 auto-review-request pattern) and named six gaps
+- reminders not a real scheduled job (highest-value, pre-existing,
+already-disclosed SaaS-OS gap), reminders email-only with a fixed lead
+time, no named calendar-type variety (Round Robin / Class booking called
+out as the two most useful presets), no visual workflow builder or
+prompt-to-workflow generation, and deferred triggers already tracked
+elsewhere in this document. **One correction to `docs/highlevel.md`'s own
+text, found during this pass**: its claim "No opportunity/pipeline (deal-
+stage) object" is false - CRM's `Opportunity`/pipeline/stage model with
+`is_won`/`is_lost` predates this session significantly (Phase 4). Not
+edited in `docs/highlevel.md` itself (that file is a dated, read-only
+survey record of what was observed in the competitor's product, not a
+living spec - correcting its prose would misrepresent when the
+observation was made); the correction lives here instead, where it
+affects this roadmap's own conclusions.
+
+### Marketstack response per pattern
+
+No ranking or score - classification only, and "not-copy" is a real,
+deliberate category, not a placeholder for "later":
+
+| HighLevel pattern | Response | Why |
+|---|---|---|
+| Unified multi-channel inbox | **Adopt** (already the Inbox nav concept) | Directly matches an existing, real gap: Conversations already exists as the backing data |
+| Contact record as universal hub | **Adopt** (documented above) | Matches this section's own Product architecture conclusion; no new schema required |
+| Kanban pipeline w/ stage probability | **Not-copy as a UI paradigm; underlying data already exists** | CRM's pipeline/stage/`is_won` model already exists (Phase 4) - a Kanban *view* is a future UI concern, not a new domain concept |
+| Round Robin / Class booking calendar presets | **Adapt** | Named in `docs/highlevel.md` as the two most useful additions, buildable as presets on the existing Appointments primitives - not a rewrite; not proposed as new implementation here |
+| Real scheduled reminders (cron-backed) | **Adapt, deferred** | Blocked on the same, already-twice-disclosed `infra.jobs`/`core.tenancy` gaps (no deferred-execution parameter, no tenant-enumeration primitive) - a genuine SaaS-OS capability request, never a product-side workaround, per this product's standing "never modify SaaS-OS" rule |
+| Multi-channel (SMS/WhatsApp) reminders | **Defer** | Blocked on Phase 15/26-adjacent vendor decisions (SMS vendor not chosen); not this section's concern |
+| Visual node-graph workflow builder + prompt-to-workflow | **Later-optional** | Real UX gap for self-service, but the underlying dispatcher/durable engine already matches HighLevel's engine shape - a builder UI is additive, not a prerequisite for anything else in this loop |
+| Account Snapshots (agency template bundles) | **Already adopted** | Matches Phase 21's own `snapshot_id`/`apply_snapshot()` provisioning, implemented |
+| Voice AI / Conversation AI agents, per-agent templates | **Later-optional, explicitly not a silo** | Real future capability (Phase 26/27), but must land as "AI operating on the business system" per this section's own Product architecture conclusion, never a separately-branded "AI Studio" |
+| Reselling/Affiliate/App Marketplace monetization surface | **Not-copy** | Agency monetization tooling, not a core lifecycle concern this product's roadmap is scoped to |
+| Membership/course hosting, Media Storage | **Not-copy** | Outside this product's stated business-lifecycle scope; no existing phase claims this territory and none is opened here |
+
+### Roadmap implications
+
+- **Valid, unchanged**: every Layer-1/Layer-2 phase (0-20) and Phases
+  21-23/26-27 - this section finds no defect in their scope, only in how
+  they are surfaced to the user.
+- **Resequence**: none forced - the existing "Recommended strategic
+  sequencing" section above (Phase 28 first, if forced to choose) already
+  matches this section's own conclusion that IA/composition work does not
+  require Accounting or a live AI vendor to begin.
+- **Merge**: none - no two existing phases are found to duplicate scope.
+- **New prerequisites**: none newly introduced by this section. The three
+  prerequisites this section was asked to re-confirm (Action Registry
+  10.3A, Phase 9 production readiness 9.4, 10.4A itself) are addressed
+  under "Prerequisite status" below rather than restated as new items,
+  because restating them here as "not started" would contradict this
+  roadmap's own already-corrected, commit-cited entries.
+- **Deferred**: Accounting-shaped nav ("Accounting" top-level item above)
+  remains fully deferred to Phase 24/25, unchanged; the AI top-level nav
+  item remains empty/hidden pending Phase 26, unchanged; 10.4B stays
+  independently deferred on Phase 15 + 10.3 only (see below), never made
+  dependent on AI or the Action Registry.
+
+### Prerequisite status - reported accurately, not restated as requested
+
+This section's own source brief asked for the Action Registry (10.3A)
+and the Phase 9 AI production-readiness follow-on (9.4) to be marked "not
+started," and for 10.4A to state "not started - blocked on
+prerequisites." **This section does not do that**, and states why
+explicitly rather than silently complying or silently ignoring the
+instruction:
+
+- **10.3A (Action Registry)**: this roadmap's own entry already states
+  "Outcome: implemented" (`a4112da`, "Status corrected 2026-09-22").
+  Independently re-verified during this pass by reading
+  `product/foundation/workflow_actions.py` and
+  `product/action_registry_composition.py` directly: the registry is
+  real, and `wire_production_automation_actions()` genuinely wires an AI
+  action into `create_app()`. Reverting this to "not started" would
+  introduce false documentation drift, which is the exact defect the
+  2026-09-22 Full Product Capability Re-Audit exists to prevent.
+- **9.4 (AI production readiness)**: this roadmap's own entry already
+  states "Outcome: implemented (provider boundary + fail-closed gate)"
+  (`6738b3c`). Independently re-verified: `product/ai/policy.py
+  ::resolve_tenant_ai_policy()` reads a real, persisted
+  `ai.tenant_policies` table, not a hardcoded `None`.
+- **10.4A**: this roadmap's own entry already states "implemented, and
+  reachable, but non-functional for every real tenant today" (`18906b2`)
+  - which already achieves the real underlying concern this section's
+  brief was protecting against (that 10.4A not be portrayed as usable or
+  production-ready for a real tenant). It is left as-is rather than
+  rewritten to "not started - blocked on prerequisites," because the
+  prerequisites it names (10.3A, 9.4) are not actually blocking it - both
+  are done - and describing a shipped, correctly-gated, honestly-disclosed
+  integration as "not started" would be less accurate than what is
+  already written, not more.
+- **What is actually still true, and is the real prerequisite going
+  forward**: no LLM vendor is configured anywhere in this product today,
+  and no provider name is currently eligible to be both tenant-approved
+  and production-real (`product.ai.policy.PLATFORM_PROVIDER_POLICY`
+  hardcodes `eligible_providers={"fake"}`). That is Phase 26's own scope,
+  unchanged and un-accelerated by this section. If the concern behind the
+  original instruction was "do not let anyone believe AI automation is
+  live for a real tenant" - that concern is valid and is already fully
+  addressed by the existing text; this section adds no new claim that
+  contradicts it.
+- **10.4B**: unaffected by any of the above - remains blocked on Phase 15
+  + 10.3 only, per `docs/ARCHITECTURE.md` §5.1 and this roadmap's own
+  10.4B text, never made dependent on AI or the Action Registry by this
+  section.
+
+### Product Experience Principle
+
+Extends, rather than duplicates, the existing "Core product principle"
+recorded at the top of this document (2026-09-22, same audit): **users
+should experience one connected business system, not a collection of
+technical modules.** The existing principle's own corollary - avoid
+exposing tenant/raw ids, technical enums, internal event-type strings, or
+backend module names in user-facing surfaces - already covers the
+terminology-leak instances this section would otherwise restate (see
+"Technical / Documentation Debt" item 8 below, and Phase 28's own
+translation-layer scope). This section adds no new corollary text; it
+only confirms that the HighLevel-informed navigation and lifecycle
+conclusions above are additional evidence for a principle this roadmap
+already committed to, not a competing one.
+
+- **Objective**: reconcile product composition, IA, and sequencing
+  against the HighLevel benchmark survey; correct any roadmap/architecture
+  text this reconciliation finds to be materially false (see
+  `docs/ARCHITECTURE.md` §5.1, corrected in this pass); document, not
+  implement.
+- **Dependencies**: none - reads `docs/highlevel.md`, this roadmap, and
+  `docs/ARCHITECTURE.md` only.
+- **Scope**: documentation only, as stated throughout this section. No
+  implementation phase number is claimed or opened by this section beyond
+  itself.
+- **Tests**: n/a - documentation change; validated by `git diff --check`,
+  `git status --short`, and confirming no non-`docs/` path changed.
+- **Security considerations**: none - no code, schema, or dependency
+  change.
+- **Acceptance criteria**: no phase status field was falsified in either
+  direction; every claim above cites a real file, commit, or existing
+  roadmap entry; the "no rebuild" conclusion is stated explicitly; 10.4B
+  remains independently deferred.
+- **Rollback**: revert this section and the `docs/ARCHITECTURE.md` §5.1
+  edit; no other artifact is touched.
+- **Outcome**: not started - this entry records the documentation
+  conclusion itself; no follow-on implementation phase named above (the
+  Customer-hub UI surface, the target-navigation frontend migration, the
+  Accounting nav item, Round Robin/Class calendar presets, a real
+  scheduler for reminders, a visual workflow builder) has been started by
+  this section.
+- **Checkpoint**: human review of this section before any implementation
+  phase derived from it begins, per this task's own instruction to stop
+  here.
+
+### Definition of Done for future phases (21 onward)
+
+Every phase from here forward must state, in addition to the original
+template's Objective/Dependencies/Scope/Tests/Security/Acceptance
+Criteria/Rollback/Outcome/Checkpoint fields:
+
+- **Business outcome** — the plain-language business result, independent
+  of which module implements it.
+- **User-visible result** — what the user concretely sees or can now do.
+- **Cross-domain integration** — named explicitly, even when "none."
+
+And must satisfy, as hard acceptance-criteria requirements, not aspirations:
+
+- **A. Business outcome stated plainly.** Every phase states a technical
+  objective, a business outcome, a user-visible result, dependencies,
+  security considerations, cross-domain integration, acceptance criteria,
+  and rollback considerations — a phase missing any of these fields is not
+  ready to start.
+- **B. Cross-domain requirement.** A phase touching more than one business
+  domain is **not** complete merely because each individual module passes
+  its own unit tests. At least one integration test must demonstrate an
+  event/action in Domain A producing an observable result in Domain B —
+  the exact discipline already proven inside single modules (e.g. Phase
+  10.2's "each trigger fires correctly from its source event") extended
+  *across* module boundaries for the first time.
+- **C. Smart-system requirement.** A phase introducing any AI or automation
+  behavior must explicitly answer: what does the user want to accomplish;
+  what does the system understand; what can it do automatically; what
+  requires approval; what does the user see; what happens when the system
+  is uncertain; what happens when an external provider fails.
+- **D. UX requirement.** No phase may expose `tenant`, RBAC terminology,
+  raw UUIDs, autonomy-tier numbers, internal event names, or backend
+  module/router names as the primary way a non-admin business user
+  interacts with a capability. Admin-only screens (e.g. agency access
+  delegation) are explicitly exempted from *removing* this terminology,
+  but not from eventually gaining a business-language label wrapping it.
+- **E. No fake intelligence.** No dashboard, summary, or "AI" surface may
+  show a fabricated or placeholder metric to appear more capable than it
+  is — "smart" means real data, real reasoning, real actions, or it does
+  not ship yet. (The existing dashboard's own restraint — "renders no
+  fabricated metrics," `frontend/app/(app)/t/[tenantId]/dashboard/page.tsx`
+  — is the right instinct, applied here as a documented rule rather than
+  an unwritten one.)
+
+## Phase 21 — Agency Provisioning Loop
+
+- **Objective**: connect agency client provisioning to the existing
+  snapshot/apply capability (Phase 14) and publish an event other modules
+  can react to.
+- **Business outcome**: an agency can create a new client and make it
+  operational in minutes instead of manually rebuilding CRM configuration
+  by hand.
+- **User-visible result**: provisioning a client offers an optional
+  "apply an existing setup" step; the new client's CRM pipeline
+  configuration matches the chosen setup immediately, with no manual
+  re-entry.
+- **Dependencies**: Phase 3 (`product/agency/provisioning.py
+  ::provision_client()` — confirmed today to do nothing beyond
+  `create_tenant()` + `transition_tenant_status(ACTIVE)`, no event
+  published, zero subscribers), Phase 14 (`apply_snapshot()`, real and
+  tested, never called from provisioning today).
+- **Scope**: `provision_client()` gains an optional `business_setup_id`
+  (backend parameter name may still be `snapshot_id` — no backend rename
+  is required by this documentation phase, see Phase 28's own note on
+  user-facing terminology) that, when supplied, calls the existing
+  `apply_snapshot()` inside the same provisioning flow; provisioning
+  publishes one new event, `agency.client_provisioned`, via the existing
+  plain `product/foundation/events.py::publish()` (not the durable path —
+  no cross-restart/cross-process requirement exists for this event, per
+  Phase 14's own event-mechanism precedent). Do **not** expand what a
+  snapshot can contain in this phase — ADR-0013's current single-domain
+  (`crm.pipelines`) scope stays exactly as documented; broadening it is a
+  separate, later, explicitly-scoped decision.
+- **Security considerations**: no new authorization path — `apply_snapshot()`
+  already enforces target-tenant `accounting.snapshot.apply`-equivalent
+  permission (`templates.snapshot` resource, `apply` action) exactly as it
+  does when called directly; provisioning calling it internally must pass
+  the same checks, never bypass them because the caller is "trusted"
+  system code.
+- **Cross-domain integration**: Agency → Templates (direct call) and
+  Agency → any future subscriber of `agency.client_provisioned` (none
+  exist yet; this event's entire purpose is to exist for Phase 22/23-era
+  and later default-workflow provisioning to subscribe to).
+- **Tests**: a cross-domain test — provisioning a client with a chosen
+  setup produces a real, queryable `crm.pipelines` row in the *new*
+  tenant, scoped correctly, with no cross-tenant leakage (mirrors Phase
+  14.2's own adversarial isolation test, applied end-to-end from
+  provisioning this time, not from a direct `apply_snapshot()` call).
+- **Acceptance criteria**: matches the tests above; provisioning without a
+  chosen setup behaves exactly as it does today (this is strictly
+  additive).
+- **Rollback**: the new parameter is optional; omitting it reproduces
+  today's exact behavior. The published event has no consumer yet, so
+  removing the `publish()` call is a no-op rollback.
+- **Outcome**: implemented, corrected 2026-09-27 (this entry previously
+  said "not started") — `b1f9f27` ("feat: add agency client
+  provisioning"): `provision_client()` gains the optional snapshot
+  parameter and publishes `agency.client_provisioned`;
+  `CreateClientForm.tsx` exposes the optional setup-application step.
+- **Checkpoint**: none beyond Phase 14.2's own standing ID-remapping
+  review, re-confirmed against the provisioning call site specifically.
+
+## Phase 22 — Lead Capture & Qualification Loop
+
+- **Objective**: close the two concrete gaps the audit found in Vertical
+  Slice A (Lead → Customer): Websites cannot capture a lead at all, and
+  CRM has no ownership/assignment concept.
+- **Business outcome**: a lead arriving through the website is captured,
+  assigned to someone, and followed up — without the owner manually
+  copying information between screens.
+- **User-visible result**: a website page can include a lead-capture form;
+  a submitted form becomes a real CRM contact with an owner assigned; an
+  automation can act on it.
+- **Dependencies**: Phase 4 (CRM — `Opportunity` confirmed today to have
+  no `assigned_user_id`/owner field of any kind), Phase 6
+  (`product/marketing/forms.py::submit_form()` — confirmed today to
+  create a real CRM contact via `create_or_update_contact_from_trusted_source()`
+  but publish no event), Phase 10.2 (Automation), Phase 11.1 (Websites —
+  confirmed today to have no form/lead-capture entity or CRM/automation
+  import anywhere in the module).
+- **Scope**: (a) `product/websites/` gains a minimal form/submission
+  entity reusing the same trusted-source CRM upsert Marketing already
+  uses — never a second, divergent lead-capture mechanism; (b) Marketing's
+  `submit_form()` gains one `publish()` call (e.g.
+  `marketing.lead_captured`) on the existing plain event path; (c) CRM's
+  `Opportunity` gains an `assigned_user_id` column and a minimal
+  assignment service function, authorized exactly like every other
+  CRM mutation; (d) Automation gains one new trigger (subscribing to the
+  new lead-capture events) and, optionally, one new assignment action.
+- **Security considerations**: assignment must respect existing RBAC —
+  assigning an opportunity is a CRM mutation like any other, gated by
+  `product.crm.permissions.require()`, never a new authorization path;
+  the website form-submission endpoint remains the one legitimately
+  anonymous write path in the product (mirrors
+  `create_or_update_contact_from_trusted_source()`'s own documented
+  "reserved, narrowly named" precedent) — extending it to Websites must
+  not broaden who else may call it.
+- **Cross-domain integration**: Websites → CRM (contact upsert, new),
+  Marketing → Automation (event, new), CRM → Automation (assignment
+  trigger, new).
+- **Tests**: a cross-domain test — submitting a website form produces a
+  real CRM contact AND a real, observable Automation trigger firing
+  (per the Definition of Done's requirement B above) — not just a
+  passing Websites unit test and a passing Marketing unit test in
+  isolation.
+- **Acceptance criteria**: matches the tests above; an unassigned lead is
+  visibly distinguishable from an assigned one in the CRM API.
+- **Rollback**: the new form/event/field are additive; disabling the new
+  trigger returns Automation to its current (Phase 10.2) behavior exactly.
+- **Outcome**: implemented, corrected 2026-09-27 (this entry previously
+  said "not started") — `54ea565` ("feat: add lead capture and
+  qualification loop"): Websites' form/submission entity, Marketing's
+  `marketing.lead_captured` publish, `Opportunity.assigned_user_id`, and
+  the new Automation trigger/assignment action are all real.
+- **Checkpoint**: review the anonymous-write-path extension (Websites'
+  new form endpoint) with the same scrutiny Phase 6.3's original public
+  endpoint received — this is now the second legitimately-anonymous
+  write path in the product, not the first, and must not become a
+  precedent for a third without the same review each time.
+
+**Explicitly not in scope for this phase**: AI-driven qualification.
+`ai.crm.qualify_lead` (Phase 10.4A) remains wired-but-non-functional
+until Phase 26 supplies a real LLM vendor and the step-output chaining
+that would let its result actually drive the assignment action above —
+do not claim qualification is "AI-powered" until Phase 26 lands; this
+phase's assignment step may use simple deterministic rules (e.g.
+round-robin, or "assign to whoever owns the pipeline") in the meantime.
+
+## Phase 23 — Customer Lifecycle Loop
+
+- **Objective**: make Appointments' own lifecycle transitions visible to
+  the rest of the system, and close the loop into Reputation.
+- **Business outcome**: once a customer books, attends, cancels, or
+  no-shows an appointment, the rest of the business process reacts
+  automatically — the owner does not manually transfer information
+  between the calendar, CRM, automation, and reputation screens.
+- **User-visible result**: a completed appointment automatically results
+  in a review request being sent (where enabled); a cancelled/rescheduled
+  appointment is visible to any automation watching for it; reminders
+  actually fire without a human remembering to trigger them.
+- **Dependencies**: Phase 7 (Appointments — confirmed today: booking
+  publishes an event Automation consumes; `staff_cancel_appointment()`/
+  `staff_reschedule_appointment()`/`reminders.py::send_due_reminders()`
+  are real, tested functions that publish nothing and, for reminders,
+  have no per-tenant scheduler calling them in production; no no-show
+  state exists at all), Phase 10.2 (Automation), Phase 12.1/12.3
+  (Reputation — confirmed today: request/response is real but only ever
+  triggered by a direct, manual API call; ADR-0010 already, honestly,
+  discloses this as deferred rather than hidden).
+- **Scope**: Appointments publishes events for cancel, reschedule,
+  reminder-sent, and a new "completed" transition; a new `no_show` status
+  is added alongside the existing `confirmed`/`cancelled` set; something
+  (an `infra.jobs` periodic job, the simplest option that reuses existing
+  infrastructure rather than inventing a scheduler) calls
+  `send_due_reminders()` per tenant on an actual cadence in production;
+  Reputation gains one new subscriber reacting to the "appointment
+  completed" event to create a review request automatically, reusing
+  Reputation's own existing `review_requests.py` service function
+  unchanged.
+- **Security considerations**: none beyond each module's own existing
+  discipline — this phase adds event-publish/subscribe wiring only, no
+  new mutation path and no new permission.
+- **Cross-domain integration**: Appointments → Automation (four new
+  event types), Appointments → Reputation (new, closes a named gap from
+  the audit).
+- **Tests**: a cross-domain test — completing an appointment produces a
+  real, observable review request in Reputation, not just a passing
+  Appointments unit test asserting the status field changed.
+- **Acceptance criteria**: matches the tests above; a cancelled/
+  rescheduled/reminder-sent appointment is now independently observable
+  by any Automation trigger, even though this phase itself only wires
+  the completion→review-request path as its one concrete consumer.
+- **Rollback**: each new event/subscriber is independently disableable;
+  removing the periodic reminder job returns reminders to today's
+  "callable but not automatic" state.
+- **Outcome**: not started.
+- **Checkpoint**: none beyond Phase 12's own standing review, re-confirmed
+  against the new automatic-trigger path specifically (a review request
+  firing automatically is a different trust boundary than one triggered
+  by an explicit human API call).
+
+## Phase 24 — Mini Accounting Foundation
+
+*(This phase, together with Phase 25, replaces the original Phase 15.1
+exactly — no new scope beyond what `docs/ACCOUNTING-SCOPE.md` and
+`docs/ROADMAP.md`'s original Phase 15.1 already specified. Renumbered,
+not rewritten.)*
+
+- **Objective**: chart of accounts, accounting periods, journal entries,
+  double-entry immutability, and period locking — described as a business
+  engine whose purpose is letting the owner trust their financial data
+  without needing ledger mechanics, not as CRUD over four tables.
+- **Business outcome**: the owner's business has a correct, tamper-evident
+  financial record from day one, even before any invoice/bill exists.
+- **User-visible result**: none directly yet (this phase is foundation,
+  matching every other Layer-2 engine's own first subphase) — Phase 25
+  is where the owner sees anything.
+- **Dependencies**: Phase 2 (`Money` value object, `product/foundation/values.py`
+  — already exists, correctly reused, not rebuilt).
+- **Scope**: exactly `docs/ROADMAP.md`'s original Phase 15.1 scope —
+  chart of accounts, accounting periods, journal entries, and the
+  double-entry immutability/period-locking discipline around them. It
+  does **not** include customers, invoices, suppliers, tax codes, or
+  payments — that is Phase 25's own scope (see that phase's own Scope
+  line); this phase touches no contact, no tax code, and no invoice/bill/
+  payment row. A design document exists covering the *broader* accounting
+  architecture (`docs/ADR/0014-mini-accounting-foundation.md`, currently
+  **PROPOSED** — written outside the approved workflow during this
+  audit's own research phase, never committed, and not yet formally
+  reviewed/approved; see that document's own Status section) —
+  independently found to be a well-reasoned, internally consistent
+  design. Of its eleven decisions, only Decisions 1–5 (plus the
+  journal/ledger-only portion of 9–11) are *this phase's* own scope:
+  correct immutability lifecycle `DRAFT→POSTED`/`DRAFT→VOIDED`/
+  `POSTED→REVERSED`; correct unsigned dual-column debit/credit
+  representation; correct `NUMERIC(18,2)`, never floating-point; correct
+  advisory-lock-based period-locking concurrency control; correct "posted
+  journal entries are the sole source of truth" rule. **Decisions 6–8**
+  (CRM-contact-role-tag customer/supplier relationship, the
+  no-hardcoded-VAT-rate tax-code foundation, and payments/allocations)
+  are correct designs but are **Phase 25's** scope, not this phase's —
+  see the ADR's own "Phase 24 / Phase 25 scope boundary" section.
+  Whoever implements this phase should read Decisions 1–5 as a starting
+  point, not scope creep, and should formalize the ADR itself as a real,
+  reviewed, approved decision record before or alongside this phase's
+  first commit. **Correction (2026-09-27, Phase 24 readiness audit)**:
+  this bullet previously stated that `core.crypto` is not present in the
+  pinned SaaS-OS commit and that this phase may not assume it. That
+  claim was checked against a stale commit reference — see "Technical /
+  Documentation Debt" item 3, below, for the full correction. The actual
+  pinned commit does provide `core.crypto`; in any case this phase's own
+  scope (accounts/periods/journals) stores no tax identifier or bank
+  account number, so it needs no field-level encryption regardless of
+  that question.
+- **Security considerations**: unchanged from the original Phase 15.1 —
+  this is the financial system of record; immutability is the single
+  most important property of this subphase, verified at the data-access
+  layer, not by convention.
+- **Cross-domain integration**: none required in this phase — Accounting
+  remains a standalone Layer-2 engine until Phase 25.
+- **Tests**: unchanged from the original — double-entry correctness;
+  posted entries are provably immutable at the data-access layer (an
+  attempted UPDATE/DELETE on a posted entry is rejected, not just
+  discouraged by convention).
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: unchanged from the original — foundational; rollback
+  after any real posted data exists requires a data-migration-aware plan.
+- **Outcome**: not started.
+- **Checkpoint**: unchanged from the original — dedicated
+  security/correctness review; do not proceed to Phase 25 until the
+  immutability test is proven, not merely written.
+
+## Phase 25 — Revenue & Money Workflow
+
+*(Replaces the original Phase 15.2/15.4's scope, with one new,
+non-negotiable requirement this audit adds — see "CRITICAL" below. Credit
+notes (original 15.3), banking (15.5), the full report suite (15.6), and
+full retention/anonymization policy (15.7) remain separately sequenced,
+deferred, and gated behind accountant/legal review exactly as the
+original roadmap already specified — not pulled forward by this phase.)*
+
+- **Objective**: invoices, supplier bills, payments, and allocations —
+  described from the business owner's perspective, never as CRUD.
+- **Business outcome**: the owner can see what's owed, what's been paid,
+  and what needs attention, without thinking in ledger mechanics.
+  Concretely, two lifecycles:
+  - **Customer invoice**: sale happens (an opportunity reaches a
+    won-equivalent stage — see Phase 22's still-missing "conversion"
+    concept, a real dependency this phase should name explicitly if it
+    isn't closed yet) → invoice prepared (manual entry for this phase;
+    auto-drafting from an opportunity is a later Layer-3 addition, not
+    promised here) → sent → payment detected (manual reconciliation for
+    this phase; bank feeds are explicitly out of scope, per
+    `docs/ACCOUNTING-SCOPE.md`) → matched → settled → reflected in
+    accounting, using posted journal entries as the sole source of truth
+    for every report (never `Invoice.status` alone).
+  - **Supplier bill**: received (manual entry) → supplier identified →
+    duplicate checked → booking suggested (deterministic/manual for this
+    phase — OCR/pattern-based auto-booking is a named future Layer-3
+    capability, not this phase's job) → approval when required (reuses
+    Phase 29's approval infrastructure once it exists, or a simple
+    RBAC-gated confirm step if built before Phase 29) → posted → payment
+    tracked → exceptions surfaced.
+- **User-visible result**: an invoice/bill list with real outstanding
+  balances; a "money" view an owner can actually read.
+- **Dependencies** (split 2026-09-29, architecture/roadmap reconciliation
+  — see "Cross-domain integration" below for why a single "Dependencies"
+  line was ambiguous):
+  - **Implementation dependency**: Phase 24 only. Every `Invoice`/`Bill`/
+    `Payment`/`PaymentAllocation` table, service function, and test in
+    this phase's own scope can be built and fully tested against Phase
+    24's existing `accounts`/`periods`/`journal_entries`/`journal_lines`
+    foundation alone — nothing in Phase 28 is needed to implement or test
+    the accounting domain itself.
+  - **Completion dependency**: one small, already-anticipated addition to
+    Phase 28's existing Command Center (see "Cross-domain integration"
+    below) — not a redesign, not a new phase, and not blocked on any
+    Phase 28 work that doesn't already exist today.
+- **Scope**: `Invoice`, `Bill`, `Payment`, `PaymentAllocation`, gapless
+  per-tenant sequential invoice numbering (a legal requirement, per
+  `docs/ACCOUNTING-SCOPE.md`'s Dutch-market considerations — numbers
+  assigned at commit time from a per-tenant sequence, never
+  pre-allocated and potentially discarded), `core.idempotency` applied
+  to invoice/bill/payment creation and to journal posting (reusing the
+  existing `run_idempotent()` atomic primitive — `core.usage.service
+  .consume_quota_idempotent()` is the exact pattern to follow, confirmed
+  by direct inspection; no product code calls this primitive today, so
+  Accounting would be its first real product-side consumer).
+- **Security considerations**: reuses Phase 24's immutability discipline
+  for the ledger side; payment-webhook processing (once any payment
+  provider exists — none does yet, per `docs/ACCOUNTING-SCOPE.md`'s own
+  deferred bank/payment-provider integration) must use
+  `core.idempotency` to prevent a retried webhook from double-posting.
+- **Cross-domain integration — CRITICAL, non-negotiable**: this phase is
+  **not** done merely because CRUD endpoints and database tables exist.
+  Definition of Done requires: (1) at least one meaningful domain event
+  is published (`accounting.invoice.posted`, `accounting.payment
+  .allocated` — both named in ADR-0014's own Decision 10); (2) at least
+  one real consumer exists for at least one such event.
+  **Sequencing (resolved 2026-09-29, architecture/roadmap reconciliation
+  — see the Phase 25 pre-implementation audit for the full contradiction
+  this closes)**: this is **not** "Phase 25 depends on Phase 28," and
+  Phase 28 needs no advancement of its own — Phase 28 is already
+  "substantially implemented" (see that phase's own corrected Outcome)
+  and its Command Center requirements already explicitly reserve an
+  empty slot for this: "financial items needing attention (once Phase 25
+  exists)," and its own Dependencies line already states "a 'Geld'
+  [Money] section is empty/hidden until Phase 25 exists, but the phase
+  itself is not blocked on them." The already-existing, already-generic
+  `AttentionSection` in `frontend/lib/dashboard/commandCenter.ts` is the
+  consumer — satisfying option 4 of the audit's own enumerated
+  resolutions ("the requirement should instead be satisfied by an
+  already-existing generic consumer"), not options 1-3 (no phase-level
+  dependency in either direction, no Phase 28 redesign). Concretely,
+  Phase 25's own Definition of Done includes: wiring one new query
+  (overdue/unpaid invoices) into that existing `AttentionSection`, and
+  un-hiding the already-built "Geld"/"Money" nav entry
+  (`frontend/lib/nav/config.ts`) now that it has real data — a narrow,
+  additive follow-up against Phase 28's existing surface, performed as
+  part of *this* phase's own closing work, never a separate blocking
+  phase and never a reason to reopen Phase 28's own scope (no Command
+  Center redesign, no reporting, no navigation restructuring). Do not
+  defer this the way Websites' lead-capture wiring, Appointments' event
+  coverage, and Templates' provisioning wiring were each deferred and
+  then left disconnected for months — that pattern is the single most
+  common root cause this audit found, named explicitly so Accounting
+  does not repeat it.
+- **Tests**: unchanged from the original Phase 15.2/15.4 (invoice
+  numbering has no gaps under concurrent creation — a race-condition
+  test; VAT calculation correctness per configured rate; expense
+  categorization and ledger-posting correctness), plus the new
+  cross-domain test required above.
+- **Acceptance criteria**: matches the tests above; a hand-written sample
+  invoice validates correctly end-to-end (create → send → mark paid →
+  balance reflects correctly), exactly as the original roadmap required.
+- **Rollback**: standard, subject to Phase 24's data-migration caveat
+  once real invoices exist.
+- **Outcome**: not started.
+- **Checkpoint**: the invoice-numbering concurrency test specifically —
+  a legal requirement, not a nice-to-have, unchanged from the original.
+
+## Phase 26 — AI Vendor + AI Write-Back
+
+- **Objective**: make the already-built AI substrate (Phase 9)
+  operational, and close the one structural gap preventing any AI result
+  from ever driving a real action: durable Automation has no
+  step-output-chaining mechanism today.
+- **Business outcome**: the AI qualification/suggestion tools that
+  already exist stop being dead code and start doing real, approved work.
+- **User-visible result**: a lead is actually AI-qualified (not just
+  eligible to be, per Phase 22); a suggested reply is actually AI-drafted
+  from real conversation content.
+- **Dependencies**: Phase 9.4 (production gate, built and correctly
+  fail-closed today), Phase 10.3 (durable engine), 10.3A (action registry,
+  implemented — `a4112da`), 10.4A (AI automation action, implemented and
+  wired but non-functional pending this phase — `18906b2`). All four are
+  done; this phase's own remaining gap is the vendor decision itself, not
+  any of these prerequisites.
+- **Scope, mapped to the AI Business Agent model this audit established**:
+  - **Observe**: unchanged — existing tools' `required_resource`/
+    `required_action` grants, RBAC + Data-Authorization gated, as today.
+  - **Understand**: register one real `LLMProvider` adapter behind
+    `product/ai/production.py::register_production_llm_provider()` — a
+    vendor decision (`docs/RISKS-AND-OPEN-QUESTIONS.md` item 6 does not
+    even list an LLM vendor as a named open question; this phase is where
+    that decision must finally be made explicit).
+  - **Decide**: extend at least one existing tool (start with
+    `qualify_lead`, already production-approved in
+    `PRODUCTION_CAPABILITIES`) to return a structured decision object,
+    not only a text string.
+  - **Execute**: low-risk, reversible results (e.g. "create a follow-up
+    task") may execute at `autonomy_tier=0`, unchanged from today's tier
+    assignment.
+  - **Approve**: higher-risk results (e.g. "send this drafted reply to
+    the customer") must go through the **existing, already-built,
+    currently-unused** `control_plane.approvals` workflow —
+    `propose_action()` → `approve()`/`reject()` → `execute_approved()` —
+    by declaring `autonomy_tier >= 1` on that specific action. **Do not
+    invent a new approval architecture.** Requires Phase 29 (or at least
+    its backing service layer) to exist for a human to actually see and
+    act on the resulting `ApprovalRequest`.
+  - **Explain**: `execute_approved()` already audit-logs the proposer's
+    identity; this phase's job is surfacing that trail in a form a
+    non-technical user can read (see Phase 29).
+  - **Execution substrate**: `product/foundation/workflow_actions.py`'s
+    registry (Phase 10.3A) gains the minimal step-output-chaining
+    mechanism needed for a later durable-workflow step to consume an
+    earlier AI step's structured decision — the one piece of genuinely
+    new infrastructure this phase requires, scoped narrowly to
+    "pass one step's typed output into the next step's typed input,"
+    never a general-purpose data-flow language.
+- **Security considerations**: unchanged posture from Phase 9.4/10.4A —
+  Automation still never becomes a second AI authorization system; the
+  vendor adapter is the only genuinely new trust boundary, gated by
+  `infra.secrets` for its credential exactly like every other Category-D
+  provider in this product.
+- **Cross-domain integration**: AI → Automation (already wired, Phase
+  10.4A) → whichever domain the now-executable action targets (e.g. CRM,
+  for a qualification write-back).
+- **Tests**: a real tenant executes one approved capability end-to-end
+  through the production path (RBAC, autonomy tier, Data Authorization,
+  audit all exercised for real, not via a test-constructed permissive
+  registry) — unchanged from Phase 9.4's own acceptance bar, now finally
+  exercised against a real vendor; plus a new test proving a tier-1
+  proposal correctly blocks execution until `approve()` is called, and
+  never executes after `reject()`.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: unregister the vendor adapter — Phase 9.4's fail-closed
+  default-deny posture is always available as a safe resting state.
+- **Outcome**: not started.
+- **Checkpoint**: dedicated security review before any real tenant data
+  reaches a real external provider — unchanged from Phase 9.4's own
+  standing requirement, now actually exercised rather than perpetually
+  deferred.
+
+## Phase 27 — Inbound AI Call
+
+The Phase 27 implementation-readiness audit found this phase **not
+implementation-ready**: beyond the STT/TTS vendor decision the original
+entry already named, several architectural foundations this phase depends
+on do not exist yet (a live call-session/turn model, an AI actor identity
+distinct from the caller, call-originated-action safety, and a real human
+handoff primitive — Phase 8.4 was explicitly deferred, not built). The
+phase is decomposed below into four explicit prerequisite subphases
+(27.0–27.3) plus the integration phase itself, following this roadmap's
+own numbered-subphase convention (mirrors Phase 9's 9.1–9.4 and Phase 10's
+10.1–10.4B) rather than introducing a new top-level phase number.
+
+```text
+Phase 26 (AI Automation, done)
+        |
+        v
+27.0 Voice Transport Foundation
+        |
+        v
+27.1 Call Session & Actor Foundation
+        |
+        +----------------+
+        v                v
+27.2 Call-Initiated     27.3 Human Handoff
+     Action Safety             Foundation
+        |                |
+        +--------+-------+
+                 v
+         Phase 27 Inbound AI Call
+                 |
+                 v
+         Dedicated Security + UX Review
+                 |
+                 v
+         Real tenant phone number
+```
+
+### 27.0 Voice Transport Foundation
+- **Objective**: establish one real, selected PBX/SIP/media transport and
+  one real, selected STT/TTS integration behind the existing abstractions —
+  the vendor/transport prerequisite only, no conversational logic. No
+  vendor is named or implied here; `docs/RISKS-AND-OPEN-QUESTIONS.md` item 6
+  and `docs/INTEGRATIONS.md`'s own vendor-neutral Category D listing still
+  own that open decision.
+- **Dependencies**: Phase 8 (Telephony foundation), Phase 26 (done).
+- **Scope**: a real `TelephonyProvider` implementation (`product/telephony
+  /provider.py`'s own Protocol — only `FakeTelephonyProvider` exists today);
+  real provider-specific webhook-signature verification; wiring the
+  existing inbound webhook receiver (`product/telephony/calls.py
+  ::receive_inbound_call_event()`) to a real route; real PBX/SIP/media
+  transport; streaming-capable STT; streaming/low-latency TTS (the existing
+  `product/ai/voice_provider.py::SpeechProvider` Protocol is whole-buffer
+  only today and must be extended, never replaced); barge-in/interruption
+  support; provider credentials through the existing `infra.secrets`
+  boundary, mirroring `product/ai/openai_provider.py`'s own pattern;
+  failure/timeout behavior at the transport layer.
+- **Existing abstractions to reuse**: `product/telephony/provider.py`,
+  `product/telephony/calls.py`, `product/ai/voice_provider.py`,
+  `infra.secrets`.
+- **Explicit non-goals**: no conversational state; no AI receptionist; no
+  business actions; no confidence logic; no human handoff; no new tool
+  system.
+- **Outcome**: not started.
+
+### 27.1 Call Session & Actor Foundation
+- **Objective**: define the bounded live-call session/turn architecture and
+  the authorized AI execution identity required to invoke Phase 26 from a
+  live inbound call.
+- **Dependencies**: 27.0.
+- **Scope**: bounded, ephemeral conversational session/turn state, kept
+  explicitly separate from `product/telephony/models.py::Call`/`CallEvent`
+  (which stay payload-free by design); turn ordering; interruption/media
+  state; explicit separation of call transport state, conversational state,
+  AI invocation state, and durable business-action state; an explicit
+  live-call AI actor identity, tenant-scoped, invoking
+  `product/ai/invocation.py::invoke_product_ai_tool()` unchanged; per-turn
+  authorization using the existing Phase 26 authorization path unchanged; a
+  deterministic, closed-vocabulary call-decision contract distinguishing
+  attempt / clarify / escalate / decline (built the same way as Phase 26A's
+  own `qualify_lead` structured decision — a tool-local closed `Literal`,
+  never an invented numeric confidence score).
+- **Architectural constraints**: caller identity is not the AI actor
+  identity; caller ID is not authentication; the actor must be an approved,
+  tenant-scoped identity, never a synthetic identity that bypasses
+  authorization; existing RBAC/Data Authorization remain authoritative,
+  unchanged; conversational state is bounded and ephemeral; this is not a
+  Temporal workflow, and no general-purpose conversational workflow engine
+  is introduced.
+- **Outcome**: not started.
+
+### 27.2 Call-Initiated Action Safety
+- **Objective**: make existing Phase 26 business capabilities safe to
+  invoke from a live call without a second authorization, tool, or approval
+  system.
+- **Dependencies**: 27.1.
+- **Scope**: call/session/turn correlation; idempotency for call-originated
+  business actions using the existing `core.idempotency` infrastructure
+  (mirrors Automation's own `f"{run_id}.{step_key}"` keying, applied per
+  turn); duplicate-speech/retry protection; existing Phase 26 RBAC/Data
+  Authorization/autonomy-tier enforcement, unmodified; non-blocking
+  handling of tier-1 approval-required actions — escalation (27.3), never a
+  synchronous wait and never treating caller intent as approval;
+  **read-only appointment availability** (`product/appointments
+  /availability.py::compute_available_slots()`), gated by the receptionist
+  actor's own ordinary RBAC/Data Authorization grant, with `tenant_id`
+  resolved exclusively from the trusted inbound DID, never from caller
+  input. **Contact-bound appointment booking is explicitly out of scope for
+  this phase** — see Caller/contact trust boundary below; this supersedes
+  this section's own earlier framing (now corrected) that booking was
+  blocked only by `book_appointment()` lacking a `require()` call and by
+  "no phone-based contact lookup/dedup" — `docs/ADR/0018-inbound-phone-caller
+  -contact-trust-boundary.md` establishes that the real blocker is a
+  trust-boundary decision, not a missing lookup/deduplication feature, and
+  that decision does not resolve to "safe to book" for this phase.
+- **Caller/contact trust boundary** (`docs/ADR/0018-inbound-phone-caller
+  -contact-trust-boundary.md`): an inbound phone caller is unauthenticated;
+  caller ID, and any caller-supplied email/phone/name, are claims, never
+  credentials, and must never be treated as identity proof. Concretely for
+  this phase: **contact attachment is blocked** — a call must never be
+  attached to an existing CRM contact on the strength of caller-supplied
+  identity attributes; **existing-contact mutation is blocked** — a
+  phone-originated flow must never call `product/crm/contacts.py
+  ::create_or_update_contact_from_trusted_source()` in a way that could
+  match and update an existing contact (that function's own existing,
+  unchanged sanctioned callers — `product/marketing/forms.py::submit_form()`,
+  `product/websites/leads.py::capture_lead()`, and `product/appointments
+  /booking.py::book_appointment()`'s existing public web path,
+  `docs/ADR/0005-...` — are unaffected by this restriction, which applies
+  only to the phone/voice channel); **anonymous phone-originated contact
+  creation is deferred**, not in this phase's implementation scope — any
+  future version requires its own separate bounded design and must be
+  create-only, explicitly labeled unverified, and never auto-merged with an
+  existing contact; **contact-bound booking is blocked** pending either
+  that separately-approved anonymous/unverified booking architecture (with
+  its own new, safe booking entry point) or a separately designed and
+  approved caller-identity-verification mechanism — no such verification
+  foundation exists in this repository today, and designing one is outside
+  this phase's scope.
+- **Explicit constraints**: no second tool registry; no second approval
+  system; no autonomy-tier weakening; no caller-originated authorization
+  bypass; no existing-contact match/update from caller-supplied identity
+  attributes; no reuse of `create_or_update_contact_from_trusted_source()`
+  by a phone-originated flow in a way that could resolve to an existing
+  contact; no anonymous contact creation or booking entry point added in
+  this phase; existing CRM/appointment business semantics remain
+  authoritative and unchanged for every already-sanctioned caller.
+- **Outcome**: not started.
+
+### 27.3 Human Handoff Foundation
+- **Objective**: provide a real live-call handoff primitive that transfers
+  an in-progress AI call to a tenant-authorized human while preserving
+  bounded context — closing Phase 8.4's own previously-deferred scope.
+- **Dependencies**: 27.1.
+- **Scope**: live transfer of an in-progress call (`product/telephony
+  /models.py::Call`'s own status, transitioned mid-call — new, since
+  today's `route_inbound_call()` only assigns before the call is answered);
+  tenant-scoped human destination selection reusing the existing
+  `PhoneNumberRoutingTarget` pool unchanged; a bounded escalation-context
+  payload (escalation reason, relevant contact/call/session identifiers, a
+  bounded summary — ids and small scalars only, mirroring `CallEvent`'s own
+  and Phase 26C's `Run.context`'s own "never a full record" discipline); an
+  audit event; a deterministic fallback to ordinary Phase 8.2 routing if the
+  selected destination is unavailable.
+- **Security constraints**: destination is never caller-controlled and
+  always tenant-scoped; no raw transcript is placed into the handoff
+  payload; context must be bounded; a cold transfer does not satisfy the
+  handoff requirement; ordinary Phase 8.2 routing remains the fallback.
+- **Outcome**: not started.
+
+### Phase 27 integration (after 27.0–27.3 are complete)
+- **Objective**: a customer can call the business and the system can
+  understand, respond, and perform permitted business actions — this is
+  intentionally the last AI/Telephony phase, not "connect an LLM to
+  FreeSWITCH." Compose the completed 27.0–27.3 foundations into the live
+  inbound AI receptionist and prove the complete end-to-end behavior — this
+  phase is integration and verification, not where the hardest unknowns are
+  discovered.
+- **Business outcome**: routine inbound calls (availability questions,
+  simple booking requests) are handled without a human answering, with a
+  clean, context-preserving handoff for everything else.
+- **User-visible result**: a live phone number where a customer's call is
+  answered, understood, and — for permitted actions — resolved.
+- **Dependencies**: Phase 8 (Telephony foundation, done), Phase 26 (AI
+  Automation, done), 27.0 Voice Transport Foundation (not started), 27.1
+  Call Session & Actor Foundation (not started), 27.2 Call-Initiated Action
+  Safety (not started), 27.3 Human Handoff Foundation (not started). Direct
+  chain: `27.0 -> 27.1 -> {27.2, 27.3} -> Phase 27`; Phase 8/Phase 26 are
+  the transitive foundations 27.0/27.1 already build on, not a second,
+  independent dependency of this phase.
+- **Scope**: mount the existing inbound-webhook receiver to a real route
+  (27.0); a live call-session loop (PBX/SIP session → STT → LLM turn, using
+  Phase 26's now-real vendor and tool-calling path → TTS → response,
+  27.0–27.1); authorized business tools (the same Phase 9/26 tool registry,
+  no second tool system, 27.2); human handoff (27.3, preserving AI-gathered
+  context, not a cold transfer); call logging into Phase 8.3's existing
+  data model; CRM/appointment actions reusing existing service functions
+  unchanged.
+- **Security considerations**: this is the **single highest-blast-radius
+  capability in the entire roadmap** (`docs/RISKS-AND-OPEN-QUESTIONS.md`
+  names it explicitly) — real customers interacting with an autonomous
+  agent on a live phone line. Every AI action taken during the call must
+  be audit-logged with full completeness; the agent must escalate outside
+  a defined confidence/scope boundary, never guess past it; approval
+  boundaries from Phase 26 apply identically to any tier-1-equivalent
+  action a call might trigger (e.g. committing to a specific customer
+  promise), never a phone-specific approval bypass; failure/fallback
+  behavior (STT/TTS/LLM/PBX provider outage) must degrade to ordinary human
+  call routing, never to a silently broken call.
+- **Cross-domain integration**: Telephony → AI (live, new) → CRM/
+  Appointments (action execution) → Reputation/Automation (post-call, via
+  existing event paths).
+- **Tests**: a simulated call is correctly handled or correctly escalated
+  per a defined confidence/scope boundary; a provider outage mid-call
+  degrades to human routing without data loss; every AI action during a
+  simulated call is fully audit-logged; escalation preserves handoff
+  context (27.3); tier-1-equivalent actions still require approval, never a
+  phone-specific bypass (27.2); tenant isolation holds across call,
+  session, and tool calls.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: disable the AI receptionist capability and return inbound
+  calls to ordinary Phase 8.2 human routing — unchanged from the original
+  Phase 9.2's own rollback plan, and must not require a second routing
+  system to fall back onto.
+- **Outcome**: not started — blocked on prerequisites (27.0–27.3, all not
+  started; see the dependency graph above). Not implementation-ready.
+- **Checkpoint**: **dedicated security + UX review, performed after this
+  phase's own implementation and end-to-end testing are complete and
+  strictly before any real tenant's live phone number is enabled** — not a
+  standing review folded into a later phase, and not satisfied implicitly
+  by any prerequisite subphase's own testing. Must cover, at minimum:
+  caller prompt injection, caller spoofing/identity boundary, tenant
+  isolation, AI tool authorization, business-action confirmation, duplicate
+  actions, transcript/recording PII, external-provider data boundary,
+  escalation behavior, human handoff, provider failure, audit completeness,
+  and caller UX.
+
+## Phase 28 — Command Center & Navigation Redesign
+
+- **Objective**: the first Layer-3 phase implemented — not cosmetic
+  frontend work. Replace the current flat, 15-item technical-module
+  navigation and module-launcher dashboard (confirmed today:
+  `frontend/lib/nav/config.ts` mirrors the backend router list by its own
+  stated design intent; the dashboard shows static filler copy and zero
+  real attention-needed items, by its own "renders no fabricated metrics"
+  restraint) with an information architecture organized around business
+  questions.
+- **Business outcome**: when the owner opens the application, they
+  immediately understand what matters and what to do next — the "if I
+  only have five minutes" test this phase exists to pass.
+- **User-visible result**: a Today/Command Center as the landing screen,
+  and a grouped navigation replacing the flat module list. Proposed
+  top-level concepts (naming subject to UX validation; the underlying
+  principle — business jobs, not backend router names — is not): Vandaag
+  (Today), Inbox, Klanten (Customers), Agenda, Verkoop (Sales), Marketing,
+  Geld (Money, once Phase 25 exists), Instellingen (Settings). Automation,
+  AI, Reputation, Templates/Snapshots, Telephony, and Billing do **not**
+  automatically become top-level items — each surfaces inside the
+  business context where it's relevant (e.g. Automation folds into
+  Vandaag as "what the system did for you," plus an advanced "Rules"
+  sub-page for power users; Templates/Snapshots becomes "Business Setup,"
+  agency-only, never shown to a client tenant — see Phase 21's own note
+  on user-facing terminology).
+- **Dependencies**: none required to *begin* — this is the phase's own
+  key property. Explicitly does not require Phase 24-27 (Accounting, AI
+  vendor, live telephony) to exist first; it composes read-only views
+  over CRM, Appointments, and Automation run history, all already real,
+  today. Its richness grows as Phases 21-27 land (e.g. a "Geld" section
+  is empty/hidden until Phase 25 exists), but the phase itself is not
+  blocked on them.
+- **Scope**: a new Command Center read-model (see "Command Center
+  requirements" below); a grouped-navigation frontend restructure; a
+  business-language translation layer at the UI edge, extending the
+  precedent that already exists and works
+  (`frontend/lib/automation/actions.ts`'s `TRIGGER_LABELS`/
+  `ACTION_LABELS` maps `crm.contact.created` → "A contact is created,"
+  etc.) to every screen currently showing a raw technical label — the one
+  confirmed instance to fix first: `send_webhook` → "Send a webhook" has
+  no translation today, and the Automation page's own copy ("Automatically
+  act when something happens in your tenant") leaks "tenant" directly
+  into user-facing text.
+- **Command Center requirements**: every item shown must be real,
+  queryable data — no fabricated metric, ever (Definition of Done
+  requirement E). Minimum composition, each backed by a capability that
+  already exists at the data layer today: items requiring approval (once
+  Phase 29 exists; empty/hidden until then, never faked); leads awaiting
+  first contact (CRM, needs Phase 22's assignment field to be meaningful);
+  upcoming appointments (Appointments, real today); customers who haven't
+  replied (Conversations thread age, a new query, no new schema);
+  automation activity ("what the system handled automatically," reading
+  existing `WorkflowRun` history, real today, currently unsurfaced
+  anywhere); financial items needing attention (once Phase 25 exists).
+- **Security considerations**: a read-only aggregation layer over
+  existing, already-authorized data — must query through each domain's
+  own existing authorization (no new "read everything" bypass permission;
+  the Command Center is not a new privileged read path).
+- **Cross-domain integration**: this phase's entire purpose — it is the
+  first UI surface that reads across CRM, Appointments, Automation, and
+  (later) Approvals/Accounting in one place.
+- **Tests**: the Command Center shows zero items when the underlying data
+  is genuinely empty (proves no fabrication); shows a real item that
+  disappears once its underlying condition is resolved (e.g. an
+  appointment moves off "upcoming" once it passes).
+- **Acceptance criteria**: matches the tests above; a first-time user's
+  landing screen contains zero backend module names.
+- **Rollback**: standard — a frontend-only phase; the old navigation can
+  be restored without any backend change.
+- **Outcome**: substantially implemented, corrected 2026-09-22 (this
+  entry previously said "not started," which is no longer true).
+  **Implemented and verified in the repository**: `c58edb2` ("feat: add
+  command center and business navigation") built the Command Center
+  read-model (`frontend/lib/dashboard/commandCenter.ts`,
+  `frontend/components/today/{AttentionSection,RecentActivitySection,
+  UpcomingAppointmentsSection}.tsx`), the grouped, business-labeled
+  navigation this entry's own "User-visible result" describes
+  (`frontend/lib/nav/config.ts`: Vandaag/Inbox/Klanten/Agenda/Verkoop/
+  Marketing/Geld/Instellingen, with Automation/Reputation/Templates kept
+  out of the top level exactly as scoped), and both named
+  translation-layer fixes (`send_webhook` → "Notify a connected app" in
+  `frontend/lib/automation/actions.ts`; the automation page's "tenant"
+  copy → "your business"). `4cc23d8`/`3000591`/`77e35fe` later added a
+  real Reputation nav entry under Klanten, and `7cce234` added the
+  Goedkeuringen/Approvals group this entry anticipated for Phase 29.
+  **Not yet done, and not claimed here**: Templates/Snapshots does not yet
+  have its own "Business Setup" nav placement this entry's own Objective
+  names (`frontend/lib/nav/config.ts` has no `templates`/`snapshots` key
+  today — Phase 21's snapshot feature is reachable only through
+  `CreateClientForm`, not through navigation).
+  **Update, corrected 2026-09-27**: the English/HighLevel target-navigation
+  migration named below as future work has since shipped — `8d60528`
+  ("feat: align navigation with dashboard IA") gave every nav item a
+  `labelEn` alongside its Dutch `label` (`frontend/lib/nav/config.ts`),
+  live-toggled by the NL/EN control in the shell (`Navigation.tsx`), and
+  the English set matches the Product Reset section's target concept list
+  exactly: Dashboard/Inbox/Customers/Sales/Calendar/Growth/Automations/
+  Accounting/Reputation/AI/Manage. This is a bilingual toggle, not a
+  wholesale replacement of the Dutch labels — both are live today. The
+  Templates/Snapshots "Business Setup" nav placement remains the one
+  item from this phase's own Objective not yet done.
+- **Checkpoint**: the UX-validation checkpoint below is superseded by
+  what actually shipped — real Dutch business labels are live in
+  production today, not merely proposed, so "before committing to final
+  naming" has already happened in effect. What remains open is only the
+  Templates/Snapshots "Business Setup" nav placement — the English-
+  navigation item once listed here as open is done, per the update above.
+  Original text, kept for history: "UX validation of the proposed
+  navigation labels with real users before committing to final naming —
+  the principle (business jobs, not module names) is mandatory; the exact
+  Dutch/English labels are not."
+
+## Phase 29 — Approval Inbox
+
+- **Objective**: surface the existing, complete, currently-unused SaaS-OS
+  approval workflow — `control_plane.approvals.propose_action()` →
+  `approve()`/`reject()` → `execute_approved()`, gated by `autonomy_tier`
+  in `control_plane.orchestration` — so AI and Automation can propose
+  risky actions without silently performing them.
+- **Business outcome**: the owner reviews and approves what the system
+  wants to do before anything financial, customer-facing, or irreversible
+  happens — trust without needing to supervise everything.
+- **User-visible result**: one screen listing pending proposals, each
+  showing the affected business object, the proposed action, the reason/
+  context, and approve/reject buttons; a resolved proposal shows its
+  execution result.
+- **Dependencies**: none at the infrastructure level — `control_plane
+  .approvals` is already fully built and audited by SaaS-OS. The
+  practical dependency is Phase 26 (the first real tier-1-worthy AI
+  action) or Phase 25 (the first real tier-1-worthy financial action) —
+  whichever lands first supplies this phase's first real example.
+- **Scope**: **do not build a new approval system.** A read/act UI and
+  thin API surface over `list_approvals()`/`get_approval()`/`approve()`/
+  `reject()` exactly as SaaS-OS already implements them; the first useful
+  tier-1 example is expected to be "AI-drafted customer reply → human
+  approval → send" (Phase 26) or "post this financial entry" (Phase 25) —
+  either is an acceptable first example, not both required simultaneously.
+- **Security considerations**: none new — `execute_approved()` already
+  enforces proposer ≠ approver (`SelfApprovalNotAllowedError`) and
+  audit-logs under the proposer's own identity, never the approver's.
+  This phase's own job is not weakening any of that in the UI translation
+  layer (e.g. never letting a UI "quick approve" bypass the real
+  `approve()` call).
+- **Cross-domain integration**: this phase is itself the integration —
+  whatever domain proposed the action (AI, Automation, later Accounting)
+  is unaffected by how the approval is presented.
+- **Tests**: a proposed action does not execute until approved; a
+  rejected action never executes; the approver's identity is never
+  recorded as the actor of the executed action.
+- **Acceptance criteria**: matches the tests above; at least one real
+  tier-1 action exists and has been approved end-to-end by a real user
+  in a test environment.
+- **Rollback**: standard — a UI/thin-API phase; SaaS-OS's own
+  infrastructure is unaffected by removing this surface.
+- **Outcome**: implemented, corrected 2026-09-27 (this entry previously
+  said "not started") — `7cce234` ("feat: add approval inbox"):
+  `product/approvals/routes.py` (thin API over `list_approvals()`/
+  `get_approval()`/`approve()`/`reject()`) and
+  `frontend/app/(app)/t/[tenantId]/approvals/{page.tsx,[approvalId]/page.tsx}`
+  are both real; the Goedkeuringen/Approvals nav group Phase 28's own
+  entry anticipated is live.
+- **Checkpoint**: none beyond confirming no product-side authorization
+  shortcut was introduced around the existing SaaS-OS mechanism.
+
+## Phase 30 — Unified Inbox
+
+- **Objective**: one thread model across every communication channel,
+  closing Conversations' two confirmed gaps: identity resolution is
+  email-keyed only today (no phone-based match for SMS/call), and
+  `create_thread()` requires an already-existing `contact_id` rather than
+  resolving one from an inbound message the way Marketing/Appointments
+  already do.
+- **Business outcome**: the owner has one place to see and respond to
+  every conversation, regardless of channel, with the right customer
+  context already attached.
+- **User-visible result**: an inbound SMS or call from an unknown number
+  creates a real, matched (or newly created) CRM contact and a real
+  thread — the same way an inbound email or web form already does.
+- **Dependencies**: Phase 5 (Conversations), Phase 26 (AI summaries/
+  suggested replies — tools already exist, `conversation_summarization`/
+  `suggested_reply`, unwired to any UI and non-functional pending a
+  vendor), Phase 29 (sending an AI-drafted reply is a tier-1 action).
+- **Scope**: a phone-keyed variant of
+  `create_or_update_contact_from_trusted_source()` (reusing
+  `product/foundation/values.py::PhoneNumber`, already exists, correctly
+  reused, not rebuilt); `create_thread()` gains an auto-resolve-or-create
+  path for inbound messages with no pre-existing contact; AI summaries/
+  suggested replies surfaced in the Conversations UI as tier-0 read-only
+  suggestions (unchanged tier) with sending itself gated at tier-1 via
+  Phase 29 once a vendor exists; **explicitly do not claim any provider
+  is already available** — SMS/WhatsApp remain Protocol-only
+  (`FakeSmsProvider`, no real vendor) exactly as confirmed today; this
+  phase's channel-agnostic thread model must not silently assume a
+  provider exists.
+- **Security considerations**: mirrors Phase 22's own anonymous-write-path
+  review — resolving/creating a contact from an unauthenticated inbound
+  channel needs the same narrow, documented "trusted source" discipline,
+  never broadened casually.
+- **Cross-domain integration**: Conversations → CRM (phone-keyed
+  resolution, new), Conversations → AI (summaries/drafts, new),
+  Conversations → Approvals (send-gating, new, via Phase 29).
+- **Tests**: an inbound SMS from an unknown number correctly resolves to
+  an existing contact by phone, or creates a new one, exactly once
+  (idempotent under retry); a drafted AI reply never sends without
+  passing through Phase 29's approval path.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: each new resolution path/UI surface is independently
+  disableable; falls back to today's exact behavior (manual thread
+  creation against a known contact).
+- **Outcome**: not started.
+- **Checkpoint**: none beyond Phase 22's own standing anonymous-write-path
+  review, re-applied here.
+
+## Vertical slices (tracked independently of module phases)
+
+The audit found these five slices to be the right lens for measuring real
+progress — a phase-by-phase reading of this roadmap can look complete
+while none of these actually close end-to-end. Tracked here so that
+doesn't happen silently again.
+
+| Slice | Path | Closed by |
+|---|---|---|
+| **A — Lead → Customer** | Capture → identify → qualify → assign → follow up → appointment → customer → onboarding | Capture/identify: done (Phase 4/6/7). Assign: Phase 22. Qualify (real AI): Phase 26. Follow-up/appointment: done (Phase 7/10.2). Onboarding: not yet scoped — needs a "conversion" concept this roadmap does not yet name as its own phase; flag before Phase 25 assumes it exists. |
+| **B — Inbound AI Call** | Call → identify → understand → respond → perform permitted action → update CRM → follow up | Entirely Phase 27, depends on Phase 26. Not started; correctly last. |
+| **C — Customer Lifecycle** | Appointment → reminder → attendance → completion/no-show → review → follow-up | Phase 23 closes this almost entirely. |
+| **D — Revenue** | Sale → invoice → payment → allocation → accounting → reporting → exception | Phase 24 (ledger) → Phase 25 (documents, with its mandatory event/consumer requirement) → Phase 16 (reporting, not started, unchanged). |
+| **E — Agency Provisioning** | Create client → apply Business Setup → configure defaults → activate → client ready to operate | Phase 21 closes "apply Business Setup" and "activate." "Configure defaults" beyond CRM pipelines (website, automation templates) is explicitly deferred — Phase 21's own scope note. |
+
+## Product maturity model
+
+Added so the product's current state is described honestly rather than
+claimed. Do not mark Level 4/5 achieved anywhere in this document until
+the evidence exists — the same discipline this reconciliation just
+applied to Phases 8–14's stale status fields.
+
+1. **Records** — the system stores business information. *(Achieved,
+   every Layer-2 engine.)*
+2. **Workflows** — the system moves information between processes
+   automatically. *(Partially achieved — real inside Automation's own
+   trigger reach (CRM/Appointments/Telephony); Phases 21-23 extend it to
+   Marketing/Websites/Reputation.)*
+3. **Assistance** — the system recommends what should happen next.
+   *(Substrate exists — Phase 9's tools — but produces no live output
+   anywhere yet; Phase 26 is what actually achieves this level.)*
+4. **Controlled autonomy** — the system performs low-risk work
+   automatically and asks approval for risky work. *(Not achieved —
+   `autonomy_tier` infrastructure exists and is fully unused; Phases 26
+   and 29 together are what would first achieve this level.)*
+5. **Intelligent business operations** — the system continuously
+   coordinates customer, communication, appointments, sales, money, and
+   administration with humans remaining in control. *(Not achieved; the
+   long-run target this entire Smart Business Experience direction is
+   sequenced toward, not a near-term claim.)*
+
+**Current honest assessment: solidly Level 1, partially into Level 2.**
+
+## Technical / Documentation Debt
+
+Tracked separately from phase status so a debt item is never mistaken for
+an implementation gap, and vice versa.
+
+1. This document's own "Outcome" status was stale for Phases 8–14 (and,
+   less severely, never individually filled in for Phases 1–7) until the
+   2026-09-22 reconciliation above. Re-check this document against
+   `git log` at every future phase checkpoint, not just when an audit
+   forces it.
+2. `docs/ARCHITECTURE.md` §5.1 previously stated 10.3A/10.4A were "not
+   started"/"no such registry exists" — both are built (`a4112da`,
+   `18906b2`). **Corrected** in the 2026-09-22 Product Reset documentation
+   pass: §5.1 now states the registry, the 9.4 gate, and the 10.4A action
+   all exist, and that the one remaining gap is a real LLM vendor (Phase
+   26), not the registry or the wiring. Resolved, kept here only as a
+   record of the correction.
+3. **RESOLVED / STALE (corrected 2026-09-27, Phase 24 readiness audit).**
+   This item previously claimed `core.crypto` is assumed available
+   ("Category A, fully implemented") in `docs/ACCOUNTING-SCOPE.md`,
+   `docs/RESPONSIBILITY-MATRIX.md`, `docs/SECURITY-PRIVACY.md`, and
+   `docs/INTEGRATIONS.md`, but **does not exist in the pinned SaaS-OS
+   commit** (`1d6fd07a0c3ce2dd8a12c09dac86b019781ee6c6`) — that citation
+   was a commit this repository was never actually pinned to.
+   `pyproject.toml`/`uv.lock` pin `78f03b33cab90d0b5d0a06606288f861c5cf46f7`,
+   confirmed by direct inspection. The Phase 24 audit fetched that actual
+   pinned commit directly from the SaaS-OS repository (outside this
+   working tree) and confirmed **`core/crypto/` exists there in full** —
+   a real `EncryptionService`/`KeyProvider`, with its own test suite, per
+   SaaS-OS's own ADR-0019. `docs/ACCOUNTING-SCOPE.md`,
+   `docs/RESPONSIBILITY-MATRIX.md`, `docs/SECURITY-PRIVACY.md`, and
+   `docs/INTEGRATIONS.md` were correct to assume it available; this
+   item's own original "correction" was the stale one. Kept here,
+   corrected in place, as a record — never silently deleted, per this
+   section's own "a debt item is never mistaken for an implementation
+   gap" discipline. Phase 24's own scope (accounts/periods/journals)
+   needs no field-level encryption regardless — no tax identifier or bank
+   account number exists in that scope; `core.crypto`'s availability
+   matters for Phase 25's customer/supplier records instead.
+   **Separately, an environment-sync gap, not an architecture blocker**:
+   the locally installed `.venv` at audit time referenced yet a third
+   commit (`8b7ebc0d825b3b17b949ade14f8ef8ad75af14a9`) — matching neither
+   the real pin nor this item's original stale citation, and not itself
+   evidence about what the pinned commit contains. Re-sync the local
+   environment against the real pin (e.g. `uv sync`) before any Phase 24
+   code is written, as an implementation-preparation step, not a roadmap
+   dependency.
+4. Durable events (`publish_durable()`/`subscribe_durable()`,
+   `product/foundation/events.py`) exist with **zero real callers**
+   anywhere in the product today — every real domain event uses the
+   plain, synchronous path. Not a defect; worth knowing before reaching
+   for the durable path out of habit rather than a demonstrated
+   cross-restart/cross-process need.
+5. No step-output-chaining exists in durable Automation runs — the
+   structural blocker Phase 26 exists to close.
+6. **Resolved.** `Opportunity` previously had no owner/assignment field;
+   Phase 22 closed this (`product/crm/models.py::Opportunity
+   .assigned_user_id`, migration 0049). Kept here only as a record.
+7. **Resolved.** `frontend/lib/nav/config.ts` previously mirrored the
+   backend router list by its own stated design intent; Phase 28
+   (`c58edb2`) superseded this with the grouped, business-labeled
+   navigation described in that phase's own corrected Outcome field
+   above. Kept here only as a record.
+8. One raw backend validation string
+   (`"trigger_type must be one of the supported event types."`) surfaces
+   verbatim in the Automation UI (`CreateWorkflowForm.test.tsx:80`) — a
+   small, concrete instance of the terminology-leak pattern Phase 28's
+   translation-layer work should also sweep for and fix, beyond the two
+   items already named in Phase 28's own scope.
+
+## Recommended strategic sequencing
+
+Two groups, deliberately allowed to overlap where dependencies permit —
+the objective is not "finish every backend module first," it is
+progressively closing complete end-to-end business journeys:
+
+- **Business-engine completion** (21–27): closes named gaps in engines
+  that already exist.
+- **Smart Business Experience proper** (28–30): the first genuinely new
+  Layer-3 work.
+
+**Phase 28 may be implemented before 24–27** if the product strategy
+prioritizes visible user experience over backend completeness — it
+requires none of Accounting, a live AI vendor, or a live telephony
+provider to begin, only composition over CRM/Appointments/Automation data
+that is real today. This is not a silent reordering: every dependency
+Phase 28 actually has is stated in its own Dependencies field above (in
+short: none, to begin). Phase 29 similarly requires no new infrastructure,
+only a first real tier-1 action from either Phase 25 or Phase 26 to have
+something concrete to approve. Recommended if forced to choose one first:
+**Phase 28**, on the reasoning stated in its own Business outcome field —
+it is the single highest-leverage change against the product's own
+stated quality bar ("can a normal SME owner open this and get work done
+without understanding the architecture"), at the lowest implementation
+risk of any phase in this section.
+
+**Update, 2026-09-22 (post Product Reset).** The recommendation above has
+already been acted on: Phase 21 and Phase 22 are implemented and
+committed, and Phase 28 is now substantially implemented (see Phase 28's
+own corrected Outcome field above — `c58edb2` and follow-on commits). With
+that leverage taken, the next recommended direction is **Phase 23
+(Customer Lifecycle Loop)** — it closes the one remaining named gap in
+the already-shipped Appointments/Reputation engines (lifecycle events,
+`no_show` status, the completion → review-request subscriber), requires
+none of Accounting, a live AI vendor, or live telephony, and is the
+natural continuation of the Product Reset's own Core business loop
+(Appointment → Customer → Review/Referral). This is a sequencing note
+only — Phase 23's own scope above is unchanged, and this section does not
+implement or redesign it.
+
+---
+
 # UI Track
 
 Status: PROPOSED sequencing, parallel to the Product Backend Track above.
@@ -2363,6 +4087,16 @@ against this boundary; a UI phase that would require reimplementing
 backend authorization, duplicating backend domain logic, or reaching the
 database directly is out of scope as written and needs a narrowly-scoped
 backend correction instead (see "UI/backend contract policy" below).
+
+There is **one** product frontend application, and the audiences this
+track's phase titles name (Agency, Client, and the Platform Owner and
+Direct Platform Client contexts not yet given their own phases) are
+different authenticated user/tenant contexts inside it — not separate
+frontend applications. A future UI phase does not open a second frontend
+because its feature targets a different audience; it determines which
+contexts, permissions, tenant scope and entitlements apply, and the same
+application renders accordingly. See
+`docs/ADR/0011-one-frontend-multiple-user-contexts.md`.
 
 ### Replaceable application-shell architecture
 
@@ -2468,7 +4202,14 @@ patterns actually repeat.
   the `AppShell`/domain-page boundary and confirm no domain page imports
   navigation/layout internals directly.
 - **Rollback**: standard; no real product data flows through this phase.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (this entry, and every
+  other UI-1–UI-9 entry below, previously said "not started" despite the
+  UI Track overview table above already marking all nine ✓ — never
+  individually verified until now, the same staleness pattern already
+  corrected for Phase 8-14 and Phase 21/22/29 above). `frontend/app/
+  layout.tsx`, `frontend/lib/nav/config.ts`, and
+  `frontend/components/shell/Navigation.tsx` are the real, in-use shell/
+  navigation this entry describes.
 - **Checkpoint**: demo the shell-swap proof (sidebar → top-nav with no
   domain-page changes) before `UI-2` starts building the first real screen
   on top of it.
@@ -2492,7 +4233,16 @@ patterns actually repeat.
   existing authorization, never a second authorization mechanism.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (see UI-1's own note on
+  this staleness pattern). `frontend/app/dashboard/page.tsx`,
+  `components/agency/{CreateClientForm,ClientsList,InviteMemberPanel}.tsx`
+  are real. Self-service agency/tenant creation is also real — the
+  tenant-less `/dashboard` entry point itself (`app/dashboard/page.tsx`)
+  calls `createAgency()` (`lib/api/agency.ts:121` → `POST /v1/agency/
+  agencies`) for a user with no tenant yet — but it is a distinct
+  lifecycle from this phase's own client-dashboard scope (`CreateClientForm`
+  is an existing agency creating a *client*, Phase 21's scope); tracked
+  separately as UI-11 below, not duplicated here.
 - **Checkpoint**: none beyond UI-1's standing shell-boundary review.
 
 ## UI-3 — CRM
@@ -2511,7 +4261,9 @@ patterns actually repeat.
 - **Acceptance criteria**: matches the tests above; the CRM domain model
   used by the UI is demonstrably the API's own shape, not a parallel one.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (see UI-1's own note on
+  this staleness pattern) — `frontend/app/(app)/t/[tenantId]/crm/
+  {contacts,companies,opportunities,pipelines}` are real.
 - **Checkpoint**: none beyond UI-1's standing shell-boundary review.
 
 ## UI-4 — Conversations
@@ -2531,7 +4283,9 @@ patterns actually repeat.
   polling against the existing REST API is the default until then.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (see UI-1's own note on
+  this staleness pattern) — `frontend/app/(app)/t/[tenantId]/
+  conversations/**` is real.
 - **Checkpoint**: none beyond UI-1's standing shell-boundary review.
 
 ## UI-5 — Marketing
@@ -2552,7 +4306,9 @@ patterns actually repeat.
   integration.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (see UI-1's own note on
+  this staleness pattern) — `frontend/app/(app)/t/[tenantId]/
+  marketing/**` is real.
 - **Checkpoint**: none beyond UI-1's standing shell-boundary review.
 
 ## UI-6 — Appointments
@@ -2576,7 +4332,9 @@ patterns actually repeat.
   surfaced as such, not dressed up as a real sync).
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (see UI-1's own note on
+  this staleness pattern) — `frontend/app/(app)/t/[tenantId]/
+  appointments/**` is real.
 - **Checkpoint**: none beyond UI-1's standing shell-boundary review.
 
 ## UI-7 — Settings, Branding & Tenant Configuration
@@ -2596,7 +4354,9 @@ patterns actually repeat.
   Phase 2.4 defers it) — this UI must not imply it exists.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (see UI-1's own note on
+  this staleness pattern) — `frontend/app/(app)/t/[tenantId]/
+  settings/{access,branding,profile,support-access}` are real.
 - **Checkpoint**: none beyond UI-1's standing shell-boundary review.
 
 ## UI-8 — Responsive, Accessibility & UX Hardening
@@ -2618,7 +4378,38 @@ patterns actually repeat.
   surface is introduced at this phase.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: substantially implemented, corrected 2026-09-29 (this entry
+  previously said "partially implemented... no dedicated completion
+  artifact... do not mark this 'implemented'"; the missing artifact now
+  exists). A destructive-action-confirmation audit was run across every
+  module: 25 of 28 destructive actions already routed through the shared
+  `ConfirmDialog` (`components/ui/Dialog.tsx`); the one real gap found —
+  `components/crm/ActivitiesPanel.tsx` task/note delete calling the API
+  directly with no confirmation — is fixed (`c176022`), with a test. The
+  other two flagged items (`TagsPanel.tsx` tag-detach, `ContentBlocksEditor
+  .tsx` remove-block) were deliberately left unconfirmed — both mutate
+  trivially-reversible or unsaved-draft state, not the same severity class
+  as "delete contact." `components/ui/Menu.tsx` gained Up/Down/Home/End
+  roving focus and focus-on-open/return-on-close, closing its own gap
+  against the ARIA menu authoring pattern (`5057686`). The CSRF posture
+  named in this phase's own Security considerations was verified, not
+  patched: `product/api/main.py`'s `CORSMiddleware` allows only the
+  explicit `FRONTEND_ORIGINS` allowlist, never `*`, and
+  `lib/api/client.ts`'s `request()` always sends `Content-Type:
+  application/json` on writes, which forces a CORS preflight an
+  attacker's origin fails before any cookie is sent — the actual defense
+  here, not a missing double-submit token. A dedicated keyboard-navigation
+  and screen-reader pass was then run for real across representative
+  pages (Dashboard, CRM, Conversations, Marketing, Appointments, Settings/
+  Agency) — every interactive element is a real `<button>`/`<Link>`, every
+  input carries a label or `aria-label`, no `<div>`/`<span onClick>`
+  without a role, no missing alt text (no images exist in these
+  data-driven screens) — and found the codebase already compliant, with
+  zero further fixes needed (706 tests, `tsc --noEmit` clean). **Not
+  claimed here**: responsive/mobile-viewport behavior and performance
+  improvements (this phase's own Scope also names both) were not
+  separately audited in this pass — do not read "substantially
+  implemented" as covering those two without further evidence.
 - **Checkpoint**: review pattern consolidation against `UI-9` before that
   phase starts — `UI-8` is where duplication is found, `UI-9` is where it's
   resolved into reusable components.
@@ -2645,9 +4436,452 @@ patterns actually repeat.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard; component consolidation is refactor-shaped, not
   behavior-shaped.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-27 (see UI-1's own note on
+  this staleness pattern) — `frontend/components/ui/**` (`DataTable`,
+  `Dialog`, `Badge`, `Card`, `FormRow`, `ApiErrorPanel`, `InlineNotice`,
+  and others) are real, shared components in active use across UI-2
+  through UI-7.
 - **Checkpoint**: review that no component's authorization behavior
   diverges from what the backend already enforces.
+
+## UI-10 — Automation, Websites & Reputation UI
+
+*(Added 2026-09-27 — retroactive numbering for already-shipped work; not
+a new plan.)*
+
+- **Objective**: document three full UI surfaces that shipped ahead of
+  this roadmap's own UI-1..UI-9 sequence and were never assigned a UI-#,
+  leaving them invisible to this document's own tracking discipline.
+- **Related backend phases**: Phase 10 (Automation), Phase 11 (Websites),
+  Phase 12 (Reputation), Phase 22 (Lead Capture — the website form feeds
+  the CRM contact this UI's Websites screens manage).
+- **Scope**: workflow list/detail/run-history (Automation); website/page
+  management (Websites); review management (Reputation). Documents
+  shipped scope only — no AI-vendor, prospecting, or other not-yet-built
+  backend capability is claimed here.
+- **Evidence**: `frontend/app/(app)/t/[tenantId]/{automation,websites,
+  reputation}/**`; git `532c376`, `a187c7d`, `3000591` (previously cited
+  only in UI-9's own overview annotation).
+- **Outcome**: implemented.
+- **Checkpoint**: none — documentation-only correction; no new work is
+  proposed by this entry.
+
+## UI-11 — Self-Service Tenant Creation
+
+*(Added 2026-09-27 — retroactive numbering for already-shipped work; not
+a new plan.)*
+
+- **Objective**: document the existing self-service agency/tenant creation
+  capability distinctly from UI-2's client-dashboard scope and from the
+  invitation-based membership flow (Phase 3.2) — the two are frequently
+  conflated, and neither the roadmap nor UI-2's own text previously named
+  this capability at all.
+- **Related backend phase**: Phase 3.1 (`provision_agency()`).
+- **Status**: partially implemented — distinguished explicitly below.
+- **Implemented**: create a brand-new agency/tenant (`app/dashboard/
+  page.tsx` → `createAgency()`, `lib/api/agency.ts:121` → `POST /v1/
+  agency/agencies` → `provision_agency()`); the creating user is assigned
+  as owner; successful creation redirects to the new tenant's dashboard.
+- **Not implemented**: commercial plan selection, trial lifecycle, signup
+  billing/checkout (Phase 13's resale billing is never invoked from this
+  path), and any guided onboarding wizard beyond the one-field creation
+  form. This entry must not be read as a complete commercial signup
+  funnel — only the tenant/owner creation primitive is real today.
+- **Outcome**: partially implemented.
+- **Checkpoint**: if commercial plan/trial/billing-gated signup is ever
+  wanted, it is new, separately-scoped future work layered on top of this
+  already-real, ungated primitive — not a redesign of it.
+
+## UI-12 — Command Center & Business Navigation
+
+*(Added 2026-09-27 — retroactive numbering for already-shipped work; not
+a new plan.)*
+
+- **Objective**: give Backend Phase 28's own UI half (Command Center
+  read-model, grouped business navigation) a UI-# so it is visible
+  alongside UI-1..UI-9 rather than only inside the backend phase list.
+- **Related backend phase**: Phase 28 (Command Center & Navigation
+  Redesign — see that phase's own corrected Outcome for the full
+  implemented/remaining breakdown, not restated here).
+- **Evidence**: dashboard command-center sections
+  (`frontend/lib/dashboard/commandCenter.ts`, `components/today/
+  {AttentionSection,RecentActivitySection,UpcomingAppointmentsSection}.tsx`),
+  `frontend/lib/nav/config.ts`'s grouped, bilingual (NL/EN) navigation.
+- **Outcome**: implemented (matches Phase 28's own corrected Outcome).
+- **Checkpoint**: none — documentation-only correction.
+
+## UI-13 — Approval Inbox
+
+*(Added 2026-09-27 — retroactive numbering for already-shipped work; not
+a new plan.)*
+
+- **Objective**: give Backend Phase 29's own UI half a UI-# for the same
+  reason as UI-12.
+- **Related backend phase**: Phase 29 (Approval Inbox).
+- **Evidence**: `frontend/app/(app)/t/[tenantId]/approvals/{page.tsx,
+  [approvalId]/page.tsx}`, `product/approvals/routes.py`.
+- **Outcome**: implemented (matches Phase 29's own corrected Outcome). No
+  additional approval functionality beyond what Phase 29 documents is
+  claimed here.
+- **Checkpoint**: none — documentation-only correction.
+
+*(Added — UI Track completion, correcting the "not pre-allocated here" gap
+below at "UI Track sequencing." UI-14–UI-21 give the remaining, real
+backend capability its own UI-#, the same way UI-10–UI-13 retroactively did
+for already-shipped work — except none of UI-14–UI-21 is shipped: every
+"Outcome" below is genuinely `not started`, matching this Track's own
+standing rule that Outcome is `not started` until real frontend evidence
+exists, never inferred from backend code alone. Three items proposed
+during this correction were deliberately **not** given a new UI-# —
+see "Proposed UI phases folded into existing coverage" immediately after
+UI-21.)*
+
+## UI-14 — Billing, Plans & Subscription Management
+
+- **Objective**: the user-facing UI for the existing platform-subscription
+  backend (Backend Phase 13.1) — plan selection, checkout/payment
+  management, invoices, usage/limits, billing administration.
+- **Dependencies**: UI-1, UI-7 (settings shell it mounts into); Backend
+  Phase 13 (`product/billing/subscriptions.py`, `GET /v1/billing/plans`).
+- **Scope**: subscription state display; the existing global-plan catalog
+  (`GET /v1/billing/plans`, read-only); subscribe/upgrade/downgrade/cancel
+  flows wrapping `core.billing`'s existing mechanism (Phase 13.1's own
+  scope, unchanged); usage/entitlement display once Phase 16.3 exposes it.
+  Explicitly **not** in scope: agency-defined resale plan *authoring* for
+  clients (Backend Phase 13.2, a separate future UI once that subphase is
+  built), and any payment-provider UI beyond what `core.billing`'s Stripe
+  adapter already renders — this UI must not reimplement payment-provider
+  checkout, only wrap the existing subscription lifecycle calls.
+- **Tests**: subscribe/upgrade/downgrade/cancel through this UI produces
+  the same `core.billing` state a direct API call would (no UI-side
+  entitlement calculation diverging from the backend's own).
+- **Security considerations**: none beyond §6.1's standing rule; payment-
+  provider credentials remain `core.billing`'s own concern (Phase 13.1) —
+  this UI never handles raw card/payment data itself.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started. No `frontend/app/**/billing/**` or equivalent
+  exists today (confirmed by inspection) — Phase 13's own Outcome already
+  states "no UI in this backend-only phase."
+- **Checkpoint**: none until scoped for implementation.
+
+## UI-15 — Accounting & Financial Workspace
+
+- **Objective**: the user-facing accounting workspace for the existing
+  Mini Accounting backend (Backend Phases 24–25) — an owner-readable
+  "money" view, never a ledger-mechanics screen, per Phase 25's own
+  Business outcome framing.
+- **Dependencies**: UI-1, UI-7; Backend Phase 24 (chart of accounts,
+  periods, journal entries — not started per that phase's own Outcome),
+  Backend Phase 25 (invoices, bills, payments, allocations — not started
+  per that phase's own Outcome).
+- **Scope**: accounting dashboard (outstanding invoices/bills, matching
+  Phase 25's own "money view an owner can actually read" acceptance bar);
+  transaction/journal-entry read views (Phase 24); invoice/bill/payment
+  list and detail views (Phase 25); accounting workflows exactly as Phase
+  24/25 define them (draft → posted → voided/reversed journal entries;
+  invoice/bill → sent → paid → allocated); no accounting integrations
+  beyond what Phase 25 itself scopes (bank feeds, OCR auto-booking, and
+  credit notes are explicitly deferred per Phase 25's own text — this UI
+  must not imply any of the three exist). Accounting semantics (debit/
+  credit, immutability, period locking, invoice numbering) remain owned
+  entirely by the backend (Phases 24/25, `docs/ACCOUNTING-SCOPE.md`) — this
+  UI renders them, never recomputes or duplicates them.
+- **Tests**: displayed balances/statuses derive from posted journal
+  entries as the sole source of truth (Phase 25's own non-negotiable
+  rule) — never from a UI-side running total; the accounting section
+  and UI-16's operational-reporting section remain visibly, structurally
+  distinct (mirrors Phase 16.2's own "never conflated" requirement).
+- **Security considerations**: none beyond §6.1's standing rule; this is
+  financial system-of-record data — the UI must not offer any control
+  (edit/delete a posted entry) the backend's own immutability guarantee
+  would reject, per Phase 24's security considerations.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started. No `frontend/app/**/accounting/**` or
+  equivalent exists today (confirmed by inspection); Backend Phases 24
+  and 25 are themselves each `not started` per their own Outcome fields —
+  this UI phase cannot begin before at least Phase 24 is stable.
+- **Checkpoint**: none until Phase 24/25 are sufficiently stable to build
+  against.
+
+## UI-16 — Reporting & Business Analytics
+
+- **Objective**: the user-facing UI for the existing (not yet built)
+  Reporting backend (Backend Phase 16) — KPI dashboards and operational
+  reporting over CRM/Conversations/Marketing/Appointments/Automation data.
+- **Dependencies**: UI-1, UI-3–UI-6, UI-10; Backend Phase 16.1 (operational
+  analytics), 16.2 (accounting reports surfacing), 16.3 (usage/entitlement
+  reporting) — all three not started per that phase's own Outcome fields.
+- **Scope**: KPI/operational dashboards (leads, conversion, pipeline,
+  appointments, campaigns, communication — Phase 16.1's own list);
+  CRM/Appointments/Marketing/Automation reporting drawn from those
+  modules' existing data, never a parallel analytics model; a distinct,
+  separately-labeled accounting-reports section wiring in Phase 16.2's
+  output once it exists (UI/navigation wiring only, matching 16.2's own
+  scope — no new report logic here); usage/entitlement reporting once
+  Phase 16.3 exposes it (thin presentation layer, matching 16.3's own
+  scope). No metric is invented beyond what Phase 16's three subphases
+  themselves define.
+- **Tests**: report figures shown match the backend's own report-service
+  output against known sample data (Phase 16.1's own test); the
+  accounting-reports section remains reachable from a clearly separate UI
+  section from operational reporting, never merged into one view (Phase
+  16.2's own acceptance criterion, restated here as this UI's own).
+- **Security considerations**: none beyond §6.1's standing rule and
+  Phase 16's own "standard inherited isolation."
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started. No `frontend/app/**/reporting/**` or
+  equivalent exists today (confirmed by inspection); Backend Phase 16 is
+  itself entirely `not started`.
+- **Checkpoint**: none until Phase 16.1 is sufficiently stable to build
+  against.
+
+## UI-17 — Telephony & Call Center
+
+- **Objective**: the user-facing UI for the existing Telephony backend
+  (Backend Phase 8, foundation-only) — phone-number management, call
+  history/activity, human-transfer/receptionist configuration, provider
+  status. **This phase must not be represented as production-complete**:
+  Backend Phase 8 itself carries no live call orchestration (8.2's own
+  Outcome: "No live call orchestration exists"), and Backend Phase 27
+  (Inbound AI Call) is explicitly "not implementation-ready," blocked on
+  prerequisites 27.0–27.3, all `not started` per that phase's own Outcome
+  fields — regardless of any in-progress implementation work toward those
+  prerequisites, this document's own recorded Outcome is the status this
+  UI phase defers to (per this Track's standing "do not infer completion
+  from backend code alone" rule).
+- **Dependencies**: UI-1, UI-3 (caller-ID/contact linkage); Backend Phase
+  8.1–8.3 (numbers, routing, call records — foundation/data-model only);
+  Backend Phase 27 (Inbound AI Call, live receptionist — not
+  implementation-ready) for any AI-handled-call configuration surface.
+- **Scope**: phone-number management (Phase 8.1); call history/activity
+  views over existing call-record data (Phase 8.3, data-model only — no
+  live call populates it today, so this UI phase has nothing real to
+  render until at least Phase 8.2's live-orchestration gap closes);
+  human-transfer/handoff destination configuration once Backend Phase
+  27.3 (or 8.4) delivers a real handoff primitive — configuration UI only,
+  never a second handoff mechanism; receptionist/AI-calling configuration
+  once Backend Phase 27 is implementation-ready and implemented — this UI
+  must render whatever confidence/escalation boundary the backend actually
+  enforces, never a UI-invented one; telephony provider configuration
+  status, surfaced honestly as provider-neutral until a real
+  `TelephonyProvider` is registered (Phase 8.1's own "no real provider
+  adapter is registered" caveat) — never dressed up as a working
+  integration, mirroring UI-6's own calendar-provider-status discipline.
+- **Tests**: this UI never implies a live call capability the backend does
+  not actually have (e.g. must not show an "AI receptionist: active"
+  state while Phase 27 remains not implementation-ready); provider status
+  shown matches the backend's own real/fake provider distinction exactly.
+- **Security considerations**: none beyond §6.1's standing rule. Call
+  recordings/transcripts are the single highest-sensitivity data type in
+  this roadmap (Phase 8.3, Phase 27's own security considerations) — any
+  UI surfacing them requires the dedicated security review those phases
+  already mandate before this UI phase may render real recording content,
+  not merely before the backend stores it.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard; hides cleanly if the underlying capability is
+  disabled, matching Phase 8/27's own rollback stance.
+- **Outcome**: not started. No `frontend/app/**/telephony/**` (or call-
+  center-equivalent) UI exists today (confirmed by inspection). Backend
+  Phase 8 is foundation-only (no live orchestration) and Backend Phase 27
+  is not implementation-ready — this UI phase has essentially nothing live
+  to render yet, independent of this Track's own readiness.
+- **Checkpoint**: do not begin building a "live receptionist" configuration
+  surface before Backend Phase 27's own dedicated security + UX review
+  (that phase's standing Checkpoint) has occurred — this UI phase does not
+  get a separate exemption from that gate.
+
+## UI-18 — AI Control Center
+
+- **Objective**: the user-facing UI for the existing AI substrate (Backend
+  Phase 9) and AI-vendor/write-back capability (Backend Phase 26) — AI
+  capability visibility, tenant AI configuration/policy, usage, and
+  activity/audit visibility. **Does not duplicate UI-13** (Approval Inbox,
+  which already gives Backend Phase 29's approval surface its own UI-#) —
+  this phase covers AI capability/configuration/usage visibility, not the
+  approval action itself.
+- **Dependencies**: UI-1, UI-13 (the approval surface this phase must not
+  re-implement); Backend Phase 9.1–9.4 (tool registrations — 9.1–9.3
+  implemented as definitions only, 9.4 the production gate, correctly
+  fail-closed, zero live vendor); Backend Phase 26 (AI Vendor + AI
+  Write-Back — not started per that phase's own Outcome).
+- **Scope**: which AI tools/capabilities exist and their autonomy tier
+  (read-only visibility into Phase 9's own tool registry — never a second
+  tool-registration UI, per this Track's standing "no new authorization
+  surface" rule); tenant AI configuration once a real vendor is registered
+  (Phase 26) — vendor status shown honestly as "not configured" until then,
+  never implied as active; AI usage visibility once real invocations exist;
+  AI activity/audit visibility surfacing `execute_approved()`'s existing
+  audit trail (Phase 26's own "Explain" step: "surfacing that trail in a
+  form a non-technical user can read") in a form distinct from, and
+  linked to, UI-13's own approval-request detail view, never duplicating
+  it. Explicitly out of scope: any tier-2/3 autonomy control (Phase 9.1's
+  own "never tier 2/3 without a separate, later, evidence-based decision"
+  applies to this UI's own controls too, not only the backend's).
+- **Tests**: this UI never implies a live AI vendor is active while Phase
+  26 remains not started (must render "no vendor configured," never a
+  fabricated model name); every AI action surfaced here traces to a real
+  audit-logged invocation, never a UI-side approximation.
+- **Security considerations**: none beyond §6.1's standing rule and this
+  Track's own architecture diagram — this UI never becomes a second AI
+  authorization system; every tool/capability shown, enabled, or disabled
+  here reflects Data Authorization/RBAC/autonomy-tier state the backend
+  already enforces, never a frontend-only toggle with no backend effect.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started. No `frontend/app/**/ai/**` (or AI-control-
+  equivalent) UI exists today (confirmed by inspection); Backend Phase 26
+  is itself `not started`.
+- **Checkpoint**: dedicated security review before this UI ever surfaces
+  real tenant data flowing to a real external AI vendor — mirrors Phase
+  26's own standing checkpoint, not a separate or lesser bar.
+
+## UI-19 — Integrations & Connected Services
+
+- **Objective**: a consolidated, tenant-facing view of provider/connection
+  status for adapters that already exist (or will exist) per their owning
+  module's own phase — not a new integrations marketplace, and not a
+  second place those adapters are configured.
+- **Dependencies**: UI-5 (Marketing channel providers), UI-6 (Appointments
+  calendar-provider status), UI-17 (Telephony provider status); Backend
+  Phase 17 (Integrations Hardening — adapter-consistency audit, not
+  started per that phase's own Outcome).
+- **Scope**: read-mostly consolidation of provider/connection status each
+  owning module's UI already surfaces or will surface (e.g. UI-6's
+  calendar-provider status, UI-17's telephony-provider status) into one
+  settings-adjacent view; a link out to each owning module's own
+  provider-specific configuration screen, never a duplicate of it. No
+  provider-specific integration is invented here — every provider this
+  view can show is one an owning module's own phase has already named.
+- **Tests**: status shown here matches the owning module's own real/fake
+  provider distinction exactly (no separate "connected" state invented by
+  this consolidation view).
+- **Security considerations**: none beyond §6.1's standing rule; provider
+  credentials remain each adapter's own `infra.secrets`-gated concern
+  (Phase 17.1's own audit target) — this view never displays or collects
+  a raw credential itself.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard; removing this consolidation view does not affect
+  any owning module's own provider configuration.
+- **Outcome**: not started. No `frontend/app/**/integrations/**` or
+  equivalent exists today (confirmed by inspection); Backend Phase 17 is
+  itself `not started`.
+- **Checkpoint**: review Phase 17.1's own audit findings (its standing
+  Checkpoint) before this view claims any adapter is consistently
+  configured.
+
+## UI-20 — Notifications & Activity Center
+
+- **Objective**: a persistent, tenant-facing notifications/activity
+  surface over `core.notifications` (SaaS-OS, Category A — consumed, never
+  rebuilt), distinct from UI-12's Command Center (a landing-page "what
+  needs my attention now" read-model) — this phase must not duplicate
+  UI-12's `AttentionSection`/`RecentActivitySection`, only extend beyond
+  what a single dashboard page can hold (a persisted, dismissible,
+  cross-page notification feed and per-tenant notification preferences).
+- **Dependencies**: UI-1, UI-12 (the existing read-model this phase
+  extends rather than duplicates); `core.notifications`/`core.email`
+  (SaaS-OS, already consumed by Backend Phase 5.3 and 7.3's reminder
+  wiring — no new Layer-1 capability required).
+- **Scope**: a notification/activity feed surfacing the same class of
+  business events UI-12 already curates for the dashboard (appointment
+  reminders per Phase 7.3, conversation events per Phase 5.3, once other
+  modules publish comparable events); per-tenant notification preferences
+  (channel/frequency) wrapping `core.notifications`' existing mechanism,
+  never a second delivery system. Explicitly out of scope: any new
+  delivery channel `core.notifications` does not already support, and any
+  event type not already published by an owning module's own phase.
+- **Tests**: a notification shown here traces to a real published domain
+  event, never a UI-fabricated one; dismissing/marking-read here does not
+  affect the underlying event or its owning module's own state.
+- **Security considerations**: none beyond §6.1's standing rule; a
+  notification never surfaces content the viewing user's own RBAC/Data
+  Authorization grant would not otherwise let them see.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard; disabling this feed does not affect UI-12's own
+  Command Center, which remains independently functional.
+- **Outcome**: not started. No `frontend/app/**/notifications/**` or
+  equivalent exists today (confirmed by inspection).
+- **Checkpoint**: review against UI-12 specifically before starting, to
+  confirm no duplication of its existing `AttentionSection`/
+  `RecentActivitySection`.
+
+## UI-21 — Prospecting / Lead Generation
+
+- **Objective**: the user-facing UI for the existing (not yet built)
+  Prospecting backend (Backend Phases 19–20, both status PROPOSED,
+  roadmap/design only). **Does not create a second CRM**: Backend Phase
+  19's own text is explicit that "the CRM (Phase 4) remains the one system
+  of record for Company/Contact/Opportunity — Phase 19 never creates a
+  second CRM," and this UI phase inherits that constraint unchanged.
+- **Dependencies**: UI-1, UI-3 (CRM, the handoff target); Backend Phase
+  18 (production/compliance gate Phase 19.1 itself depends on), Backend
+  Phase 19 (Provider & Data-Licensing Spike, Prospecting domain model),
+  Backend Phase 20 (Prospecting Automation & AI Agents) — all not started.
+- **Scope**: prospect list/detail views over Phase 19's own
+  provider-agnostic prospecting domain model (Category C) once it exists;
+  prospect-to-CRM conversion UI wrapping Phase 4's existing
+  Company/Contact/Opportunity creation, never a parallel creation path;
+  prospect activity/status views; lead-acquisition-source visibility
+  (which Category-D provider a prospect came from) surfaced honestly per
+  whichever provider Phase 19.1's spike and a later vendor decision
+  actually select — never a specific provider named or implied ahead of
+  that decision. Explicitly out of scope: any provider-specific
+  integration UI beyond what Phase 19/20 themselves scope, and any
+  duplication of UI-3's own CRM screens for a converted prospect.
+- **Tests**: a "convert to CRM" action produces exactly one
+  Company/Contact/Opportunity through Phase 4's existing service layer, no
+  UI-side duplicate-detection logic diverging from whatever Phase 19
+  itself specifies.
+- **Security considerations**: none beyond §6.1's standing rule and
+  Phase 19's own data-governance/legal review gate (19.1) — this UI must
+  not surface externally-sourced personal data ahead of that gate's own
+  clearance.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: standard.
+- **Outcome**: not started. No `frontend/app/**/prospecting/**` (or
+  lead-generation-equivalent) UI exists today (confirmed by inspection);
+  Backend Phases 19 and 20 are both status PROPOSED, roadmap/design only.
+- **Checkpoint**: none until Phase 19.1's own provider/data-licensing
+  spike and its data-governance review are complete.
+
+### Proposed UI phases folded into existing coverage
+
+Three additional UI surfaces were considered while closing this Track's
+gap and deliberately **not** given a new UI-#, to avoid duplicating a
+phase that already exists or inventing a backend capability this roadmap
+does not otherwise plan:
+
+- **"Unified Customer Inbox / Multi-Channel Messaging"** — not added.
+  Backend Phase 30 (Unified Inbox) is explicit that its AI summaries/
+  suggested replies and phone-keyed contact resolution are "surfaced in
+  the Conversations UI" itself, not a separate surface — i.e. this
+  roadmap already treats `UI-4` (Conversations) as the unified
+  communication surface. When Phase 30 is implemented, its UI half
+  extends `UI-4`'s existing scope; it does not need or get its own UI-#.
+- **"API, Webhooks & Developer Settings"** — not added. No backend phase,
+  subphase, or capability anywhere in this document defines tenant-facing
+  API credentials, an outbound-webhook system, or developer settings for
+  external integrators (confirmed by inspection: no match for "API key,"
+  "developer," "webhook delivery," "OAuth client," or similar across this
+  document). Adding a UI phase here would invent a backend capability
+  this roadmap does not plan, violating this Track's own "UI consumes
+  existing backend contracts" architecture rule. If this capability is
+  ever actually planned, it needs its own Backend Track phase first, the
+  same way every other UI phase above waits on a real backend capability.
+- **"Advanced Tenant / Team Administration"** — not added. `UI-7`'s own
+  Outcome already lists `settings/{access,branding,profile,
+  support-access}` as real (access delegation, support access), `UI-2`'s
+  own Outcome already lists `InviteMemberPanel` (invitations) as real, and
+  `UI-13` (Approval Inbox) already surfaces the administrative audit trail
+  for approved actions (Phase 26's own "Explain" step, closed by Phase 29/
+  `UI-13`). Users, teams, roles, permissions, invitations, delegation, and
+  administrative audit visibility are therefore already covered across
+  `UI-2`, `UI-7`, and `UI-13` — no meaningful advanced-administration gap
+  beyond those three was found, per this Track's own instruction to retain
+  a phase only when one exists.
 
 ### UI Track sequencing
 
@@ -2672,11 +4906,32 @@ Phase 7 Appointments ─────────► UI-6 Appointments
 
 Phases 8–20 (Telephony, AI, Automation, Websites, Reputation, Billing,
 Templates, Accounting, Reporting, Integrations Hardening,
-Production/Compliance, Prospecting) continue on the Backend Track; each
-gets its own UI phase, numbered and scoped when that backend capability is
-sufficiently stable — not pre-allocated here, for the same reason Phase
-19.1's provider spike declines to pre-select a vendor: scoping it now would
-be speculative against capability that doesn't exist yet.
+Production/Compliance, Prospecting) continue on the Backend Track.
+Automation, Websites, and Reputation already have their UI-# (`UI-10`,
+retroactively). The remaining named capability now has its UI-# too
+(`UI-14`–`UI-21`, added below UI-13) — each still only *begins* once its
+own backend dependency is sufficiently stable, exactly like `UI-2`–`UI-9`
+above; none of `UI-14`–`UI-21` has started, and being scoped here is not
+being implemented here (the same distinction Phase 19.1's provider spike
+draws for its own candidate list — evaluated, not selected).
+
+```text
+Phase 13 Billing ─────────────► UI-14 Billing/Subscriptions
+Phase 24-25 Accounting ───────► UI-15 Accounting Workspace
+Phase 16 Reporting ────────────► UI-16 Reporting & Analytics
+Phase 8 / 27 Telephony ───────► UI-17 Telephony & Call Center
+Phase 9 / 26 AI ───────────────► UI-18 AI Control Center
+Phase 17 Integrations ─────────► UI-19 Integrations & Connected Services
+core.notifications (SaaS-OS) ─► UI-20 Notifications & Activity Center
+Phase 19-20 Prospecting ───────► UI-21 Prospecting / Lead Generation
+```
+
+Each arrow above is an individual dependency, not a chain — `UI-19` does
+not wait on `UI-18`, `UI-18` does not wait on `UI-17`, and none of them
+waits on `UI-1`–`UI-13` finishing anything beyond the specific prior UI-#
+each phase's own Dependencies field names (e.g. `UI-18` names `UI-13`
+because it must not duplicate the Approval Inbox, not because approvals
+must precede AI generally).
 
 ### Frontend-first / backend-first rule
 
@@ -2752,7 +5007,7 @@ any tenant-scoped product module, and Phase 18 (hardening/compliance) last
 extension appended after Phase 18, not part of the 1–18 sequence Phase 18
 closes out — see Phase 19's own opening note for why.
 
-The UI Track (`UI-1`–`UI-9`, above) is a third kind of flexibility,
+The UI Track (`UI-1`–`UI-21`, above) is a third kind of flexibility,
 distinct from both: it runs *alongside* Phases 8–20 rather than before or
 after them, starting as soon as `UI-1` and each domain phase's own backend
 dependency (Phase 3 for `UI-2`, Phase 4 for `UI-3`, and so on) is stable.
