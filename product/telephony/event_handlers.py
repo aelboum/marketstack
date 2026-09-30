@@ -12,7 +12,12 @@ recordings are a separate, more restrictive resource ("dedicated security
 review" per `docs/ROADMAP.md` Phase 8.3's own Checkpoint). Both roles get
 full parity on `telephony.phone_number`/`telephony.call` otherwise,
 mirroring `product/appointments/event_handlers.py`'s own owner/member
-split (member: create/read/update, never delete)."""
+split (member: create/read/update, never delete).
+
+**`telephony.human_destination` (docs/ROADMAP.md Phase 27.0) is granted
+to `owner` only, never `member`** -- the identical "separate, more
+sensitive capability" treatment `telephony.call_recording` already gets,
+per `product/telephony/permissions.py`'s own docstring on that resource."""
 
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ from product.foundation.events import Event, subscribe
 from product.telephony.permissions import (
     CALL_RECORDING_RESOURCE,
     CALL_RESOURCE,
+    HUMAN_DESTINATION_RESOURCE,
     PHONE_NUMBER_RESOURCE,
     grant_to_role,
 )
@@ -35,6 +41,7 @@ _OWNER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (PHONE_NUMBER_RESOURCE, ("create", "read", "update", "delete")),
     (CALL_RESOURCE, ("create", "read", "update", "delete")),
     (CALL_RECORDING_RESOURCE, ("create", "read", "update", "delete")),
+    (HUMAN_DESTINATION_RESOURCE, ("read", "update")),
 )
 _MEMBER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (PHONE_NUMBER_RESOURCE, ("create", "read", "update")),

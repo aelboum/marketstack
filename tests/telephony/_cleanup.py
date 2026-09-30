@@ -2,10 +2,14 @@
 tests/crm/_cleanup.py's own proven `cleanup_tenant_tree()` (reused
 directly, not re-derived) with `telephony.*` table cleanup first, in
 dependency order (call_recordings/call_events before calls, before
-phone_number_routing_targets), mirroring tests/appointments/_cleanup.py's
-exact scoped/unscoped split for the identical reason
-(`telephony.phone_numbers` is deliberately NOT RLS-scoped, see
-product/telephony/models.py's own docstring).
+phone_number_routing_targets/human_transfer_destinations), mirroring
+tests/appointments/_cleanup.py's exact scoped/unscoped split for the
+identical reason (`telephony.phone_numbers` is deliberately NOT
+RLS-scoped, see product/telephony/models.py's own docstring).
+`human_transfer_destinations` (docs/ROADMAP.md Phase 27.0) has no
+dependents of its own, so its position among the RLS-scoped tables only
+needs to precede the final `core.tenants` deletion, not any other
+telephony row.
 
 Underscore-prefixed filename -- not itself a test module, mirrors
 tests/appointments/_cleanup.py's own convention.
@@ -28,6 +32,7 @@ _TELEPHONY_TABLES_LEAF_TO_ROOT = (
     "call_events",
     "calls",
     "phone_number_routing_targets",
+    "human_transfer_destinations",
 )
 _TELEPHONY_UNSCOPED_TABLES_LEAF_TO_ROOT = ("phone_numbers",)
 

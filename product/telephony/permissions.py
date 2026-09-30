@@ -21,6 +21,13 @@ from product.telephony.errors import TelephonyAccessDeniedError
 PHONE_NUMBER_RESOURCE = "telephony.phone_number"
 CALL_RESOURCE = "telephony.call"
 CALL_RECORDING_RESOURCE = "telephony.call_recording"
+#: The approved Phase 27.0 human-destination boundary
+#: (`product/telephony/destinations.py`) -- deliberately its own resource,
+#: not folded into `PHONE_NUMBER_RESOURCE`: who may configure the number
+#: an attended transfer dials is a distinct, more sensitive capability
+#: than ordinary phone-number CRUD, mirroring `CALL_RECORDING_RESOURCE`'s
+#: own "deliberately separate" precedent above.
+HUMAN_DESTINATION_RESOURCE = "telephony.human_destination"
 
 
 def grant_to_role(

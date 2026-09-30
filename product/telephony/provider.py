@@ -56,6 +56,21 @@ class PlacedCall:
     provider_call_id: str
 
 
+@dataclass(frozen=True)
+class ConsultationLeg:
+    """The minimum stable domain concept for Phase 27.0's attended
+    transfer -- an outbound leg placed to a trusted human destination,
+    correlated back to the original call for every subsequent transfer
+    operation (`bridge_call()`/`remove_leg()`). Deliberately just a
+    provider-assigned identifier, nothing else: this module never exposes
+    a vendor-specific object (a Twilio `CallInstance`, a `ConferenceSid`)
+    outside the concrete adapter that created it -- see
+    `product/telephony/adapters/twilio_provider.py`'s own module
+    docstring."""
+
+    provider_leg_id: str
+
+
 @runtime_checkable
 class TelephonyProvider(Protocol):
     @property
@@ -65,7 +80,71 @@ class TelephonyProvider(Protocol):
 
     def place_call(self, *, from_number: str, to_number: str) -> PlacedCall: ...
 
-    def verify_webhook_signature(self, *, headers: Mapping[str, str], body: bytes) -> bool: ...
+    # `path` (Phase 27.0 HIGH-2 remediation, renamed from `url`) is the
+    # inbound request's own path+query ONLY, never a full URL. A real
+    # adapter whose signature algorithm covers the full external URL
+    # (Twilio's does) combines this path with its OWN already-trusted
+    # base URL (its own platform configuration -- see
+    # `product/telephony/adapters/twilio_provider.py`'s own module
+    # docstring) to build the exact URL it verifies against. The route
+    # calling this method never supplies a full URL and never reads a
+    # forwarded-header-derived scheme/host for this purpose -- the
+    # externally-visible origin is always the adapter's own trusted
+    # configuration, never anything the request itself carries.
+    def verify_webhook_signature(
+        self, *, headers: Mapping[str, str], body: bytes, path: str = ""
+    ) -> bool: ...
+
+    # --- Phase 27.0 attended-transfer primitives -----------------------
+    #
+    # The smallest stable set of transfer-specific operations a real
+    # adapter's own vendor primitives (Twilio's Dial/Conference/Participant
+    # trio, Telnyx's Bridge/Conference/Leave-Conference trio, or a SIP/PBX
+    # adapter's own REFER+Replaces) must be able to express -- never a
+    # general-purpose call-orchestration engine, and never a Twilio-,
+    # Telnyx-, or SIP-specific method name or return type.
+    #
+    # "Hold" is deliberately not a separate method: for every architecture
+    # this phase evaluated, putting the caller on hold is an implementation
+    # detail of how a concrete adapter creates the consultation leg (e.g. a
+    # Twilio adapter dials the human into a new conference the original
+    # caller leg has not yet joined), never a distinct domain-visible
+    # operation the AI/CallSession layer needs to request on its own.
+    #
+    # "Remove AI leg" is deliberately not a separate method either: the AI
+    # is not a distinct telephony leg with its own provider identifier in
+    # any evaluated architecture -- it is a media-processing attachment
+    # (Phase 27.0's own streaming boundary,
+    # `product/telephony/adapters/twilio_media_stream.py`) riding on the
+    # *original* call's own leg. Redirecting that same leg into the bridge
+    # conference (`bridge_call()`) is what ends the AI's handling of it --
+    # there is no separate "AI CallSid" a real adapter could remove. The
+    # domain still sees a distinct `EVENT_TRANSFER_AI_LEG_REMOVED` audit
+    # milestone (`product/telephony/transfer.py`), recorded once
+    # `bridge_call()` succeeds, without a corresponding Protocol method.
+
+    # `tenant_id`/`attempt_id` here are never caller-supplied and never a
+    # new trust boundary: they exist only so a real adapter can build its
+    # own server-generated, signature-bound status-callback URL for this
+    # one consultation leg (`product/telephony/adapters/twilio_provider.py`'s
+    # own module docstring) -- `tenant_id` is the same tenant a signed
+    # inbound request already resolved further upstream, and `attempt_id`
+    # is the domain-generated transfer-attempt identity
+    # `product/telephony/calls.py::try_start_transfer_attempt()` already
+    # claimed before this method is ever called (Phase 27.0 HIGH-1
+    # remediation) -- both passed straight through, never invented here.
+    def create_consultation_leg(
+        self,
+        *,
+        original_provider_call_id: str,
+        human_destination: str,
+        tenant_id: str,
+        attempt_id: str,
+    ) -> ConsultationLeg: ...
+
+    def bridge_call(
+        self, *, original_provider_call_id: str, consultation_leg: ConsultationLeg
+    ) -> None: ...
 
 
 @dataclass
@@ -80,6 +159,8 @@ class FakeTelephonyProvider:
     fail: bool = False
     _provisioned: list[ProvisionedNumber] = field(default_factory=list)
     _placed_calls: list[PlacedCall] = field(default_factory=list)
+    _consultation_legs: list[ConsultationLeg] = field(default_factory=list)
+    _bridged: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def name(self) -> str:
@@ -108,17 +189,45 @@ class FakeTelephonyProvider:
         the same way `verify_webhook_signature()` checks it."""
         return hmac.new(self.webhook_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
 
-    def verify_webhook_signature(self, *, headers: Mapping[str, str], body: bytes) -> bool:
+    def verify_webhook_signature(
+        self, *, headers: Mapping[str, str], body: bytes, path: str = ""
+    ) -> bool:
+        # `path` is unused -- this scheme never covered it (module
+        # docstring); accepted only to satisfy the shared Protocol shape.
+        del path
         provided = headers.get(_SIGNATURE_HEADER)
         if not provided:
             return False
         expected = self.compute_signature(body)
         return hmac.compare_digest(provided, expected)
 
+    def create_consultation_leg(
+        self,
+        *,
+        original_provider_call_id: str,
+        human_destination: str,
+        tenant_id: str,
+        attempt_id: str,
+    ) -> ConsultationLeg:
+        if self.fail:
+            raise TelephonyProviderError("FakeTelephonyProvider configured to fail")
+        del original_provider_call_id, human_destination, tenant_id, attempt_id
+        result = ConsultationLeg(provider_leg_id=f"fake-leg-{len(self._consultation_legs) + 1}")
+        self._consultation_legs.append(result)
+        return result
+
+    def bridge_call(
+        self, *, original_provider_call_id: str, consultation_leg: ConsultationLeg
+    ) -> None:
+        if self.fail:
+            raise TelephonyProviderError("FakeTelephonyProvider configured to fail")
+        self._bridged.append((original_provider_call_id, consultation_leg.provider_leg_id))
+
 
 __all__ = [
-    "TelephonyProvider",
+    "ConsultationLeg",
     "FakeTelephonyProvider",
-    "ProvisionedNumber",
     "PlacedCall",
+    "ProvisionedNumber",
+    "TelephonyProvider",
 ]

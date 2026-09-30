@@ -96,12 +96,14 @@ VALID_CALL_DIRECTIONS = (DIRECTION_INBOUND, DIRECTION_OUTBOUND)
 
 STATUS_RINGING = "ringing"
 STATUS_IN_PROGRESS = "in_progress"
+STATUS_TRANSFERRING = "transferring"
 STATUS_COMPLETED = "completed"
 STATUS_NO_ANSWER = "no_answer"
 STATUS_FAILED = "failed"
 VALID_CALL_STATUSES = (
     STATUS_RINGING,
     STATUS_IN_PROGRESS,
+    STATUS_TRANSFERRING,
     STATUS_COMPLETED,
     STATUS_NO_ANSWER,
     STATUS_FAILED,
@@ -111,6 +113,16 @@ TERMINAL_CALL_STATUSES = frozenset({STATUS_COMPLETED, STATUS_NO_ANSWER, STATUS_F
 MAX_PHONE_NUMBER_LENGTH = 32
 MAX_PROVIDER_NAME_LENGTH = 64
 MAX_PROVIDER_ID_LENGTH = 255
+
+#: The provider-neutral human-destination kind vocabulary
+#: (`product/telephony/destinations.py`). Exactly one member is
+#: implemented today -- `sip_uri` is a documented future value the
+#: `HumanDestination` domain type already anticipates conceptually, never
+#: added to `HumanTransferDestination`'s own CHECK constraint until a real
+#: SIP destination is actually implemented (docs/ROADMAP.md Phase 27.0's
+#: own "do not implement SIP URI handling now" instruction).
+DESTINATION_KIND_E164 = "e164"
+VALID_DESTINATION_KINDS = (DESTINATION_KIND_E164,)
 
 
 class PhoneNumber(Base):
@@ -203,7 +215,8 @@ class Call(Base):
             "direction IN ('inbound', 'outbound')", name="ck_telephony_calls_direction"
         ),
         CheckConstraint(
-            "status IN ('ringing', 'in_progress', 'completed', 'no_answer', 'failed')",
+            "status IN "
+            "('ringing', 'in_progress', 'transferring', 'completed', 'no_answer', 'failed')",
             name="ck_telephony_calls_status",
         ),
         Index("ix_telephony_calls_tenant_id", "tenant_id"),
@@ -235,6 +248,17 @@ class Call(Base):
     from_number: Mapped[str] = mapped_column(String(MAX_PHONE_NUMBER_LENGTH), nullable=False)
     to_number: Mapped[str] = mapped_column(String(MAX_PHONE_NUMBER_LENGTH), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=STATUS_RINGING)
+    #: Phase 27.0 HIGH-1 remediation: the domain-generated identity of
+    #: whichever attended-transfer attempt currently owns the right to
+    #: perform a real provider side effect (`create_consultation_leg()`/
+    #: `bridge_call()`) for this call -- `NULL` when no transfer is in
+    #: flight. Set exactly once, atomically, by
+    #: `product/telephony/calls.py::try_start_transfer_attempt()`;
+    #: cleared exactly once, atomically, by
+    #: `try_consume_transfer_attempt_for_bridge()` or by
+    #: `apply_call_transfer_event()`'s own "leaving `transferring`" clearing
+    #: behavior. Never set from caller/webhook-supplied data.
+    active_transfer_attempt_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     contact_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("core.users.id"), nullable=True
@@ -315,4 +339,43 @@ class CallRecording(Base):
     retention_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
+class HumanTransferDestination(Base):
+    """The approved Phase 27.0 human-destination boundary: exactly one
+    trusted, tenant-configured dialable destination the AI receptionist's
+    attended transfer resolves -- never a caller-supplied number, never an
+    LLM/AI tool output, never a provider webhook parameter. Ordinary
+    RLS-scoped, reached only through `product/telephony/destinations.py`'s
+    own authorized, tenant-scoped service functions.
+
+    `UniqueConstraint(tenant_id)` enforces "exactly one destination per
+    tenant" -- no ordered list, no queue, no per-phone-number variant
+    (docs/ROADMAP.md Phase 27.0's own explicit scope). Deliberately NOT
+    the same table/concept as `PhoneNumberRoutingTarget`: that table
+    resolves to an internal `core.users.id` for pre-answer call
+    assignment; this table resolves to a real, dialable destination for a
+    mid-call attended transfer -- two unrelated concepts that happen to
+    both be "telephony routing," never merged.
+    """
+
+    __tablename__ = "human_transfer_destinations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_telephony_human_transfer_dest_tenant_id_id"),
+        UniqueConstraint("tenant_id", name="uq_telephony_human_transfer_dest_tenant_id"),
+        CheckConstraint("kind IN ('e164')", name="ck_telephony_human_transfer_dest_kind"),
+        Index("ix_telephony_human_transfer_dest_tenant_id", "tenant_id"),
+        {"schema": "telephony"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default=DESTINATION_KIND_E164)
+    e164_value: Mapped[str] = mapped_column(String(MAX_PHONE_NUMBER_LENGTH), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now(), onupdate=now()
     )

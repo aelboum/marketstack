@@ -235,6 +235,7 @@ from product.marketing.purge import register as register_marketing_purge_partici
 from product.marketing.routes import router as marketing_router
 from product.reputation.routes import router as reputation_router
 from product.telephony import event_handlers as _telephony_event_handlers  # noqa: F401
+from product.telephony.adapters.twilio_webhooks import router as telephony_twilio_router
 from product.telephony.purge import register as register_telephony_purge_participant
 from product.telephony.routes import router as telephony_router
 from product.templates import event_handlers as _templates_event_handlers  # noqa: F401
@@ -301,6 +302,7 @@ def create_app() -> FastAPI:
     app.include_router(marketing_router)
     app.include_router(appointments_router)
     app.include_router(telephony_router)
+    app.include_router(telephony_twilio_router)
     app.include_router(automation_router)
     app.include_router(automation_durable_router)
     app.include_router(websites_router)

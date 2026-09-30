@@ -74,6 +74,7 @@ in this module changed for it.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -98,6 +99,7 @@ from product.telephony.models import (
     STATUS_IN_PROGRESS,
     STATUS_NO_ANSWER,
     STATUS_RINGING,
+    STATUS_TRANSFERRING,
     TERMINAL_CALL_STATUSES,
     Call,
     CallEvent,
@@ -113,7 +115,19 @@ CALL_COMPLETED_EVENT_VERSION = 1
 
 _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     STATUS_RINGING: frozenset({STATUS_IN_PROGRESS, STATUS_NO_ANSWER, STATUS_FAILED}),
-    STATUS_IN_PROGRESS: frozenset({STATUS_COMPLETED, STATUS_FAILED}),
+    STATUS_IN_PROGRESS: frozenset({STATUS_COMPLETED, STATUS_FAILED, STATUS_TRANSFERRING}),
+    # Phase 27.0 attended transfer: a transfer always resolves back to
+    # `in_progress` -- either a successful bridge (caller+human now
+    # connected, AI has exited) or the approved bounded fallback (transfer
+    # failed/timed out, caller returns to the AI) -- or, if the call itself
+    # ends while a transfer is in flight (the caller hangs up during
+    # consultation, or a provider error occurs), to a genuinely terminal
+    # `completed`/`failed`. There is no `transferring -> transferring`
+    # (re-entrant transfer attempts are not this phase's scope) and no
+    # direct `transferring -> no_answer` (a transfer failure is never
+    # confused with the *original inbound call* never having been
+    # answered at all).
+    STATUS_TRANSFERRING: frozenset({STATUS_IN_PROGRESS, STATUS_COMPLETED, STATUS_FAILED}),
     STATUS_COMPLETED: frozenset(),
     STATUS_NO_ANSWER: frozenset(),
     STATUS_FAILED: frozenset(),
@@ -130,11 +144,36 @@ EVENT_CALL_COMPLETED = "call.completed"
 EVENT_CALL_NO_ANSWER = "call.no_answer"
 EVENT_CALL_FAILED = "call.failed"
 
+# Phase 27.0 attended-transfer events -- the smallest, stable, provider-
+# neutral vocabulary a `TelephonyProvider` adapter's own transfer
+# primitives (hold/consultation-leg/bridge/leg-removal) normalize into.
+# Deliberately reuses this exact same `CallEvent` idempotency ledger and
+# `_process_inbound_event()` pipeline, never a second, parallel event
+# system -- see `product/telephony/transfer.py`'s own module docstring.
+EVENT_TRANSFER_REQUESTED = "transfer.requested"
+EVENT_TRANSFER_CONSULTATION_STARTED = "transfer.consultation_started"
+EVENT_TRANSFER_HUMAN_ANSWERED = "transfer.human_answered"
+EVENT_TRANSFER_BRIDGED = "transfer.bridged"
+EVENT_TRANSFER_AI_LEG_REMOVED = "transfer.ai_leg_removed"
+EVENT_TRANSFER_FAILED = "transfer.failed"
+
 _EVENT_TO_STATUS: dict[str, str] = {
     EVENT_CALL_ANSWERED: STATUS_IN_PROGRESS,
     EVENT_CALL_COMPLETED: STATUS_COMPLETED,
     EVENT_CALL_NO_ANSWER: STATUS_NO_ANSWER,
     EVENT_CALL_FAILED: STATUS_FAILED,
+    # `consultation_started`/`human_answered`/`ai_leg_removed` are
+    # deliberately absent here -- informational-only milestones within an
+    # already-`transferring` call, recorded for idempotency/audit but never
+    # themselves a `Call.status` transition (module docstring's own
+    # `target_status is None` branch already handles this).
+    #
+    # `EVENT_TRANSFER_REQUESTED` is deliberately absent here too (Phase
+    # 27.0 HIGH-1 remediation) -- entering `transferring` is now
+    # exclusively `try_start_transfer_attempt()`'s own atomic-claim job,
+    # never `apply_call_transfer_event()`'s.
+    EVENT_TRANSFER_BRIDGED: STATUS_IN_PROGRESS,
+    EVENT_TRANSFER_FAILED: STATUS_IN_PROGRESS,
 }
 
 
@@ -334,7 +373,7 @@ def _resolve_phone_number(to_number: str) -> PhoneNumber | None:
 def receive_inbound_call_event(
     *,
     provider: TelephonyProvider,
-    headers: dict[str, str],
+    headers: Mapping[str, str],
     body: bytes,
     provider_event_id: str,
     event_type: str,
@@ -342,6 +381,7 @@ def receive_inbound_call_event(
     from_number: str,
     provider_call_id: str,
     now: datetime | None = None,
+    path: str = "",
 ) -> CallView | None:
     """The future real webhook receiver's own entrypoint (mirrors
     `saas-os` `core.webhooks`'s own P1.10 "primitives a future receiver
@@ -350,8 +390,23 @@ def receive_inbound_call_event(
     delivery (already processed) or an unknown `event_type` (recorded for
     idempotency, but no state change) -- never raises for either, since
     neither is a real error from the provider's own perspective.
+
+    `path` (Phase 27.0, renamed from `url` during the HIGH-2 remediation):
+    the inbound request's own path+query ONLY -- e.g.
+    `/v1/telephony/adapters/twilio/inbound-call` -- never a full URL
+    reconstructed from `request.url`/forwarded headers. Forwarded
+    unchanged to `provider.verify_webhook_signature()`, which combines it
+    with whatever base URL *that provider itself* already trusts (its own
+    platform configuration, never a caller-suppliable value) to build the
+    exact URL it verifies against. This is what makes signature
+    verification correct regardless of reverse-proxy topology: the
+    externally-visible scheme/host is never derived from anything this
+    request carries. Optional/empty for every existing caller
+    (`FakeTelephonyProvider`'s own HMAC-SHA256 scheme never needed it);
+    `product/telephony/adapters/twilio_webhooks.py` is the one caller that
+    supplies a real value.
     """
-    if not provider.verify_webhook_signature(headers=headers, body=body):
+    if not provider.verify_webhook_signature(headers=headers, body=body, path=path):
         raise TelephonyWebhookSignatureInvalidError(
             f"signature verification failed for provider {provider.name!r}."
         )
@@ -499,6 +554,245 @@ def _process_inbound_event(
     return view
 
 
+#: Target statuses `apply_call_transfer_event()` itself may apply that
+#: mean "the call is leaving `transferring`" -- whenever one of these is
+#: actually reached from `transferring`, `active_transfer_attempt_id` is
+#: cleared as part of the same atomic update (Phase 27.0 HIGH-1
+#: remediation). `STATUS_TRANSFERRING` itself is deliberately absent --
+#: entering `transferring` is `try_start_transfer_attempt()`'s own job,
+#: never this function's.
+_TRANSFER_EXIT_STATUSES = frozenset({STATUS_IN_PROGRESS, STATUS_COMPLETED, STATUS_FAILED})
+
+
+def apply_call_transfer_event(
+    *,
+    tenant_id: uuid.UUID,
+    provider_name: str,
+    provider_call_id: str,
+    provider_event_id: str,
+    event_type: str,
+    now: datetime | None = None,
+    audit_metadata: dict[str, object] | None = None,
+    expected_attempt_id: uuid.UUID | None = None,
+) -> CallView | None:
+    """The one entrypoint every Phase 27.0 attended-transfer *informational*
+    state change goes through (consultation-started/human-answered/bridged/
+    ai-leg-removed/failed) -- never the initial claim
+    (`try_start_transfer_attempt()`) and never the pre-bridge consume
+    (`try_consume_transfer_attempt_for_bridge()`), which are their own
+    dedicated, stricter, side-effect-gating functions below. Reuses the
+    exact same row-lock (`with_for_update`) and `CallEvent` idempotency
+    discipline `_process_inbound_event()` already uses -- never a second,
+    parallel state-change pipeline.
+
+    `provider_call_id` here always identifies the **original** call (the
+    one the caller is on), never the consultation leg's own separate
+    provider-assigned id. Returns `None` if it does not resolve to any
+    call in this tenant (a genuinely unknown/stale transfer event -- no
+    error, mirrors `_process_inbound_event()`'s own "no row to attach to,
+    nothing to transition" handling for an out-of-order status event).
+
+    **`expected_attempt_id` (Phase 27.0 HIGH-1 remediation).** When
+    supplied, this event is applied only if `call.active_transfer_attempt_id`
+    still equals it at lock time -- a stale event belonging to a since-
+    superseded or already-closed transfer attempt is recognized and
+    returns the call's own *current* view unchanged, never mutating state
+    on behalf of an attempt that is no longer the active one.
+
+    **Never raises on an illegal transition (Phase 27.0 HIGH-1
+    remediation, deliberately narrower than `_apply_transition()`'s own
+    default raise-on-illegal-transition behavior used everywhere else in
+    this module).** A transfer event arriving for a call already in a
+    terminal status (`completed`/`failed`), or any other status this event
+    cannot legally reach, is treated exactly like a stale/duplicate event
+    -- recorded for audit, no transition applied, no exception -- so a
+    late callback can never resurrect a terminal call and never surfaces
+    as an unhandled 500 to the calling webhook."""
+    current = now if now is not None else _now()
+    with tenant_session_scope(tenant_id) as session:
+        existing_call = session.execute(
+            select(Call).where(
+                Call.tenant_id == tenant_id,
+                Call.provider_name == provider_name,
+                Call.provider_call_id == provider_call_id,
+            )
+        ).scalar_one_or_none()
+        if existing_call is None:
+            return None
+        call = session.get(Call, existing_call.id, with_for_update=True)
+        assert call is not None  # existing_call was just found by this same query
+
+        is_stale_attempt = (
+            expected_attempt_id is not None
+            and call.active_transfer_attempt_id != expected_attempt_id
+        )
+        if is_stale_attempt:
+            # Stale: this event belongs to a transfer attempt that is no
+            # longer (or never was) the call's own active one. Still
+            # recorded for audit/idempotency -- never silently dropped --
+            # but never applied as a state transition.
+            _record_event_idempotently(
+                session, tenant_id, call.id, provider_name, provider_event_id, event_type
+            )
+            session.expunge(call)
+            return _to_view(call)
+
+        recorded = _record_event_idempotently(
+            session, tenant_id, call.id, provider_name, provider_event_id, event_type
+        )
+        if not recorded:
+            session.expunge(call)
+            return _to_view(call)
+
+        target_status = _EVENT_TO_STATUS.get(event_type)
+        if target_status is not None and target_status != call.status:
+            allowed = _ALLOWED_TRANSITIONS.get(call.status, frozenset())
+            if target_status in allowed:
+                was_transferring = call.status == STATUS_TRANSFERRING
+                _apply_transition(call, target_status, at=current)
+                if was_transferring and target_status in _TRANSFER_EXIT_STATUSES:
+                    call.active_transfer_attempt_id = None
+            # else: an illegal transition for a transfer event -- e.g. the
+            # call independently reached a terminal status while this
+            # event was in flight. Deliberately not raised here (module
+            # docstring's own "never raises on an illegal transition"
+            # section) -- the event is still recorded above for audit,
+            # the call's own status is simply left exactly as it is.
+        session.flush()
+        session.refresh(call)
+        session.expunge(call)
+        call_id_for_audit = call.id
+        view = _to_view(call)
+
+    metadata: dict[str, object] = {"event_type": event_type}
+    if audit_metadata:
+        metadata.update(audit_metadata)
+    record(
+        tenant_id=tenant_id,
+        actor_type=ActorType.SYSTEM,
+        action="telephony.call.transfer_event",
+        resource_type="telephony.call",
+        resource_id=str(call_id_for_audit),
+        outcome=AuditOutcome.SUCCESS,
+        metadata=metadata,
+    )
+    if view is not None and view.status == STATUS_COMPLETED:
+        publish(
+            Event(
+                type=CALL_COMPLETED_EVENT_TYPE,
+                version=CALL_COMPLETED_EVENT_VERSION,
+                tenant_id=str(tenant_id),
+                payload={"call_id": str(view.id)},
+            )
+        )
+    return view
+
+
+def try_start_transfer_attempt(
+    *,
+    tenant_id: uuid.UUID,
+    provider_name: str,
+    provider_call_id: str,
+    attempt_id: uuid.UUID,
+    provider_event_id: str,
+) -> bool:
+    """Phase 27.0 HIGH-1 remediation -- the one atomic "claim ownership of
+    a new transfer attempt" gate. `product/telephony/transfer.py
+    ::initiate_transfer()` must call this and receive `True` back
+    *before* it is permitted to call `TelephonyProvider
+    .create_consultation_leg()` -- never the other way around ("do not
+    perform the provider call and only afterwards discover the transfer
+    was stale/duplicate/concurrent").
+
+    Returns `True` only if, atomically under the row lock, this call was
+    found in `STATUS_IN_PROGRESS` with no already-active transfer attempt
+    (`active_transfer_attempt_id IS NULL`) -- in which case it is
+    immediately transitioned to `STATUS_TRANSFERRING` and `attempt_id` is
+    recorded as the new active attempt, in the same transaction. Returns
+    `False` for every other case (already transferring under this same or
+    a different attempt, any other status, or an unknown call) --
+    deliberately never an exception: losing the claim is a normal,
+    expected outcome for a retried or concurrent transfer request, not an
+    error. A caller that receives `False` must not call any
+    `TelephonyProvider` transfer method."""
+    with tenant_session_scope(tenant_id) as session:
+        existing_call = session.execute(
+            select(Call).where(
+                Call.tenant_id == tenant_id,
+                Call.provider_name == provider_name,
+                Call.provider_call_id == provider_call_id,
+            )
+        ).scalar_one_or_none()
+        if existing_call is None:
+            return False
+        call = session.get(Call, existing_call.id, with_for_update=True)
+        assert call is not None  # existing_call was just found by this same query
+        if call.status != STATUS_IN_PROGRESS or call.active_transfer_attempt_id is not None:
+            return False
+        call.status = STATUS_TRANSFERRING
+        call.active_transfer_attempt_id = attempt_id
+        session.flush()
+        _record_event_idempotently(
+            session,
+            tenant_id,
+            call.id,
+            provider_name,
+            provider_event_id,
+            EVENT_TRANSFER_REQUESTED,
+        )
+    return True
+
+
+def try_consume_transfer_attempt_for_bridge(
+    *,
+    tenant_id: uuid.UUID,
+    provider_name: str,
+    provider_call_id: str,
+    attempt_id: uuid.UUID,
+) -> bool:
+    """Phase 27.0 HIGH-1 remediation -- the one atomic "confirm and
+    consume ownership immediately before the real bridge" gate.
+    `product/telephony/transfer.py::bridge_transfer()` must call this and
+    receive `True` back *before* it is permitted to call
+    `TelephonyProvider.bridge_call()`.
+
+    Returns `True` only if, atomically under the row lock, the call is
+    still `STATUS_TRANSFERRING` with `active_transfer_attempt_id` still
+    equal to `attempt_id` -- in which case `active_transfer_attempt_id`
+    is immediately cleared (consumed) in the same transaction, so no
+    concurrent or later callback for this same attempt can also pass this
+    check. `Call.status` itself is deliberately left at `transferring`
+    here -- the subsequent `apply_call_transfer_event(EVENT_TRANSFER_BRIDGED)`
+    call (after the real `bridge_call()` succeeds) is what actually moves
+    it to `in_progress`.
+
+    Returns `False` for every other case -- the attempt already failed
+    (status moved back to `in_progress`, clearing the attempt), the
+    attempt already bridged (a duplicate/concurrent answer callback), the
+    call reached a terminal status independently, or this `attempt_id` is
+    stale (an older, already-superseded attempt). Never an exception: a
+    lost/stale consume attempt is a normal, expected outcome, not an
+    error. A caller that receives `False` must not call
+    `TelephonyProvider.bridge_call()`."""
+    with tenant_session_scope(tenant_id) as session:
+        existing_call = session.execute(
+            select(Call).where(
+                Call.tenant_id == tenant_id,
+                Call.provider_name == provider_name,
+                Call.provider_call_id == provider_call_id,
+            )
+        ).scalar_one_or_none()
+        if existing_call is None:
+            return False
+        call = session.get(Call, existing_call.id, with_for_update=True)
+        assert call is not None  # existing_call was just found by this same query
+        if call.status != STATUS_TRANSFERRING or call.active_transfer_attempt_id != attempt_id:
+            return False
+        call.active_transfer_attempt_id = None
+        session.flush()
+    return True
+
+
 def _record_event_idempotently(
     session: Any,
     tenant_id: uuid.UUID,
@@ -542,8 +836,17 @@ __all__ = [
     "EVENT_CALL_FAILED",
     "EVENT_CALL_INITIATED",
     "EVENT_CALL_NO_ANSWER",
+    "EVENT_TRANSFER_AI_LEG_REMOVED",
+    "EVENT_TRANSFER_BRIDGED",
+    "EVENT_TRANSFER_CONSULTATION_STARTED",
+    "EVENT_TRANSFER_FAILED",
+    "EVENT_TRANSFER_HUMAN_ANSWERED",
+    "EVENT_TRANSFER_REQUESTED",
+    "apply_call_transfer_event",
     "get_call",
     "initiate_outbound_call",
     "list_calls",
     "receive_inbound_call_event",
+    "try_consume_transfer_attempt_for_bridge",
+    "try_start_transfer_attempt",
 ]
