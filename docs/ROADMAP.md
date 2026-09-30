@@ -4022,25 +4022,36 @@ Phase 26 (AI Automation, done)
   suggested replies — tools already exist, `conversation_summarization`/
   `suggested_reply`, unwired to any UI and non-functional pending a
   vendor), Phase 29 (sending an AI-drafted reply is a tier-1 action).
-- **Scope**: a phone-keyed variant of
-  `create_or_update_contact_from_trusted_source()` (reusing
-  `product/foundation/values.py::PhoneNumber`, already exists, correctly
-  reused, not rebuilt); `create_thread()` gains an auto-resolve-or-create
-  path for inbound messages with no pre-existing contact; AI summaries/
-  suggested replies surfaced in the Conversations UI as tier-0 read-only
-  suggestions (unchanged tier) with sending itself gated at tier-1 via
-  Phase 29 once a vendor exists; **explicitly do not claim any provider
-  is already available** — SMS/WhatsApp remain Protocol-only
+- **Scope**: a tenant-scoped inbound-identifier **correlation** mechanism
+  (reusing `product/foundation/values.py::PhoneNumber`, already exists,
+  correctly reused, not rebuilt) — **not** a variant of
+  `create_or_update_contact_from_trusted_source()`, and not a lookup that
+  resolves, attaches to, or updates an existing contact's trusted fields
+  from a caller-supplied identifier; see `docs/ADR/0018-...`'s own point 8
+  clarification for the exact, narrow boundary this must satisfy
+  (correlation for conversation/thread continuity only, never identity
+  verification, ownership proof, or authorization). `create_thread()`
+  gains an auto-resolve-or-create path for inbound messages with no
+  pre-existing contact, built on that same correlation mechanism, with any
+  newly-associated contact remaining explicitly unverified (ADR-0018 point
+  8); AI summaries/suggested replies surfaced in the Conversations UI as
+  tier-0 read-only suggestions (unchanged tier) with sending itself gated
+  at tier-1 via Phase 29 once a vendor exists; **explicitly do not claim
+  any provider is already available** — SMS/WhatsApp remain Protocol-only
   (`FakeSmsProvider`, no real vendor) exactly as confirmed today; this
   phase's channel-agnostic thread model must not silently assume a
   provider exists.
-- **Security considerations**: mirrors Phase 22's own anonymous-write-path
-  review — resolving/creating a contact from an unauthenticated inbound
-  channel needs the same narrow, documented "trusted source" discipline,
-  never broadened casually.
-- **Cross-domain integration**: Conversations → CRM (phone-keyed
-  resolution, new), Conversations → AI (summaries/drafts, new),
-  Conversations → Approvals (send-gating, new, via Phase 29).
+- **Security considerations**: governed by `docs/ADR/0018-inbound-phone-
+  caller-contact-trust-boundary.md` (its Decision point 8 specifically) —
+  a carrier-supplied inbound identifier is tenant-scoped correlation data
+  only, never authentication, identity proof, ownership proof, or an
+  authorization signal; also mirrors Phase 22's own anonymous-write-path
+  review for the same "narrow, documented, never broadened casually"
+  discipline.
+- **Cross-domain integration**: Conversations → CRM (tenant-scoped
+  inbound-identifier correlation, new — see ADR-0018 point 8), Conversations
+  → AI (summaries/drafts, new), Conversations → Approvals (send-gating,
+  new, via Phase 29).
 - **Tests**: an inbound SMS from an unknown number correctly resolves to
   an existing contact by phone, or creates a new one, exactly once
   (idempotent under retry); a drafted AI reply never sends without
