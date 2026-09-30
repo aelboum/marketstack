@@ -76,7 +76,20 @@ describe("AppointmentsWeekPage", () => {
 
     const [, weekCallArgs] = listAppointmentsMock.mock.calls[0];
     const [, monthCallArgs] = listAppointmentsMock.mock.calls[1];
-    expect(monthCallArgs.starts_after).not.toBe(weekCallArgs.starts_after);
+    // `starts_after` alone is not a reliable "different range" signal --
+    // the week view's Monday and the month grid's leading Monday
+    // coincide whenever "today" falls in the first partial week of the
+    // month (e.g. the 1st is a Thursday), which made this assertion
+    // flaky by calendar date rather than by behavior. `starts_before` is
+    // what actually distinguishes a 5-day week from a 42-day month grid
+    // on every date, so it is the one that should differ -- and by
+    // definition of "wider", the month's end must be strictly later.
+    expect(new Date(monthCallArgs.starts_before).getTime()).toBeGreaterThan(
+      new Date(weekCallArgs.starts_before).getTime(),
+    );
+    expect(new Date(monthCallArgs.starts_after).getTime()).toBeLessThanOrEqual(
+      new Date(weekCallArgs.starts_after).getTime(),
+    );
     expect(screen.getByRole("button", { name: "Maand" })).toHaveAttribute("aria-pressed", "true");
   });
 
