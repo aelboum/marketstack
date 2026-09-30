@@ -124,13 +124,21 @@ PRODUCT BACKEND TRACK
 
 21 Agency Provisioning Loop         ✓  \
 22 Lead Capture & Qualification Loop ✓  > Business-engine completion,
-23 Customer Lifecycle Loop             /  Layer 2→3 wiring (not committed)
+23 Customer Lifecycle Loop           ✓  /  Layer 2→3 wiring (`75a6d88`,
+                                            corrected 2026-09-29 — was
+                                            "not committed"/"not started")
 
-24 Mini Accounting Foundation          \
-25 Revenue & Money Workflow             > (= old Phase 15, split)
+24 Mini Accounting Foundation        ✓  \  (= old Phase 15, split;
+25 Revenue & Money Workflow          ✓  >  both corrected 2026-09-29 —
+                                            were "not started")
 
-26 AI Vendor + AI Write-Back           \
-27 Inbound AI Call                      > makes AI/Telephony live
+26 AI Vendor + AI Write-Back         ✓  \  makes AI/Telephony live
+27 Inbound AI Call                      >  (26 corrected 2026-09-29 — was
+                                            "not started"; 27 itself still
+                                            not started/not
+                                            implementation-ready — 27.1/
+                                            27.2 done, 27.0/27.3 are not,
+                                            see that phase's own entry)
 
 28 Command Center & Navigation Redesign ✓ (substantially — see Phase 28's
                                             own corrected Outcome; nav
@@ -138,6 +146,17 @@ PRODUCT BACKEND TRACK
                                             English Product Reset target)
 29 Approval Inbox                        > Layer 3 proper — see note below
 30 Unified Inbox                        /
+
+31 Platform Ownership Foundation         ✓  (added 2026-09-30, implemented
+                                            same day — foundation only:
+                                            Option A decided, `product
+                                            .platform/` module, zero
+                                            existing agency reparented, no
+                                            route/UI/second-owner yet; see
+                                            that phase's own entry. Does NOT
+                                            imply Agency/Client (Phase 3) is
+                                            incomplete — it is the layer
+                                            above it, not a redesign of it)
 
 
 UI TRACK
@@ -160,9 +179,16 @@ UI-8  Responsive / Accessibility / UX Hardening       △  (substantial,
                                                           keyboard-nav/
                                                           screen-reader
                                                           pass all done;
-                                                          responsive/
+                                                          2026-09-30 —
+                                                          responsive
+                                                          audit done,
+                                                          1 real bug
+                                                          found + fixed
+                                                          (`baca97a`),
+                                                          pending review;
                                                           performance
-                                                          not audited)
+                                                          still not
+                                                          audited)
 UI-9  Mature Design System & Reusable Components      ✓  (also shipped,
                                                           ahead of this
                                                           plan and now
@@ -192,8 +218,12 @@ UI-13 Approval Inbox                                  ✓  (Backend Phase 29
 ── Added — UI Track coverage for backend capability that had no UI-#  ──
 ── yet (see "UI Track" below, after UI-13, for full phase text)       ──
 
-UI-14 Billing, Plans & Subscription Management           (Backend Phase 13
-                                                          — no UI exists yet)
+UI-14 Billing, Plans & Subscription Management        △  (implemented
+                                                          2026-09-30,
+                                                          checkpoint-
+                                                          audited, not yet
+                                                          committed —
+                                                          pending review)
 UI-15 Accounting & Financial Workspace                    (Backend Phases
                                                           24-25 — no UI
                                                           exists yet;
@@ -1532,8 +1562,20 @@ the vocabulary's closed nature or either execution path.
 ### 10.4B Accounting automation triggers/actions
 - **Objective**: the brief-listed accounting triggers/actions — invoice
   overdue, payment received, create invoice, record payment.
-- **Dependencies**: 10.3 (durable execution), **Phase 15 (Mini
-  Accounting)**. Phase 15 is not started, so this subphase is blocked.
+- **Dependencies**: 10.3 (durable execution), the accounting domain
+  contract this subphase's own four named triggers/actions (invoice
+  overdue, payment received, create invoice, record payment) actually
+  operate on.
+  **Correction, 2026-09-30**: previously stated as "Phase 15 (Mini
+  Accounting)... not started, so this subphase is blocked" — stale. 10.3
+  is implemented (`f4dce23`). The accounting domain contract these four
+  triggers/actions need is not original Phase 15 as a whole (which also
+  covered credit notes/banking/reports/retention, several still separate)
+  but specifically Phase 24's ledger foundation (accounts/periods/journal
+  entries) and Phase 25's `Invoice`/`Bill`/`Payment`/`PaymentAllocation`
+  domain — both implemented, corrected 2026-09-29. See Outcome below for
+  what this does, and does not, establish about this subphase's own
+  readiness.
 - **Scope**: additional trigger/action registrations only — no new engine
   work, reuses 10.2/10.3's mechanism. Automation consumes Accounting's own
   service/domain contract; it never defines accounting semantics, never
@@ -1550,10 +1592,19 @@ the vocabulary's closed nature or either execution path.
 - **Acceptance criteria**: an invoice-overdue trigger and a payment-received
   trigger both work correctly against real Accounting data.
 - **Rollback**: standard.
-- **Outcome**: not started — blocked on Phase 15; deferred until Phase 15
-  establishes the accounting domain contract. No accounting model,
-  migration, API, action, trigger, or placeholder contract is to be created
-  in Automation before then (`docs/ACCOUNTING-SCOPE.md`).
+- **Outcome**: not started. **Correction, 2026-09-30**: previously said
+  "blocked on Phase 15; deferred until Phase 15 establishes the accounting
+  domain contract" — that blanket blocker is stale, per the Dependencies
+  correction above (10.3 and the accounting domain contract this
+  subphase's own four named triggers/actions need are both now
+  implemented). This does **not** mean 10.4B is implementation-ready: no
+  trigger/action registration, idempotency test, or security review named
+  in this subphase's own Scope/Tests/Checkpoint fields above has been
+  done — that is real, separate, not-yet-started work this correction
+  does not perform or design. No accounting model, migration, or API is
+  to be created in Automation when that work begins (`docs/ACCOUNTING-SCOPE.md`);
+  it consumes Accounting's own existing service/domain contract only,
+  unchanged from this subphase's own Scope field above.
 - **Checkpoint**: none beyond 10.2's standing security review, extended to
   the financial actions specifically.
 
@@ -1878,9 +1929,10 @@ UI-14 (separate frontend phase, not started by this entry)
   `pyright`/`lint-imports` all pass (22 import-linter contracts kept,
   unchanged — `product.billing` remains a fully independent module).
 - **Checkpoint**: none — this entry closes a documented wiring gap with no
-  new behavior. UI-14 remains a separate, not-started frontend phase; this
-  entry does not implement, unblock beyond "the API now exists", or mark
-  ready any part of it.
+  new behavior. UI-14 is a separate frontend phase; this entry itself does
+  not implement, unblock beyond "the API now exists", or mark ready any
+  part of it (UI-14 was implemented separately, later the same day — see
+  its own Outcome, updated 2026-09-30).
 
 ### 13.5 SaaS entitlement enforcement
 
@@ -2118,7 +2170,18 @@ integrate with.
 - **Security considerations**: none beyond 15.2's inherited discipline.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-30 (this entry previously
+  said "not started," which was stale) — `b0d7dbb` ("feat: add accounting
+  credit notes"): `product/accounting/credit_notes.py`, migrations
+  0067-0068. A credit note never mutates the original `Invoice`/
+  `InvoiceLine` it corrects (including `outstanding_amount`) — matches
+  this subphase's own literal Tests requirement above. Posting is atomic
+  with Phase 24's own ledger, mirroring `invoices.py::post_invoice()`'s
+  own gapless-numbering/journal-posting pattern. **Not built here,
+  deliberately**: reconciling a credit note against what a customer still
+  owes is left as a separate, not-yet-specified design decision (not a
+  gap silently left open — see `CreditNote`'s own class docstring,
+  `product/accounting/models.py`).
 - **Checkpoint**: none beyond 15.2's standing review.
 
 ### 15.4 Suppliers, purchases, expenses
@@ -2146,7 +2209,18 @@ integrate with.
 - **Acceptance criteria**: a sample bank statement imports and matches
   correctly against open invoices/expenses.
 - **Rollback**: standard.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-30 (this entry previously
+  said "not started," which was stale) — `26cb515` ("feat: add accounting
+  banking reconciliation"): `product/accounting/banking.py`, migrations
+  0069-0071. CSV import only this pass (MT940 deliberately deferred, same
+  parsing boundary reused when it lands); semi-automatic matching against
+  open invoices/expenses with a manual confirm step; no live bank-provider
+  aggregation. No HTTP route exposure this pass — service-layer only,
+  mirroring Phase 24's own precedent (routes are a separate, additive
+  follow-up). **Distinct from, and not a substitute for**, a future PSD2/
+  AIS live bank-provider integration (`docs/ACCOUNTING-SCOPE.md`'s own
+  "Bank Integration Phasing" step 2) — that remains its own, separately
+  scoped, deferred future phase, unaffected by this correction.
 - **Checkpoint**: none beyond 15.1's standing review.
 
 ### 15.6 Reports — P&L, balance sheet, VAT summary, GL, AR/AP, cash
@@ -3342,7 +3416,18 @@ round-robin, or "assign to whoever owns the pipeline") in the meantime.
 - **Rollback**: each new event/subscriber is independently disableable;
   removing the periodic reminder job returns reminders to today's
   "callable but not automatic" state.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-29 (this entry previously
+  said "not started," and the overview table above separately said "not
+  committed" — both stale; reconciled to one factual status) —
+  `75a6d88` ("feat: wire Appointments lifecycle events into Automation
+  and Reputation (Phase 23)"): `product/appointments/booking.py`
+  publishes the five new event types, `no_show`/`completed` statuses are
+  real, and `tests/reputation/test_appointment_completed_integration.py`
+  is the concrete cross-domain completed-appointment → review-request
+  test this phase's own Tests line required. Independently re-verified
+  2026-09-29 as part of this correction: the full integration gate
+  (`scripts/check-integration.sh`, real disposable Postgres/Redis) passed
+  with 0 failures, including this file.
 - **Checkpoint**: none beyond Phase 12's own standing review, re-confirmed
   against the new automatic-trigger path specifically (a review request
   firing automatically is a different trust boundary than one triggered
@@ -3414,19 +3499,45 @@ not rewritten.)*
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: unchanged from the original — foundational; rollback
   after any real posted data exists requires a data-migration-aware plan.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-29 (this entry previously
+  said "not started," which was stale) — `180efca` ("feat: complete
+  phase 24 accounting foundation"): `product/accounting/{accounts,
+  journal,periods,models,event_handlers,permissions,purge,errors}.py`,
+  migrations 0052-0055. Chart of accounts, non-overlapping/lockable
+  periods, and immutable double-entry journals (`DRAFT→POSTED`/
+  `DRAFT→VOIDED`/`POSTED→REVERSED`) are real, RLS-isolated, RBAC-gated,
+  audit-logged, and wired into the real application composition root,
+  scoped exactly to this phase's own Decisions 1-5 boundary (no customer/
+  invoice/tax-code/payment row, per this entry's own Scope). The
+  immutability test this phase's own Checkpoint names is real:
+  `tests/accounting/test_journal_integration.py` proves an attempted
+  UPDATE/DELETE on a posted entry is rejected at the data-access layer.
+  Independently re-verified 2026-09-29 as part of this correction: the
+  full integration gate (`scripts/check-integration.sh`, real disposable
+  Postgres/Redis) passed with 0 failures across all 118
+  `tests/accounting/` tests. `docs/ADR/0014-mini-accounting-foundation.md`
+  remains PROPOSED, not formally approved — unchanged by this correction.
 - **Checkpoint**: unchanged from the original — dedicated
   security/correctness review; do not proceed to Phase 25 until the
-  immutability test is proven, not merely written.
+  immutability test is proven, not merely written. **Update 2026-09-29**:
+  proven, per the Outcome above.
 
 ## Phase 25 — Revenue & Money Workflow
 
 *(Replaces the original Phase 15.2/15.4's scope, with one new,
 non-negotiable requirement this audit adds — see "CRITICAL" below. Credit
-notes (original 15.3), banking (15.5), the full report suite (15.6), and
-full retention/anonymization policy (15.7) remain separately sequenced,
-deferred, and gated behind accountant/legal review exactly as the
-original roadmap already specified — not pulled forward by this phase.)*
+notes (original 15.3) and banking (15.5) were not part of this phase's own
+implementation — they remained separately sequenced, exactly as the
+original roadmap already specified, and were subsequently implemented
+under their own sequencing once this phase's invoice/journal foundation
+existed to reference; see those subphases' own corrected Outcome fields
+for the implementation commits. **Correction, 2026-09-30**: this note
+previously described 15.3/15.5 as still "deferred" alongside 15.6/15.7 —
+stale as of their own implementation checkpoints below. The full report
+suite (15.6) and full retention/anonymization policy (15.7) remain
+separately sequenced, deferred, and gated behind accountant/legal review
+exactly as the original roadmap already specified — still not pulled
+forward by this phase.)*
 
 - **Objective**: invoices, supplier bills, payments, and allocations —
   described from the business owner's perspective, never as CRUD.
@@ -3524,9 +3635,36 @@ original roadmap already specified — not pulled forward by this phase.)*
   balance reflects correctly), exactly as the original roadmap required.
 - **Rollback**: standard, subject to Phase 24's data-migration caveat
   once real invoices exist.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-29 (this entry previously
+  said "not started," which was stale) — `eb54f8a` ("feat: complete
+  phase 25 revenue and money workflow"): `product/accounting/{invoices,
+  bills,payments,contacts,tax_codes}.py`, migrations 0056-0063.
+  `Invoice`/`Bill`/`Payment`/`PaymentAllocation` are real, with gapless
+  per-tenant sequential invoice numbering. The CRITICAL, non-negotiable
+  cross-domain requirement above is satisfied, not merely CRUD: this
+  commit also touched `frontend/components/today/AttentionSection.tsx`
+  and `frontend/lib/api/accounting.ts` (`listOverdueInvoices()`), which
+  is the exact "wiring one new query into that existing `AttentionSection`"
+  Definition of Done named above. The invoice-numbering concurrency test
+  this phase's own Checkpoint names is real:
+  `tests/accounting/test_invoices_integration.py::
+  test_concurrent_post_never_assigns_duplicate_numbers` (and its gapless/
+  sequential counterpart in the same file). **Not yet done, and not
+  claimed here**: the "Geld" nav entry (`frontend/lib/nav/config.ts`)
+  is still `status: "planned"`, un-hidden per this phase's own closing
+  work is described as required — its own code comment still says
+  "Accounting (Phase 24/25) has not started," which this correction does
+  not touch (out of this reconciliation's scope; noted for a future,
+  separately-scoped frontend correction, and matches this roadmap's own
+  UI-15 — Accounting & Financial Workspace, itself still correctly
+  `not started`, since no accounting UI route exists). Independently
+  re-verified 2026-09-29: the full integration gate
+  (`scripts/check-integration.sh`, real disposable Postgres/Redis) passed
+  with 0 failures across all 118 `tests/accounting/` tests, including
+  both invoice-numbering tests above.
 - **Checkpoint**: the invoice-numbering concurrency test specifically —
   a legal requirement, not a nice-to-have, unchanged from the original.
+  **Update 2026-09-29**: proven, per the Outcome above.
 
 ## Phase 26 — AI Vendor + AI Write-Back
 
@@ -3596,7 +3734,29 @@ original roadmap already specified — not pulled forward by this phase.)*
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: unregister the vendor adapter — Phase 9.4's fail-closed
   default-deny posture is always available as a safe resting state.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-29 (this entry previously
+  said "not started," which was stale) — `c6212b6` ("feat: complete
+  phase 26 openai production provider"): `product/ai/{openai_provider,
+  openai_config,production}.py` register a real `LLMProvider` vendor
+  (OpenAI) behind `register_production_llm_provider()`, resolving the
+  vendor decision this phase's own Scope named. `fed8ce2` ("feat:
+  complete phase 26 ai automation"): `qualify_lead` returns a structured
+  decision object, `product/foundation/workflow_actions.py` gains the
+  step-output-chaining mechanism, and the tier-1 approval path is real
+  and tested — `tests/ai/test_invocation_approval_integration.py::
+  test_tier1_tool_creates_a_proposal_and_never_executes` and
+  `::test_rejected_approval_never_executes_and_tool_is_never_called`
+  are the concrete tests this phase's own Tests line required (a tier-1
+  proposal blocks until `approve()`, never executes after `reject()`).
+  Independently re-verified 2026-09-29: the full integration gate
+  (`scripts/check-integration.sh`, real disposable Postgres/Redis)
+  passed with 0 failures across all `tests/ai/` integration tests,
+  including `test_tools_integration.py` and
+  `test_invocation_approval_integration.py`. **Not claimed here**: this
+  entry does not extend to Phase 27 (Inbound AI Call), which remains
+  separately gated and not implementation-ready — see that phase's own
+  Outcome, unchanged by this correction except where 27.1/27.2 are
+  addressed individually below.
 - **Checkpoint**: dedicated security review before any real tenant data
   reaches a real external provider — unchanged from Phase 9.4's own
   standing requirement, now actually exercised rather than perpetually
@@ -3691,7 +3851,25 @@ Phase 26 (AI Automation, done)
   unchanged; conversational state is bounded and ephemeral; this is not a
   Temporal workflow, and no general-purpose conversational workflow engine
   is introduced.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-29 (this entry previously
+  said "not started," which was stale) — `c57321d` ("feat: complete
+  phase 27.1 call session foundation"): `product/telephony/
+  call_session.py` (bounded session/turn state, kept separate from
+  `Call`/`CallEvent`), `product/telephony/receptionist.py` (the
+  attempt/clarify/escalate/decline closed-vocabulary decision contract
+  this entry's own Scope named). Tests:
+  `tests/telephony/test_call_session_unit.py` (unit),
+  `tests/telephony/test_receptionist_integration.py` (integration).
+  Independently re-verified 2026-09-29: the full integration gate
+  (`scripts/check-integration.sh`, real disposable Postgres/Redis)
+  passed with 0 failures, including
+  `test_receptionist_integration.py`; the unit test was separately
+  confirmed passing (no database dependency). **Not claimed here**:
+  27.0 (Voice Transport Foundation) remains not started — no real
+  `TelephonyProvider`/STT/TTS is registered (confirmed by inspection:
+  only `FakeTelephonyProvider` exists) — so this entry's own live-call
+  usage has nothing real to run against yet; that gap is 27.0's, not
+  27.1's own scope, and is unchanged by this correction.
 
 ### 27.2 Call-Initiated Action Safety
 - **Objective**: make existing Phase 26 business capabilities safe to
@@ -3749,7 +3927,27 @@ Phase 26 (AI Automation, done)
   contact; no anonymous contact creation or booking entry point added in
   this phase; existing CRM/appointment business semantics remain
   authoritative and unchanged for every already-sanctioned caller.
-- **Outcome**: not started.
+- **Outcome**: implemented, corrected 2026-09-29 (this entry previously
+  said "not started," which was stale) — `226e4b2` ("feat: complete
+  phase 27.2 call action safety"): `product/call_action_safety.py`
+  (call/session/turn correlation, `core.idempotency`-based
+  duplicate-action protection, read-only appointment-availability
+  access gated by the receptionist actor's own RBAC/Data Authorization,
+  the caller/contact trust-boundary blocks this entry's own "Explicit
+  constraints" list requires), with 24 tests in
+  `tests/test_call_action_safety_integration.py`. Independently
+  re-verified 2026-09-29: the full integration gate
+  (`scripts/check-integration.sh`, real disposable Postgres/Redis)
+  passed with 0 failures, including this file. **Caveat**: the
+  `docs/ADR/0018-inbound-phone-caller-contact-trust-boundary.md` this
+  entry's own text cites is itself not yet committed to this repository
+  (working-tree only) — the code and its tests are real and committed;
+  the formal ADR record is not, and this correction does not commit it.
+  **Not claimed here**: 27.3 (Human Handoff Foundation) remains not
+  started — no live mid-call transfer primitive exists yet (confirmed
+  by inspection) — so escalation from this phase's own non-blocking
+  tier-1 handling has nowhere real to escalate *to* yet; that gap is
+  27.3's, not 27.2's own scope, and is unchanged by this correction.
 
 ### 27.3 Human Handoff Foundation
 - **Objective**: provide a real live-call handoff primitive that transfers
@@ -3787,11 +3985,16 @@ Phase 26 (AI Automation, done)
   answered, understood, and — for permitted actions — resolved.
 - **Dependencies**: Phase 8 (Telephony foundation, done), Phase 26 (AI
   Automation, done), 27.0 Voice Transport Foundation (not started), 27.1
-  Call Session & Actor Foundation (not started), 27.2 Call-Initiated Action
-  Safety (not started), 27.3 Human Handoff Foundation (not started). Direct
+  Call Session & Actor Foundation (implemented, corrected 2026-09-29 —
+  see that subphase's own Outcome), 27.2 Call-Initiated Action Safety
+  (implemented, corrected 2026-09-29 — see that subphase's own Outcome),
+  27.3 Human Handoff Foundation (not started). Direct
   chain: `27.0 -> 27.1 -> {27.2, 27.3} -> Phase 27`; Phase 8/Phase 26 are
   the transitive foundations 27.0/27.1 already build on, not a second,
-  independent dependency of this phase.
+  independent dependency of this phase. **This phase itself remains
+  blocked**: 27.0 and 27.3 are still not started, and the chain above
+  requires all four — 27.1/27.2 being done does not change this phase's
+  own "not started" Outcome below.
 - **Scope**: mount the existing inbound-webhook receiver to a real route
   (27.0); a live call-session loop (PBX/SIP session → STT → LLM turn, using
   Phase 26's now-real vendor and tool-calling path → TTS → response,
@@ -3826,8 +4029,10 @@ Phase 26 (AI Automation, done)
   calls to ordinary Phase 8.2 human routing — unchanged from the original
   Phase 9.2's own rollback plan, and must not require a second routing
   system to fall back onto.
-- **Outcome**: not started — blocked on prerequisites (27.0–27.3, all not
-  started; see the dependency graph above). Not implementation-ready.
+- **Outcome**: not started — blocked on prerequisites, corrected
+  2026-09-29 (27.1 and 27.2 are now implemented, per their own Outcome
+  fields; 27.0 and 27.3 remain not started; see the dependency graph
+  above). Not implementation-ready.
 - **Checkpoint**: **dedicated security + UX review, performed after this
   phase's own implementation and end-to-end testing are complete and
   strictly before any real tenant's live phone number is enabled** — not a
@@ -4060,9 +4265,272 @@ Phase 26 (AI Automation, done)
 - **Rollback**: each new resolution path/UI surface is independently
   disableable; falls back to today's exact behavior (manual thread
   creation against a known contact).
-- **Outcome**: not started.
+- **Outcome**: backend foundation implemented, per this phase's own Scope
+  note above (correlation mechanism + auto-created threads only) — not
+  this phase's full scope. `product/crm/contacts.py
+  ::create_or_reuse_contact_from_trusted_source_by_phone()` (tenant-scoped
+  phone correlation via the existing `PhoneNumber`/`normalize_phone_number()`,
+  create-or-reuse, never mutates a matched contact's trusted fields —
+  ADR-0018 point 8) and `product/conversations/threads.py
+  ::create_thread_from_trusted_inbound()` (sms/whatsapp/call channels,
+  thread reuse per `(tenant_id, contact_id, channel)`; existing
+  `create_thread()` unchanged). Both concurrency-safe under duplicate
+  inbound delivery via `infra.db.acquire_tenant_advisory_lock()` (neither
+  lookup is backed by a unique constraint; no migration added). New edge
+  `product.conversations -> product.crm`, narrowly scoped and import-linter
+  enforced (`docs/ADR/0019-conversations-depends-on-crm.md`; `lint-imports`
+  24 contracts kept, 0 broken). 17 integration tests added
+  (`tests/crm/test_trusted_inbound_phone_integration.py`,
+  `tests/conversations/test_trusted_inbound_integration.py`) — not yet run
+  against a real database in this environment (no `DATABASE_URL`
+  configured); `ruff`/`pyright`/`lint-imports` all pass. **Not built**:
+  frontend Unified Inbox UI, AI summary/suggested-reply wiring into
+  Conversations, Phase 29 approval-gated sending, and no SMS/WhatsApp/call
+  provider, webhook, or vendor selection (unchanged from before this
+  phase).
 - **Checkpoint**: none beyond Phase 22's own standing anonymous-write-path
   review, re-applied here.
+
+## Phase 31 — Platform Ownership Foundation
+
+*(Added 2026-09-30, following a dedicated read-only architecture audit of
+the Owner → Agency → Client model. This phase is an architectural
+**prerequisite** — it decides and documents a boundary; it does not itself
+ship platform-owner functionality. It must not be read as adding scope to
+Phase 3, which remains complete and unchanged.)*
+
+- **Objective**: define and establish the architectural boundary for a
+  SaaS platform owner above agency tenants, while preserving the existing
+  Agency → Client tenant hierarchy and tenant isolation exactly as Phase 3
+  already implemented them.
+- **Existing foundation (verified by audit, unchanged by this phase)**:
+  - Tenant hierarchy already exists and supports arbitrary structural
+    depth: `core.tenants.parent_id` (nullable, self-referential) plus the
+    precomputed `core.tenant_ancestry` closure table
+    (`docs/ARCHITECTURE.md` §3).
+  - Agency → Client is already fully implemented: `provision_agency()`
+    creates a root tenant (`parent_id IS NULL`); `provision_client()`
+    creates a child tenant (`parent_id = agency_tenant_id`). This is real,
+    tested, working product capability today — not a future phase.
+  - `SUBTREE` role scope (`core/rbac/scope.py`) already lets an agency
+    owner administer every descendant client automatically, re-evaluated
+    live against the current hierarchy on every authorization check. This
+    mechanism is general-purpose (confirmed by direct inspection of
+    `core/rbac/authorization.py::can()`) — it is not billing-specific,
+    even though Phase 13 is one of its consumers.
+  - Client isolation is already enforced and tested: a client tenant is
+    isolated from sibling clients exactly as any two unrelated tenants
+    would be; hierarchy grants no ambient access by itself.
+  - No platform-owner layer currently exists in any form: every agency is
+    an independent root tenant with no common ancestor; SaaS-OS's own
+    `core/rbac/principal.py` explicitly records `PLATFORM_OPERATOR` as
+    considered and rejected ("still out of scope, architecture
+    research"); the frontend has only a flat per-tenant context
+    (`frontend/lib/tenant/tenant-context.tsx`), no platform context.
+- **Required decision (this phase's actual deliverable)**: choose between
+  two architectures for platform-level authority. **Neither is selected
+  by this roadmap entry** — the decision is this phase's own scoped work,
+  informed by the considerations below, not pre-judged here:
+  - **Option A — Platform tenant + existing hierarchy.** Introduce a
+    platform root tenant that every agency becomes a descendant of,
+    reusing the existing `SUBTREE` mechanism unchanged. Must investigate:
+    platform tenant representation; platform owner membership; agency
+    reparenting (`core.tenancy.move_tenant()`) and its safety against
+    every existing agency/client tenant; authorization consequences of a
+    3rd hierarchy level; auditability; support-access interaction; tenant
+    context implications for the frontend.
+  - **Option B — Dedicated platform principal/authorization.** Introduce
+    a platform-wide principal/authorization concept (e.g. a
+    `PLATFORM_OPERATOR` principal type) without requiring agencies to
+    become descendants of a platform tenant. Must investigate: principal
+    model; authorization semantics; resource boundaries; auditability;
+    interaction with existing tenant authorization; support access;
+    whether a platform principal is actually justified over Option A.
+  - Or another architecture, only if repository evidence gathered during
+    this phase establishes it is genuinely better than both.
+- **Decision recorded, 2026-09-30 — Option A selected**, `product/platform
+  /provisioning.py`'s own module docstring carries the full evidence-based
+  record; summarized here: Option B is rejected because
+  `core/rbac/principal.py::PrincipalType` is a closed three-member
+  `StrEnum` (`USER`/`SYSTEM`/`SERVICE_ACCOUNT`) that `core/rbac
+  /authorization.py::can()` dispatches on directly — a genuine
+  platform-wide principal would require a fourth enum member and a new
+  `can()` branch, a SaaS-OS change this phase's own hard scope forbids
+  ("If Option B would require changes to SaaS-OS authorization
+  primitives, STOP and report"). Option A needs none of that: a platform
+  tenant is created through the exact same already-public
+  `core.tenancy.create_tenant()`/`core.rbac.create_role()`/
+  `assign_first_role_for_new_tenant()` calls `product/agency
+  /provisioning.py::provision_agency()` already uses for an agency
+  tenant — zero new SaaS-OS surface, zero new table, zero new migration.
+- **Required properties**: whichever architecture is selected must
+  preserve — existing Agency → Client hierarchy; existing client
+  isolation; existing `SELF`/`SUBTREE` semantics unless deliberately and
+  explicitly changed; fail-closed authorization; explicit (never implicit
+  or inherited-by-accident) platform-level authorization; tenant
+  isolation; auditability; no client-controlled authorization; no
+  accidental platform access to sensitive tenant resources; no broad
+  bypass of existing RBAC; compatibility with every existing agency and
+  client tenant; deterministic provisioning; a safe, reviewed migration
+  path for existing tenants if Option A is chosen.
+- **Explicit non-goals of this phase**: no Platform Owner UI; no `/owner`
+  frontend route; no billing UI; no Phase 13 API wiring; no UI-14
+  implementation; no Agency/Client redesign (Phase 3 is unchanged); no new
+  billing functionality; no invoices/payment history; no Stripe checkout
+  work; no SaaS-OS implementation (this is a roadmap/decision phase, not
+  an implementation phase); no migration implementation; no frontend
+  implementation.
+- **Dependencies**: Phase 3 (Agency / Client Management — the foundation
+  this phase builds a layer above, unchanged and not reopened).
+- **Relationship to Phase 13 / UI-14**: none, deliberately. Phase 13
+  (SaaS Resale / Billing) and UI-14 (its UI) concern agency-level billing
+  ownership (`core.billing.resolve_billing_owner()`), a separate concern
+  from platform-level administrative authority. **Updated 2026-09-30**:
+  UI-14 is no longer blocked — Phase 13's router is wired (13.4) and
+  UI-14 itself is now implemented (see that phase's own Outcome) — but
+  this was never this phase's own dependency either way: this phase is
+  not a new dependency of UI-14, and UI-14 is not a new dependency of
+  this phase.
+- **Downstream, not scoped here**: a future platform-owner UI/
+  administration phase, once this phase's decision lands, may eventually
+  provide things such as agency administration, platform-level
+  subscription visibility, platform plans, platform usage, support
+  administration, platform configuration — named here only so the
+  direction is visible; no screens or implementation requirements are
+  defined by this entry.
+- **Security considerations**: this phase decides an authorization
+  boundary that, if built incorrectly, could grant one platform-wide
+  identity implicit access to every tenant's data — the decision itself
+  (not merely its eventual implementation) is the security-relevant
+  artifact and should be reviewed as such before either option is built.
+- **Tests**: `tests/platform/test_provisioning_integration.py` (bootstrap/
+  resolve round-trip, one-time-bootstrap refusal, and — the single most
+  important safety property — a direct assertion that an existing agency's
+  own `core.tenant_ancestry` is completely unchanged after the platform
+  tenant is bootstrapped) and `tests/platform/test_authorization_
+  integration.py` (platform-owner authorization works and is
+  deterministic; an agency owner gains no platform authority and a
+  platform owner gains no reach into a pre-existing agency; sibling
+  agencies remain isolated; explicit deny still overrides an otherwise-
+  valid platform-owner role; a plain tenant placed under the platform
+  tenant is reached by the existing `SUBTREE` role with zero further code
+  change). 12 integration tests, all passing against a real disposable
+  PostgreSQL/Redis. Regression: `tests/agency` (40 tests) and
+  `tests/billing` (35 tests) re-run unmodified and unaffected — 75 passed.
+- **Acceptance criteria**: matches the Tests above.
+- **Rollback**: not applicable at the mechanism level (no schema/migration
+  exists to roll back — `product/platform/` adds zero tables); operationally,
+  unsetting `PLATFORM_TENANT_ID` and leaving the bootstrapped tenant in
+  place returns every `has_platform_authority()` caller to `False`
+  (module docstring), with no effect on any agency or client tenant.
+- **Outcome**: implemented — foundation only, per this phase's own scope.
+  `product/platform/{__init__,errors,roles,provisioning,authorization}.py`:
+  `bootstrap_platform_tenant()` (one-time, not self-service, not wired to
+  any route), `get_platform_tenant()` (resolves via the `PLATFORM_TENANT_ID`
+  env var, never a name lookup — `core.tenants.name` has no uniqueness
+  constraint and an ordinary agency signup could otherwise collide with a
+  reserved name), `has_platform_authority()`/`require_platform_authority()`
+  (delegate entirely to the existing `core.rbac.can()`, no second
+  authorization engine). Zero existing agencies reparented — the
+  bootstrapped platform tenant's own subtree contains nothing but itself
+  until a future, separately-scoped phase deliberately places a tenant
+  under it. Zero migrations. `pyproject.toml`'s import-linter contracts
+  extended with `product.platform` as a fully independent module (0
+  product-module dependencies, mirrors `product.billing`) —
+  `lint-imports` passes, 22 contracts kept. **Not built, by this phase's
+  own explicit non-goals**: a second platform owner (deliberately
+  documented as a provisioning gap in `bootstrap_platform_tenant()`'s own
+  docstring — needs the ordinary `assign_role()` path exercised by an
+  existing platform owner, not a bootstrap-only shortcut), any HTTP route,
+  any UI, any Core-owned capability (invitation/delegation/deny/support
+  access) granted to the `platform_owner` role.
+- **Completion audit and correction, 2026-09-30**: the Outcome above left
+  a real gap this audit found and closed. A platform tenant and a
+  platform owner existing as a *sibling* root of every agency does not,
+  by itself, let the platform owner administer any agency:
+  `core/rbac/authorization.py::can()`'s `SUBTREE` walk is evaluated from
+  the *target* tenant upward through its own live `core.tenant_ancestry`
+  chain, so the platform owner's `SUBTREE` role only ever reaches a tenant
+  that is a genuine descendant of the platform tenant — which, per the
+  Outcome above, no agency was. `has_platform_authority()` compounded
+  this: it only ever evaluated `can()` against the platform tenant itself,
+  so it could not even *ask* the question against another tenant, even
+  after one was made a descendant.
+  - **Core question answered**: yes — under Option A, an Agency must be a
+    genuine descendant of the platform tenant in `core.tenant_ancestry`
+    for the platform owner's existing `SUBTREE` role to reach it through
+    the unmodified `can()` chokepoint. No lesser mechanism (a helper that
+    only checks authority at the platform tenant itself, as the original
+    `has_platform_authority()` did) provides an equivalent relationship.
+  - **Fix, both additive, no new authorization engine**:
+    `has_platform_authority()`/`require_platform_authority()` gained an
+    optional `tenant_id` parameter (default: the platform tenant itself —
+    every prior call site and test unchanged) so a caller can ask whether
+    the platform owner's authority reaches a *named* tenant, not only the
+    platform tenant. `product/platform/provisioning.py::
+    attach_agency_to_platform()` is the new function that actually
+    establishes the edge: gated (`(platform.administration, administer)`
+    required — the ordinary anti-amplification discipline
+    `provision_client()` already uses), refuses to move anything but an
+    Agency root (`PlatformSelfAttachError`,
+    `PlatformAttachTargetNotRootTenantError`), idempotent, and delegates
+    the move itself entirely to the unchanged, already-public
+    `core.tenancy.move_tenant()` — which preserves the Agency's tenant id,
+    memberships, roles, and every Client already beneath it exactly
+    (`move_tenant()`'s own docstring: hierarchy-only, never tenant-owned
+    data; ancestry rows internal to the moved subtree are untouched).
+    Audited by this function itself (`core.audit_log.record()`), since
+    `move_tenant()` writes no audit record of its own.
+  - **Existing agencies**: NOT bulk-reparented. Neither `core.tenancy` nor
+    `product.agency` publishes a listing of every root tenant in the
+    system (an agency has no owning row of its own to enumerate —
+    `product/agency/provisioning.py`'s own module docstring: "Neither
+    concept has its own database table"), and adding one would itself be
+    a SaaS-OS change this phase's hard scope forbids. `attach_agency_to_
+    platform()` instead takes one explicitly-named Agency `tenant_id` at a
+    time — an operator (an existing platform owner) supplies it, exactly
+    as they already must know it to perform any other one-off operational
+    action against that agency. This is the smallest safe migration
+    mechanism, not a blocker: every existing agency is attachable, one
+    call each, whenever an operator chooses to.
+  - **New agency provisioning**: deliberately left unchanged.
+    `product/agency/provisioning.py::provision_agency()` still creates a
+    root tenant with no parent. Wiring it to auto-attach under the
+    platform tenant would require `product.agency` to import
+    `product.platform` — forbidden by this repository's own enforced
+    import-linter contract ("Agency does not depend on any product module
+    except Templates", confirmed by reading `pyproject.toml` and
+    `lint-imports`'s own passing output directly), and would also entangle
+    ordinary self-service agency signup with platform-tenant availability,
+    which this phase's own scope ("not every future platform operation")
+    does not authorize. New agencies remain independent roots by default,
+    exactly like existing ones, and become attachable through the
+    identical `attach_agency_to_platform()` call whenever an operator
+    chooses to — attachment is deliberate, never automatic, for both.
+  - **Security checks performed**: an attached Agency's own owner gains no
+    reach toward the platform tenant or any sibling Agency (`can()` only
+    walks a target's ancestors upward; the platform tenant is now the
+    Agency's ancestor, never the reverse) — verified directly. A deny
+    grant registered by the Agency's own owner, at the Agency tenant,
+    still overrides the platform owner's inherited `SUBTREE` allow at that
+    one Agency, and only that one — verified directly. Sibling Agencies,
+    attached or not, remain mutually isolated — verified directly.
+  - **Files changed**: `product/platform/{provisioning,authorization,
+    errors}.py` (additive changes only — no removed behavior);
+    `tests/platform/{test_provisioning_integration,
+    test_authorization_integration}.py` (new tests; no existing test
+    modified). No SaaS-OS file changed. No migration added.
+  - **Tests**: the 12 pre-existing integration tests plus the new ones
+    above, all passing against a real disposable PostgreSQL/Redis
+    (`pytest tests/platform tests/agency -m "integration and not
+    temporal"`) — see this phase's own git history for the exact count;
+    `tests/agency` re-run unmodified and unaffected (regression check).
+    `ruff check`/`ruff format --check`/`pyright`/`lint-imports` all pass
+    (22 import-linter contracts kept, unchanged).
+- **Checkpoint**: dedicated architectural review of this corrected
+  Option A relationship, before any future phase (a second platform
+  owner, an HTTP route, a bulk/automatic attachment mechanism) builds on
+  top of this foundation.
 
 ## Vertical slices (tracked independently of module phases)
 
@@ -4273,6 +4741,21 @@ because its feature targets a different audience; it determines which
 contexts, permissions, tenant scope and entitlements apply, and the same
 application renders accordingly. See
 `docs/ADR/0011-one-frontend-multiple-user-contexts.md`.
+
+**Correction, 2026-09-30, updated 2026-09-30**: at the time the paragraph
+above was written, "the Platform Owner... context" was described as
+symmetrical with the Agency/Client contexts, only "not yet given their
+own phase." A dedicated architecture audit found this was not accurate at
+the time: every agency was an independent root tenant with no common
+ancestor, and SaaS-OS explicitly records a platform-operator principal
+type as out of scope. Phase 31 (Platform Ownership Foundation) has since
+established the missing tenancy/authorization mechanism itself (a
+platform tenant, reusing `SUBTREE`, `product/platform/`) — but strictly as
+a foundation: no existing agency is reparented under it, and no frontend
+context, route, or UI reaches it yet. "The Platform Owner... context" this
+paragraph names is therefore still not a real frontend context today —
+only its backend prerequisite now exists. See Phase 31's own Outcome for
+the exact boundary.
 
 ### Replaceable application-shell architecture
 
@@ -4581,14 +5064,34 @@ patterns actually repeat.
   input carries a label or `aria-label`, no `<div>`/`<span onClick>`
   without a role, no missing alt text (no images exist in these
   data-driven screens) — and found the codebase already compliant, with
-  zero further fixes needed (706 tests, `tsc --noEmit` clean). **Not
-  claimed here**: responsive/mobile-viewport behavior and performance
-  improvements (this phase's own Scope also names both) were not
-  separately audited in this pass — do not read "substantially
-  implemented" as covering those two without further evidence.
+  zero further fixes needed (706 tests, `tsc --noEmit` clean). **Updated
+  2026-09-30**: a dedicated responsive audit was then run across the
+  shell, design-system primitives, and every domain module (`AppShell`/
+  `TopBar`/`Navigation`, `Dialog`/`ConfirmDialog`, `SidePanel`,
+  `DataTable`, `Menu`, `FormRow`, sub-nav tab strips, calendar day/week/
+  month/agenda views, `states.tsx`, the root layout's viewport meta, and
+  the global `prefers-reduced-motion` rule) — almost all of it was already
+  correctly responsive (mobile overlay sidebar with proper focus/tab-order
+  handling, mobile bottom-sheet side panels, horizontally-scrollable
+  tables, a single canonical breakpoint enforced by `app/design-system
+  .test.ts`). One real, concrete defect was found and fixed (`baca97a`,
+  "fix: harden responsive navigation shell"): `AppShell`'s `topnav` layout
+  — an alternate, tested-but-not-production-selected shell arrangement —
+  had a mobile nav toggle with a dangling `aria-controls` reference and no
+  overlay for it to open at all, so a mobile user under that layout could
+  not navigate; fixed by mounting the same scrim/`aside`/`Navigation`
+  overlay pattern the `sidebar` layout already uses, with a regression
+  test. This checkpoint is implemented but not yet reviewed/accepted (△
+  stands pending that review, not for lack of a fix). **Still not
+  claimed**: a dedicated performance pass (this phase's own Scope also
+  names it) has not been run — production bundle sizes were sanity-checked
+  during an unrelated build (103–131 kB first load, nothing alarming) but
+  that is not a substitute for one.
 - **Checkpoint**: review pattern consolidation against `UI-9` before that
   phase starts — `UI-8` is where duplication is found, `UI-9` is where it's
-  resolved into reusable components.
+  resolved into reusable components. The responsive-fix checkpoint above
+  (`baca97a`) also awaits human review before this entry's own `△` can
+  become `✓`.
 
 ## UI-9 — Mature Design System & Reusable Product Components
 
@@ -4704,11 +5207,14 @@ a new plan.)*
 *(Added — UI Track completion, correcting the "not pre-allocated here" gap
 below at "UI Track sequencing." UI-14–UI-21 give the remaining, real
 backend capability its own UI-#, the same way UI-10–UI-13 retroactively did
-for already-shipped work — except none of UI-14–UI-21 is shipped: every
-"Outcome" below is genuinely `not started`, matching this Track's own
-standing rule that Outcome is `not started` until real frontend evidence
-exists, never inferred from backend code alone. Three items proposed
-during this correction were deliberately **not** given a new UI-# —
+for already-shipped work — at the time this note was added, none of
+UI-14–UI-21 was shipped, matching this Track's own standing rule that
+Outcome is `not started` until real frontend evidence exists, never
+inferred from backend code alone. **Updated 2026-09-30**: UI-14 is now
+implemented (see its own Outcome) — the standing rule this note states is
+unchanged, only its "none of them yet" snapshot is stale for UI-14
+specifically; UI-15–UI-21 remain genuinely not started. Three items
+proposed during this correction were deliberately **not** given a new UI-# —
 see "Proposed UI phases folded into existing coverage" immediately after
 UI-21.)*
 
@@ -4723,11 +5229,16 @@ UI-21.)*
   (`GET /v1/billing/plans`, read-only); subscribe/upgrade/downgrade/cancel
   flows wrapping `core.billing`'s existing mechanism (Phase 13.1's own
   scope, unchanged); usage/entitlement display once Phase 16.3 exposes it.
-  Explicitly **not** in scope: agency-defined resale plan *authoring* for
-  clients (Backend Phase 13.2, a separate future UI once that subphase is
-  built), and any payment-provider UI beyond what `core.billing`'s Stripe
-  adapter already renders — this UI must not reimplement payment-provider
-  checkout, only wrap the existing subscription lifecycle calls.
+  Any payment-provider UI beyond what `core.billing`'s Stripe adapter
+  already renders stays explicitly out of scope — this UI must not
+  reimplement payment-provider checkout, only wrap the existing
+  subscription lifecycle calls. **Corrected 2026-09-30**: this entry
+  previously excluded agency-defined resale plan *authoring* for clients
+  as "a separate future UI" pending Backend Phase 13.2 — by
+  implementation time Phase 13 (13.1-13.4, including the `/v1/billing`
+  router mount) was fully shipped, and the resale-plan create/edit/
+  deactivate routes were already live, so resale-plan authoring is
+  implemented as part of this entry rather than deferred.
 - **Tests**: subscribe/upgrade/downgrade/cancel through this UI produces
   the same `core.billing` state a direct API call would (no UI-side
   entitlement calculation diverging from the backend's own).
@@ -4736,10 +5247,35 @@ UI-21.)*
   this UI never handles raw card/payment data itself.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: not started. No `frontend/app/**/billing/**` or equivalent
-  exists today (confirmed by inspection) — Phase 13's own Outcome already
-  states "no UI in this backend-only phase."
-- **Checkpoint**: none until scoped for implementation.
+- **Outcome**: implemented, corrected 2026-09-30 (this entry previously
+  said "not started," which was stale once Phase 13 shipped in full) —
+  `frontend/app/(app)/t/[tenantId]/billing/page.tsx` mounts four
+  sections: subscription (`components/billing/SubscriptionsPanel.tsx` —
+  create/change-plan/cancel, all against a real `idempotency_key`-bearing
+  or plan-scoped call), the read-only platform catalog
+  (`PlansCatalog.tsx`, `GET /v1/billing/plans`), this tenant's own
+  resale-plan catalog with create/edit/deactivate
+  (`ResalePlansPanel.tsx`), and effective entitlements, informational
+  only (`EntitlementsPanel.tsx`). `lib/api/billing.ts` is the typed
+  client, modeled directly off `product/billing/routes.py`'s own request/
+  response shapes. The existing, previously-`planned` "Facturatie" nav
+  entry (`lib/nav/config.ts`) is now wired to this route. Every mutation
+  (create/edit/deactivate/change-plan/cancel) refetches server state
+  rather than mutating optimistically; cancellation and deactivation both
+  require `ConfirmDialog` confirmation; a 403/tenant-scoped-404 renders
+  the same non-enumerating `PermissionDeniedState` every other module
+  uses. Tests: 32 focused (23 new Billing + 9 Navigation, one of which
+  was updated for the now-real nav entry), full suite 740/740 passing;
+  lint/typecheck/build all clean. **Not yet committed** — implemented and
+  checkpoint-audited (a full API-contract, tenant-isolation, mutation,
+  financial-safety, and accessibility pass, all clean) but left
+  uncommitted pending human review, per this roadmap's own standing
+  convention of not self-certifying a phase complete.
+- **Checkpoint**: the financial-safety review this phase's own Security
+  considerations implies — confirm no fake invoice/payment-method/
+  Stripe-portal/refund/tax/payment-history surface was introduced (none
+  was, confirmed by inspection) — is done; a human review/commit of the
+  checkpointed diff is the one thing still pending.
 
 ## UI-15 — Accounting & Financial Workspace
 
@@ -4757,10 +5293,17 @@ UI-21.)*
   list and detail views (Phase 25); accounting workflows exactly as Phase
   24/25 define them (draft → posted → voided/reversed journal entries;
   invoice/bill → sent → paid → allocated); no accounting integrations
-  beyond what Phase 25 itself scopes (bank feeds, OCR auto-booking, and
-  credit notes are explicitly deferred per Phase 25's own text — this UI
-  must not imply any of the three exist). Accounting semantics (debit/
-  credit, immutability, period locking, invoice numbering) remain owned
+  beyond what Phase 25 itself scopes (bank feeds and OCR auto-booking are
+  explicitly deferred — this UI must not imply either exists). **Correction,
+  2026-09-30**: credit notes were previously grouped in this same deferred
+  list, citing "Phase 25's own text" — stale, since 15.3 (credit notes) has
+  since been implemented under its own sequencing (see that subphase's own
+  corrected Outcome). They remain outside this UI phase's own named scope
+  above regardless, the same as any other accounting capability not
+  explicitly listed — this correction removes the false "deferred" claim
+  only, it does not add a credit-note view to this phase's scope.
+  Accounting semantics (debit/credit, immutability, period locking,
+  invoice numbering) remain owned
   entirely by the backend (Phases 24/25, `docs/ACCOUNTING-SCOPE.md`) — this
   UI renders them, never recomputes or duplicates them.
 - **Tests**: displayed balances/statuses derive from posted journal
@@ -5087,9 +5630,11 @@ Automation, Websites, and Reputation already have their UI-# (`UI-10`,
 retroactively). The remaining named capability now has its UI-# too
 (`UI-14`–`UI-21`, added below UI-13) — each still only *begins* once its
 own backend dependency is sufficiently stable, exactly like `UI-2`–`UI-9`
-above; none of `UI-14`–`UI-21` has started, and being scoped here is not
-being implemented here (the same distinction Phase 19.1's provider spike
-draws for its own candidate list — evaluated, not selected).
+above; being scoped here is not being implemented here (the same
+distinction Phase 19.1's provider spike draws for its own candidate list —
+evaluated, not selected). At the time this section was written, none of
+`UI-14`–`UI-21` had started; **updated 2026-09-30**: `UI-14` is now
+implemented (see its own Outcome) — `UI-15`–`UI-21` remain not started.
 
 ```text
 Phase 13 Billing ─────────────► UI-14 Billing/Subscriptions
