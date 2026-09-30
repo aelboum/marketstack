@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from core.audit_log import ActorType, AuditOutcome, record
-from infra.db import select, tenant_session_scope
+from infra.db import acquire_tenant_advisory_lock, select, tenant_session_scope
 
 from product.crm.errors import CrmReferenceNotFoundError
 from product.crm.models import ENTITY_TYPE_CONTACT, Company, Contact
@@ -315,6 +315,120 @@ def create_or_update_contact_from_trusted_source(
             session.refresh(row)
             session.expunge(row)
             action = "crm.contact.create_from_trusted_source"
+    record(
+        tenant_id=tenant_id,
+        actor_type=ActorType.SYSTEM,
+        action=action,
+        resource_type="crm.contact",
+        resource_id=str(row.id),
+        outcome=AuditOutcome.SUCCESS,
+        metadata={"source": source},
+    )
+    return _to_view(row)
+
+
+def create_or_reuse_contact_from_trusted_source_by_phone(
+    tenant_id: uuid.UUID,
+    *,
+    phone: str,
+    source: str,
+    first_name: str = "Unverified",
+    last_name: str = "Contact",
+) -> ContactView:
+    """Phase 30 (docs/ROADMAP.md "Unified Inbox"), authorized by
+    `docs/ADR/0019-conversations-depends-on-crm.md` and, for the trust
+    contract it must follow, `docs/ADR/0018
+    -inbound-phone-caller-contact-trust-boundary.md` point 8. The one
+    published entry point `product.conversations` is granted into
+    `product.crm` for phone-keyed inbound correlation -- never call this
+    from any other module.
+
+    **Deliberately a *different* contract from
+    `create_or_update_contact_from_trusted_source()` above, not a phone
+    overload of it.** That function updates a matched contact's
+    `first_name`/`last_name`/`phone` from the caller-supplied values.
+    ADR-0018 point 8 is explicit that phone-based correlation must
+    "never mutate or upgrade trusted information" on a match -- so this
+    function only ever *creates* a new contact or *reuses* an existing one
+    unchanged; it never writes to an existing row. Same "no `actor_user_id`
+    parameter, no `product.crm.permissions.require()` call" trusted-caller
+    shape as its sibling, for the identical reason (there is no
+    authenticated actor on this path -- the caller is an unauthenticated
+    inbound phone identifier, per ADR-0018).
+
+    **Lookup key is `(tenant_id, normalized phone)`, never phone alone** --
+    `phone` is normalized via the same `product.foundation.values
+    .normalize_phone_number()` every other phone-bearing column in this
+    product uses (no second normalization algorithm). A match in one
+    tenant is never returned for another tenant; `crm.contacts` has no
+    global phone index, only this function's own tenant-scoped query.
+
+    **Correlation is not authentication** (ADR-0018 point 8, restated here
+    because this is the one function that could be mistaken for granting
+    it): a returned match means only "an inbound message from this same
+    normalized phone number, in this same tenant, has been associated with
+    a contact record before." It is never treated, logged, or documented
+    as proof that the current sender is the person that record represents,
+    and reusing it grants no authorization of any kind.
+
+    **New contacts remain explicitly unverified.** `first_name`/`last_name`
+    default to a visible placeholder (never blank, since the column is
+    `NOT NULL`) precisely so a phone-originated contact record is never
+    indistinguishable from a verified or staff-entered one at a glance; a
+    human can rename it later through the ordinary authenticated
+    `update_contact()` once/if a real identity is established -- that
+    later step is outside this function's own contract. `source` is the
+    same short, bounded, non-PII provenance string
+    `create_or_update_contact_from_trusted_source()` already records
+    (e.g. `"sms:unverified"`/`"whatsapp:unverified"`), audited via
+    `core.audit_log` metadata only -- no new "verified" column or schema
+    change is introduced; provenance lives entirely in the audit trail,
+    mirroring that function's own discipline exactly.
+
+    **Concurrency**: `crm.contacts` carries no unique constraint on phone
+    (ADR-0018's own disposition table notes this explicitly -- "`contacts
+    .phone` has no uniqueness constraint"), so a bare
+    select-then-insert here would race under concurrent duplicate inbound
+    delivery. Serialized instead with `infra.db
+    .acquire_tenant_advisory_lock()` (`pg_advisory_xact_lock`, the same
+    primitive `product/accounting/invoices.py::post_invoice()`'s own
+    gapless-numbering allocation already uses for the identical
+    "no unique constraint backs this lookup" shape), keyed on
+    `(tenant_id, normalized phone)`, held for this function's own
+    transaction only. A second, concurrent caller blocks until the first
+    commits, then re-reads and finds the row the first caller just
+    created -- both calls return the same contact, never two."""
+    normalized = normalize_phone_number(phone)
+    with tenant_session_scope(tenant_id) as session:
+        acquire_tenant_advisory_lock(
+            session, tenant_id, f"crm.contact_by_phone.{tenant_id}.{normalized.e164}"
+        )
+        existing = (
+            session.execute(
+                select(Contact)
+                .where(Contact.tenant_id == tenant_id, Contact.phone == normalized.e164)
+                .order_by(Contact.created_at.asc())
+                .limit(1)
+            )
+            .scalars()
+            .one_or_none()
+        )
+        if existing is not None:
+            session.expunge(existing)
+            row = existing
+            action = "crm.contact.reuse_from_trusted_source_by_phone"
+        else:
+            row = Contact(
+                tenant_id=tenant_id,
+                first_name=first_name,
+                last_name=last_name,
+                phone=normalized.e164,
+            )
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            session.expunge(row)
+            action = "crm.contact.create_from_trusted_source_by_phone"
     record(
         tenant_id=tenant_id,
         actor_type=ActorType.SYSTEM,

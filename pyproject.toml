@@ -186,7 +186,6 @@ name = "Product modules do not depend on each other directly"
 type = "independence"
 modules = [
     "product.crm",
-    "product.conversations",
     "product.telephony",
     "product.billing",
     "product.reporting",
@@ -597,5 +596,46 @@ name = "Accounting may depend on CRM, never CRM on Accounting"
 type = "layers"
 layers = [
     "product.accounting",
+    "product.crm",
+]
+
+# Phase 30 (docs/ADR/0019-conversations-depends-on-crm.md): product.conversations
+# needs one narrow, one-directional edge -- phone-keyed tenant-scoped
+# contact correlation/creation via product.crm.contacts's own trusted-source-
+# by-phone function, for the Unified Inbox's auto-created-thread backend
+# slice -- so it is removed from the blanket independence contract above
+# (mirroring exactly how Phase 6/7/9/10/11/12/14/22/24 removed
+# product.marketing/product.appointments/product.ai/product.automation/
+# product.websites/product.reputation/product.templates/product.websites
+# (CRM)/product.accounting for their own, separately-justified single-module
+# edges) and given its own precise pair of contracts instead.
+# product.conversations remains independent from every other product module.
+[[tool.importlinter.contracts]]
+name = "Conversations does not depend on any product module except CRM"
+type = "forbidden"
+source_modules = ["product.conversations"]
+forbidden_modules = [
+    "product.agency",
+    "product.marketing",
+    "product.telephony",
+    "product.ai",
+    "product.appointments",
+    "product.automation",
+    "product.reputation",
+    "product.websites",
+    "product.billing",
+    "product.accounting",
+    "product.reporting",
+    "product.white_label",
+    "product.templates",
+    "product.integrations",
+    "product.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "Conversations may depend on CRM, never CRM on Conversations"
+type = "layers"
+layers = [
+    "product.conversations",
     "product.crm",
 ]

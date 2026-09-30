@@ -84,7 +84,14 @@ CHANNEL_EMAIL = "email"
 CHANNEL_SMS = "sms"
 CHANNEL_WHATSAPP = "whatsapp"
 CHANNEL_CHAT = "chat"
-VALID_CHANNELS = (CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP, CHANNEL_CHAT)
+# Phase 30 (docs/ROADMAP.md "Unified Inbox"): a trusted inbound phone call
+# is a fourth channel category, distinct from `CHANNEL_CHAT` (an in-app,
+# already-authenticated conversation) -- added here, not as a separate
+# schema change, since `threads.channel` is a plain `String(16)` with no
+# DB `CHECK` constraint; validation is, and remains, entirely the service
+# layer's own `_require_valid_channel()` in `product/conversations/threads.py`.
+CHANNEL_CALL = "call"
+VALID_CHANNELS = (CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WHATSAPP, CHANNEL_CHAT, CHANNEL_CALL)
 
 DIRECTION_INBOUND = "inbound"
 DIRECTION_OUTBOUND = "outbound"
