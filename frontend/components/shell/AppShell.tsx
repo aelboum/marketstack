@@ -95,6 +95,27 @@ export function AppShell({
           navControlsId={sidebarId}
           menuButtonRef={toggleRef}
         />
+        {/* `centerNav`'s horizontal Navigation is CSS-hidden below the
+            mobile breakpoint (TopBar.module.css), which is what the
+            toggle above actually needs to open onto -- previously it
+            controlled an id that did not exist anywhere in this layout,
+            so the button was inert and its `aria-controls` pointed at
+            nothing. Mounted only while open, so desktop topnav (which
+            already has the horizontal nav) never carries this in the DOM. */}
+        {mobileNavOpen ? (
+          <>
+            <div className={styles.scrim} aria-hidden="true" onClick={closeMobileNav} />
+            <aside
+              ref={sidebarRef}
+              id={sidebarId}
+              className={styles.sidebar}
+              data-open={mobileNavOpen}
+              aria-label="Main"
+            >
+              <Navigation tenantId={tenantId} orientation="vertical" />
+            </aside>
+          </>
+        ) : null}
         <main className={styles.main} id={mainId} tabIndex={-1} data-testid="shell-main">
           {children}
         </main>

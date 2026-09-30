@@ -91,6 +91,31 @@ describe("AppShell: replaceable layout", () => {
     expect(screen.getByTestId("domain-page")).toBeInTheDocument();
   });
 
+  it("the mobile nav toggle opens a real overlay in topnav layout too (UI-8)", async () => {
+    // Regression test: the toggle's `aria-controls` named an id that no
+    // element in the topnav branch ever rendered, and toggling state had
+    // no visible effect -- `centerNav`'s horizontal nav is CSS-hidden
+    // below the mobile breakpoint with nothing to open onto instead, so
+    // a mobile user in this layout had no way to navigate at all.
+    const user = userEvent.setup();
+    render(
+      <AppShell layout="topnav" tenantId="tenant-1" userId="user-1" onLogout={vi.fn()}>
+        <StandInDomainPage />
+      </AppShell>,
+    );
+
+    const toggle = screen.getByTestId("mobile-nav-toggle");
+    expect(toggle).toHaveAttribute("aria-controls");
+    const controlsId = toggle.getAttribute("aria-controls");
+
+    await user.click(toggle);
+
+    const overlay = document.getElementById(controlsId as string);
+    expect(overlay).not.toBeNull();
+    expect(overlay).toHaveAttribute("data-open", "true");
+    expect(screen.getByTestId("domain-page")).toBeInTheDocument();
+  });
+
   it("calls onLogout from the account menu", async () => {
     const onLogout = vi.fn();
     const user = userEvent.setup();
