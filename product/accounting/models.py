@@ -385,6 +385,18 @@ MAX_DOCUMENT_DESCRIPTION_LENGTH = 500
 MAX_SUPPLIER_REFERENCE_LENGTH = 100
 MAX_PAYMENT_REFERENCE_LENGTH = 255
 
+# docs/ROADMAP.md Phase 15.5 ("Banking -- manual import and reconciliation").
+BANK_LINE_STATUS_UNMATCHED = "unmatched"
+BANK_LINE_STATUS_RECONCILED = "reconciled"
+VALID_BANK_LINE_STATUSES = (BANK_LINE_STATUS_UNMATCHED, BANK_LINE_STATUS_RECONCILED)
+
+MAX_BANK_ACCOUNT_NAME_LENGTH = 255
+MAX_IBAN_LENGTH = 34  # ISO 13616 maximum IBAN length across all countries.
+MAX_BANK_STATEMENT_REFERENCE_LENGTH = 255
+MAX_BANK_LINE_DESCRIPTION_LENGTH = 500
+MAX_COUNTERPARTY_REFERENCE_LENGTH = 255
+BANK_LINE_HASH_LENGTH = 64  # sha256 hex digest length.
+
 
 class ContactProfile(Base):
     """ADR-0014 Decision 6: the *only* thing this module adds to CRM's own
@@ -1025,6 +1037,218 @@ class PaymentAllocation(Base):
     )
 
 
+class BankAccount(Base):
+    """Bank-account metadata (docs/ROADMAP.md Phase 15.5,
+    `docs/ACCOUNTING-SCOPE.md` "Banking": "Bank accounts (metadata only
+    initially -- not live aggregation)"). Deliberately thin: a display
+    name and an optional IBAN, plus the one field that actually matters
+    for double-entry correctness -- `ledger_account_id`, the tenant's own
+    chart-of-accounts `Account` (always `asset`-typed) this bank account's
+    real-money balance posts against. This is NOT a live-balance/
+    aggregation entity (`docs/ACCOUNTING-SCOPE.md`'s own "Bank Integration
+    Phasing" step 2, a PSD2 AIS provider integration, is a distinct,
+    deliberately deferred future phase -- Category D, provider-abstracted
+    from day one of *that* phase, never assumed here). One `BankAccount`
+    per ledger `Account` (`uq_accounting_bank_accounts_tenant_ledger_account`)
+    -- designating the same GL account as two different bank accounts
+    would make reconciliation postings ambiguous."""
+
+    __tablename__ = "bank_accounts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_bank_accounts_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "ledger_account_id",
+            name="uq_accounting_bank_accounts_tenant_ledger_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "ledger_account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_bank_accounts_tenant_ledger_account",
+        ),
+        Index("ix_accounting_bank_accounts_tenant_id", "tenant_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    ledger_account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    name: Mapped[str] = mapped_column(String(MAX_BANK_ACCOUNT_NAME_LENGTH), nullable=False)
+    iban: Mapped[str | None] = mapped_column(String(MAX_IBAN_LENGTH), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
+class BankStatement(Base):
+    """One imported bank statement (docs/ROADMAP.md Phase 15.5,
+    `docs/ACCOUNTING-SCOPE.md` "Bank Integration Phasing" step 1: "manual
+    bank statement import (CSV, and MT940 if a target bank commonly
+    exports it)... No live aggregation."). `product/accounting/banking.py`
+    ships only the CSV importer this phase -- MT940 (a distinct SWIFT
+    text format needing its own parser) is deliberately not built yet;
+    nothing here assumes CSV-only, so an MT940 importer can be added later
+    as a second, independent parser feeding the identical normalized
+    line-import path, never a schema change (`banking.py`'s own module
+    docstring)."""
+
+    __tablename__ = "bank_statements"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_bank_statements_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "bank_account_id"],
+            ["accounting.bank_accounts.tenant_id", "accounting.bank_accounts.id"],
+            name="fk_accounting_bank_statements_tenant_bank_account",
+        ),
+        CheckConstraint(
+            "period_end_date >= period_start_date",
+            name="ck_accounting_bank_statements_period_valid",
+        ),
+        Index("ix_accounting_bank_statements_tenant_id", "tenant_id"),
+        Index("ix_accounting_bank_statements_bank_account_id", "bank_account_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    bank_account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    reference: Mapped[str | None] = mapped_column(
+        String(MAX_BANK_STATEMENT_REFERENCE_LENGTH), nullable=True
+    )
+    period_start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    imported_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("core.users.id"), nullable=False
+    )
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
+class BankStatementLine(Base):
+    """One line of an imported `BankStatement` (docs/ROADMAP.md Phase
+    15.5). `amount` is signed exactly as it appears on a real bank
+    statement -- positive for an inflow/credit, negative for an
+    outflow/debit -- never split into separate debit/credit columns the
+    way `JournalLine` is (a statement line is a raw import fact, not yet
+    a ledger posting).
+
+    **Reconciliation state (`status`)** is deliberately two-valued, not
+    three: `unmatched` -> `reconciled`. The "semi-automatic matching with
+    a manual confirm step" the roadmap describes
+    (`docs/ACCOUNTING-SCOPE.md` "Bank Integration Phasing" step 1) is a
+    stateless, read-only *suggestion* (`banking.py::suggest_matches()`,
+    never persisted) followed by one of two explicit, mutating confirm
+    calls (`confirm_match_to_document()`/`assign_line_to_account()`) that
+    both transition a line directly from `unmatched` to `reconciled` --
+    there is no intermediate "system-suggested, not yet confirmed"
+    database state to keep synchronized, because the suggestion is
+    recomputed fresh on every read rather than cached.
+
+    **Duplicate detection**: `line_hash` (`sha256(bank_account_id |
+    transaction_date | amount | description)`, module docstring) backs
+    `uq_accounting_bank_statement_lines_tenant_account_hash` -- re-
+    importing a statement whose date range overlaps a previous import
+    re-computes the identical hash for the overlapping lines, so
+    `product/accounting/banking.py::import_bank_statement_csv()` can skip
+    them (never re-insert, never double-count) rather than rejecting the
+    whole file. `bank_account_id` is denormalized from the parent
+    `BankStatement` (copied at import time) purely so this uniqueness
+    constraint and duplicate-detection query never need a join back to
+    the parent -- the same "one denormalized, transactionally-set field"
+    discipline `Invoice.outstanding_amount` already establishes.
+
+    **Reconciliation posting**: confirming a match or assigning an
+    unmatched line to an account both post a real cash-leg `JournalEntry`
+    (`journal_entry_id`) -- closing the gap `Payment`'s own module
+    docstring names explicitly ("no bank/cash GL account is designated
+    yet... this phase"): Phase 15.5 is what designates it, via
+    `BankAccount.ledger_account_id`."""
+
+    __tablename__ = "bank_statement_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_bank_statement_lines_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "bank_account_id",
+            "line_hash",
+            name="uq_accounting_bank_statement_lines_tenant_account_hash",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "bank_statement_id"],
+            ["accounting.bank_statements.tenant_id", "accounting.bank_statements.id"],
+            name="fk_accounting_bank_statement_lines_tenant_statement",
+            # A line has no meaning without its statement -- mirrors
+            # invoice_lines.invoice_id's own CASCADE precedent.
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "bank_account_id"],
+            ["accounting.bank_accounts.tenant_id", "accounting.bank_accounts.id"],
+            name="fk_accounting_bank_statement_lines_tenant_bank_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "matched_payment_id"],
+            ["accounting.payments.tenant_id", "accounting.payments.id"],
+            name="fk_accounting_bank_statement_lines_tenant_payment",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "matched_account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_bank_statement_lines_tenant_matched_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "journal_entry_id"],
+            ["accounting.journal_entries.tenant_id", "accounting.journal_entries.id"],
+            name="fk_accounting_bank_statement_lines_tenant_journal_entry",
+        ),
+        CheckConstraint("amount != 0", name="ck_accounting_bank_statement_lines_amount_nonzero"),
+        CheckConstraint(
+            "status IN ('unmatched', 'reconciled')",
+            name="ck_accounting_bank_statement_lines_status",
+        ),
+        CheckConstraint(
+            "matched_document_type IS NULL OR matched_document_type IN ('invoice', 'bill')",
+            name="ck_accounting_bank_statement_lines_matched_document_type",
+        ),
+        Index("ix_accounting_bank_statement_lines_tenant_id", "tenant_id"),
+        Index("ix_accounting_bank_statement_lines_bank_statement_id", "bank_statement_id"),
+        Index("ix_accounting_bank_statement_lines_status", "tenant_id", "status"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    bank_statement_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    bank_account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    transaction_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    description: Mapped[str] = mapped_column(
+        String(MAX_BANK_LINE_DESCRIPTION_LENGTH), nullable=False
+    )
+    counterparty_reference: Mapped[str | None] = mapped_column(
+        String(MAX_COUNTERPARTY_REFERENCE_LENGTH), nullable=True
+    )
+    line_hash: Mapped[str] = mapped_column(String(BANK_LINE_HASH_LENGTH), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default=BANK_LINE_STATUS_UNMATCHED
+    )
+    matched_document_type: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    matched_document_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    matched_payment_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    matched_account_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    reconciled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("core.users.id"), nullable=True
+    )
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
 __all__ = [
     "ACCOUNT_TYPE_ASSET",
     "ACCOUNT_TYPE_EQUITY",
@@ -1033,6 +1257,8 @@ __all__ = [
     "ACCOUNT_TYPE_REVENUE",
     "ALLOCATION_DOCUMENT_TYPE_BILL",
     "ALLOCATION_DOCUMENT_TYPE_INVOICE",
+    "BANK_LINE_STATUS_RECONCILED",
+    "BANK_LINE_STATUS_UNMATCHED",
     "CONTACT_ROLE_BOTH",
     "CONTACT_ROLE_CUSTOMER",
     "CONTACT_ROLE_SUPPLIER",
@@ -1052,6 +1278,7 @@ __all__ = [
     "TAX_TYPE_SALES",
     "VALID_ACCOUNT_TYPES",
     "VALID_ALLOCATION_DOCUMENT_TYPES",
+    "VALID_BANK_LINE_STATUSES",
     "VALID_CONTACT_ROLES",
     "VALID_DOCUMENT_STATUSES",
     "VALID_JOURNAL_ENTRY_STATUSES",
@@ -1059,6 +1286,9 @@ __all__ = [
     "VALID_PERIOD_STATUSES",
     "VALID_TAX_TYPES",
     "Account",
+    "BankAccount",
+    "BankStatement",
+    "BankStatementLine",
     "Bill",
     "BillLine",
     "ContactProfile",

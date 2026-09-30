@@ -45,6 +45,9 @@ __all__ = ["cleanup_tenant_tree", "cleanup_users", "make_user"]
 # (it has no accounting-internal dependent) -- and always before
 # `tests/crm/_cleanup.py`'s own `DELETE FROM crm.contacts` runs.
 _ACCOUNTING_TABLES_LEAF_TO_ROOT = (
+    "bank_statement_lines",
+    "bank_statements",
+    "bank_accounts",
     "payment_allocations",
     "payments",
     "bill_lines",
@@ -63,7 +66,7 @@ _ACCOUNTING_TABLES_LEAF_TO_ROOT = (
 
 
 def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
-    """All fourteen `accounting.*` tables (RLS-scoped) are deleted first, in
+    """All seventeen `accounting.*` tables (RLS-scoped) are deleted first, in
     dependency order, via `tenant_session_scope()`, before
     `tests/crm/_cleanup.py::cleanup_tenant_tree()`'s own crm/tenant/
     membership/role teardown. `core.idempotency_records` is cleaned the

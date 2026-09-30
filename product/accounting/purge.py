@@ -3,9 +3,11 @@
 addendum). **`purge_tenant_data()` is a documented no-op -- no
 `accounting.*` row is ever deleted by tenant purge**, covering every table
 in the schema unconditionally (Phase 24's `accounts`/`periods`/
-`journal_entries`/`journal_lines` and Phase 25's `contact_profiles`/
+`journal_entries`/`journal_lines`, Phase 25's `contact_profiles`/
 `tax_codes`/`invoices`/`invoice_lines`/`bills`/`bill_lines`/`payments`/
-`payment_allocations` alike) -- no code change was needed to extend this
+`payment_allocations`, Phase 15.3's `credit_notes`/`credit_note_lines`,
+and Phase 15.5's `bank_accounts`/`bank_statements`/`bank_statement_lines`
+alike) -- no code change was needed to extend this
 participant to the new tables, since it never enumerates a table list in
 the first place, mirroring
 `core/tenancy/retention.py::RetentionClass.FINANCIAL_RETAIN`'s own

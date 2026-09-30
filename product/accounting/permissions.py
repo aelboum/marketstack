@@ -1,14 +1,16 @@
 """Product-defined permissions for `product/accounting/` (docs/ROADMAP.md
-Phase 24-25, and Phase 15.3 for `CREDIT_NOTE_RESOURCE` below). Mirrors
-`product/reputation/permissions.py`'s own discipline exactly -- every
-permission here is this product's own invention; `accounting.*` tables
-have no SaaS-OS-provided authorization of any kind.
+Phase 24-25, Phase 15.3 for `CREDIT_NOTE_RESOURCE`, and Phase 15.5 for
+`BANKING_RESOURCE` below). Mirrors `product/reputation/permissions.py`'s
+own discipline exactly -- every permission here is this product's own
+invention; `accounting.*` tables have no SaaS-OS-provided authorization of
+any kind.
 
-**Seven resources**, one per aggregate root: Phase 24's `ACCOUNT_RESOURCE`/
+**Eight resources**, one per aggregate root: Phase 24's `ACCOUNT_RESOURCE`/
 `PERIOD_RESOURCE`/`JOURNAL_RESOURCE`, Phase 25's `INVOICE_RESOURCE`/
-`BILL_RESOURCE`/`PAYMENT_RESOURCE`, and Phase 15.3's `CREDIT_NOTE_RESOURCE`
-(`journal_lines`/`invoice_lines`/`bill_lines`/`credit_note_lines`/
-`payment_allocations`/`contact_profiles`/`tax_codes` have no independent
+`BILL_RESOURCE`/`PAYMENT_RESOURCE`, Phase 15.3's `CREDIT_NOTE_RESOURCE`,
+and Phase 15.5's `BANKING_RESOURCE` (`journal_lines`/`invoice_lines`/
+`bill_lines`/`credit_note_lines`/`payment_allocations`/`contact_profiles`/
+`tax_codes`/`bank_statements`/`bank_statement_lines` have no independent
 access boundary apart from their own parent/primary aggregate -- the same
 "a child row is not its own resource" consolidation
 `product/websites/permissions.py`'s own module docstring already applies
@@ -20,7 +22,10 @@ resource, not a fold-in under `INVOICE_RESOURCE`, because -- unlike
 `contact_profiles`/`tax_codes` -- it is a genuine aggregate root with its
 own lifecycle (draft/posted/voided), own lines, and own gapless numbering
 sequence, exactly the same shape `INVOICE_RESOURCE`/`BILL_RESOURCE`
-already have.
+already have. `BANKING_RESOURCE` covers `BankAccount`/`BankStatement`/
+`BankStatementLine` together -- a statement/line has no meaning apart from
+its own bank account, the same "one resource per workflow, not per table"
+shape `INVOICE_RESOURCE` already applies to `Invoice`+`InvoiceLine`.
 
 **Action names**, per `docs/ADR/0014-mini-accounting-foundation.md`
 Decision 5/13 exactly: `PERIOD_RESOURCE.manage` (close/reopen),
@@ -33,7 +38,15 @@ this phase's own deliberately narrow scope -- `product/accounting
 /credit_notes.py`'s own module docstring) -- `create`/`void`/`post`/`read`
 are all ordinary actions, granted identically to `owner` and `member`,
 mirroring `INVOICE_RESOURCE`'s own "posting is not owner-only" precedent
-(Decision 13).
+(Decision 13). `BANKING_RESOURCE` adds one action beyond the ordinary
+`create`/`read`: `.reconcile` (`confirm_match_to_document()`/
+`assign_line_to_account()` in `product/accounting/banking.py`) -- named
+distinctly from `create` because it is the one action that posts a real
+journal entry and permanently changes a line's status, but -- like
+`CREDIT_NOTE_RESOURCE` and unlike `BILL_RESOURCE.post` -- nothing in
+Phase 15.5's own roadmap text flags bank reconciliation as a segregation-
+of-duties concern, so it is granted identically to `owner` and `member`,
+not owner-only.
 """
 
 from __future__ import annotations
@@ -51,6 +64,7 @@ INVOICE_RESOURCE = "accounting.invoice"
 BILL_RESOURCE = "accounting.bill"
 PAYMENT_RESOURCE = "accounting.payment"
 CREDIT_NOTE_RESOURCE = "accounting.credit_note"
+BANKING_RESOURCE = "accounting.banking"
 
 
 def grant_to_role(
@@ -79,6 +93,7 @@ def require(actor_user_id: uuid.UUID, tenant_id: uuid.UUID, *, resource: str, ac
 
 __all__ = [
     "ACCOUNT_RESOURCE",
+    "BANKING_RESOURCE",
     "BILL_RESOURCE",
     "CREDIT_NOTE_RESOURCE",
     "INVOICE_RESOURCE",
