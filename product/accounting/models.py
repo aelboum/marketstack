@@ -4,15 +4,23 @@
 adds `ContactProfile`/`TaxCode`/`Invoice`/`InvoiceLine`/`Bill`/
 `BillLine`/`Payment`/`PaymentAllocation` further down, per
 `docs/ADR/0014-mini-accounting-foundation.md` Decisions 6-8 and 12
-(still PROPOSED -- see that document's own Status section).
+(still PROPOSED -- see that document's own Status section); Phase 15.3
+("Credit notes") adds `CreditNote`/`CreditNoteLine` below, once Phase 25's
+invoice/payment foundation existed to reference -- the original Phase 15
+numbering (`docs/ROADMAP.md`'s own "Credit notes (original 15.3)... remain
+separately sequenced, deferred" note on Phase 25) is the authoritative
+phase identifier for this addition, since Phase 25 explicitly replaced
+only 15.2/15.4, never 15.3.
 
 **Scope discipline (Phase 25)**: exactly ADR-0014 Decisions 6, 7, 8, and
 12 -- customer/supplier role-tagging on existing `crm.contacts` rows
 (never a second identity table, never `crm.companies`), a generic
 tax-code catalog, invoices/bills with their line items, and payments/
-allocations. No credit notes, no banking/reconciliation, no reports, no
-external provider -- all explicitly deferred, per the ADR's own
-"Deferred / explicitly out of scope" section.
+allocations. No banking/reconciliation, no reports, no external provider
+-- all explicitly deferred, per the ADR's own "Deferred / explicitly out
+of scope" section. Credit notes are added by Phase 15.3 below, not Phase
+25 -- see `CreditNote`'s own class docstring for that addition's own,
+separately-scoped boundary.
 
 Declared on the installed `saas-os` package's shared `infra.db` base and
 primitives, exactly like `product/appointments/models.py`/`product/crm
@@ -623,6 +631,155 @@ class InvoiceLine(Base):
     )
 
 
+class CreditNote(Base):
+    """A credit note correcting an already-posted `Invoice` (docs/ROADMAP.md
+    Phase 15.3, deferred by Phase 25's own explicit scope note and
+    implemented separately once Phase 25's invoice/payment foundation
+    existed to reference). **Never mutates the `Invoice` it references** --
+    no service function in this module writes to any `Invoice`/`InvoiceLine`
+    column; `invoice_id` is a plain, immutable reference, RESTRICT on
+    delete (an invoice a credit note references must never disappear out
+    from under it, mirroring `Invoice.contact_id`'s own RESTRICT
+    reasoning). `credit_note_number` is `NULL` while `draft`, assigned only
+    by `post_credit_note()` under this table's own tenant-wide
+    gapless-numbering advisory lock -- a genuinely separate numbering
+    sequence from `Invoice.invoice_number` (Dutch legal numbering
+    requirements are satisfied per-document-type; sharing one counter
+    across two different document types would not itself violate
+    gaplessness, but conflates two legally distinct sequences for no
+    benefit), exactly mirroring `Invoice.invoice_number`'s own "resolved
+    only at posting" mechanism.
+
+    **Deliberately narrow scope, matching Phase 15.3's own literal Tests
+    requirement** ("a credit note never mutates the original invoice; the
+    reference is always resolvable") **and nothing broader**: posting a
+    credit note does NOT adjust `Invoice.outstanding_amount` -- reconciling
+    a credit note against what a customer still owes (or carrying a credit
+    balance forward when an invoice is already fully paid) is a real,
+    separate accounts-receivable-netting decision Phase 15.3's own spec
+    does not make, and this implementation does not invent it. A future
+    phase that wires credit notes into `outstanding_amount`/reporting
+    reads this table and `Payment`/`PaymentAllocation`'s own existing
+    pattern (`payments.py::_create_allocation_in_session()`'s locked
+    read-validate-subtract shape) as its starting point, not a fresh
+    design."""
+
+    __tablename__ = "credit_notes"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_credit_notes_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "invoice_id"],
+            ["accounting.invoices.tenant_id", "accounting.invoices.id"],
+            name="fk_accounting_credit_notes_tenant_invoice",
+            # RESTRICT (default) -- a credit note must never outlive the
+            # invoice it corrects; mirrors Invoice.contact_id's own
+            # RESTRICT reasoning (class docstring).
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "period_id"],
+            ["accounting.periods.tenant_id", "accounting.periods.id"],
+            name="fk_accounting_credit_notes_tenant_period",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "journal_entry_id"],
+            ["accounting.journal_entries.tenant_id", "accounting.journal_entries.id"],
+            name="fk_accounting_credit_notes_tenant_journal_entry",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'posted', 'voided')",
+            name="ck_accounting_credit_notes_status",
+        ),
+        Index("ix_accounting_credit_notes_tenant_id", "tenant_id"),
+        Index("ix_accounting_credit_notes_invoice_id", "invoice_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    credit_note_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(6), nullable=False, default=DOCUMENT_STATUS_DRAFT)
+    issue_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    tax_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    period_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    description: Mapped[str | None] = mapped_column(
+        String(MAX_DOCUMENT_DESCRIPTION_LENGTH), nullable=True
+    )
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("core.users.id"), nullable=False
+    )
+    posted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("core.users.id"), nullable=True
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now(), onupdate=now()
+    )
+    # Deliberately NOT mapped here: the partial unique index on
+    # (tenant_id, credit_note_number) WHERE credit_note_number IS NOT NULL
+    # -- mirrors Invoice's own identical "declared entirely in the
+    # migration" precedent.
+
+
+class CreditNoteLine(Base):
+    """One line of a `CreditNote` (class docstring above). Fully immutable
+    once the parent credit note posts, mirroring `InvoiceLine`'s own
+    complete-immutability shape exactly."""
+
+    __tablename__ = "credit_note_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_accounting_credit_note_lines_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "credit_note_id"],
+            ["accounting.credit_notes.tenant_id", "accounting.credit_notes.id"],
+            name="fk_accounting_credit_note_lines_tenant_credit_note",
+            # A line has no meaning without its credit note -- mirrors
+            # invoice_lines.invoice_id's own CASCADE precedent.
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "account_id"],
+            ["accounting.accounts.tenant_id", "accounting.accounts.id"],
+            name="fk_accounting_credit_note_lines_tenant_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "tax_code_id"],
+            ["accounting.tax_codes.tenant_id", "accounting.tax_codes.id"],
+            name="fk_accounting_credit_note_lines_tenant_tax_code",
+        ),
+        CheckConstraint("quantity > 0", name="ck_accounting_credit_note_lines_quantity_positive"),
+        CheckConstraint(
+            "unit_price >= 0", name="ck_accounting_credit_note_lines_unit_price_non_negative"
+        ),
+        Index("ix_accounting_credit_note_lines_tenant_id", "tenant_id"),
+        Index("ix_accounting_credit_note_lines_credit_note_id", "credit_note_id"),
+        {"schema": "accounting"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.tenants.id"), nullable=False)
+    credit_note_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(String(MAX_LINE_DESCRIPTION_LENGTH), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    tax_code_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    line_subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    line_tax: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=ZERO)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=now()
+    )
+
+
 class Bill(Base):
     """A supplier bill header (ADR-0014 Decision 12) -- the purchase-side
     mirror of `Invoice`, with one deliberate asymmetry: no internally
@@ -905,6 +1062,8 @@ __all__ = [
     "Bill",
     "BillLine",
     "ContactProfile",
+    "CreditNote",
+    "CreditNoteLine",
     "Invoice",
     "InvoiceLine",
     "JournalEntry",

@@ -1,6 +1,10 @@
 """Shared teardown helpers for tests/accounting/*_integration.py. Extends
 tests/crm/_cleanup.py's own proven `cleanup_tenant_tree()` (reused
-directly, not re-derived) with `accounting.*` cleanup first --
+directly, not re-derived) with `accounting.*` cleanup first (now including
+`credit_notes`/`credit_note_lines`, docs/ROADMAP.md Phase 15.3 -- deleted
+before `invoices`, since `credit_notes.invoice_id` carries a `RESTRICT` FK
+to it, the identical "child before RESTRICT-referenced parent" ordering
+this file's own table tuple already applies everywhere else) --
 `product.accounting` now depends on `product.crm` as of Phase 25
 (`pyproject.toml`'s own "Accounting may depend on CRM, never CRM on
 Accounting" layers contract, ADR-0014 Decision 6), so this extends
@@ -45,6 +49,8 @@ _ACCOUNTING_TABLES_LEAF_TO_ROOT = (
     "payments",
     "bill_lines",
     "bills",
+    "credit_note_lines",
+    "credit_notes",
     "invoice_lines",
     "invoices",
     "journal_lines",
@@ -57,7 +63,7 @@ _ACCOUNTING_TABLES_LEAF_TO_ROOT = (
 
 
 def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
-    """All twelve `accounting.*` tables (RLS-scoped) are deleted first, in
+    """All fourteen `accounting.*` tables (RLS-scoped) are deleted first, in
     dependency order, via `tenant_session_scope()`, before
     `tests/crm/_cleanup.py::cleanup_tenant_tree()`'s own crm/tenant/
     membership/role teardown. `core.idempotency_records` is cleaned the
