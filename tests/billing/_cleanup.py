@@ -15,6 +15,16 @@ development database's global catalog from accumulating stale rows across
 repeated runs; never required for test *correctness* (each test's own
 `key`/`underlying_plan_key` is always freshly generated).
 
+`core.usage_events` (SaaS-OS-owned, RLS-scoped) is this test suite's own
+responsibility for the identical reason `core.idempotency_records` already
+is (module comment below): `product/billing/resale_plans.py
+::create_resale_plan()`'s SaaS entitlement-enforcement follow-up calls
+`core.usage.consume_quota()`, which inserts one `UsageEvent` row for the
+reseller tenant on every successful call -- left uncleaned, its `tenant_id`
+foreign key (`core/usage/models.py::UsageEvent`, no `ON DELETE CASCADE`)
+blocks `tests/agency/_cleanup.py::cleanup_tenant_tree()`'s own
+`DELETE FROM core.tenants` exactly like an unclean idempotency record would.
+
 Underscore-prefixed filename -- not itself a test module, mirrors every
 other `tests/*/_cleanup.py`'s own convention.
 """
@@ -68,6 +78,10 @@ def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
             )
             session.execute(
                 text("DELETE FROM core.idempotency_records WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            session.execute(
+                text("DELETE FROM core.usage_events WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
     _cleanup_agency_tenant_tree(*tenant_ids_leaf_to_root)

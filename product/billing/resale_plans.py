@@ -34,6 +34,105 @@ reseller's own plan is later downgraded, an already-created `ResalePlan`
 is not retroactively invalidated -- documented, not a gap: revoking an
 already-sold commercial tier retroactively is a business decision this
 phase does not make unilaterally).
+
+**SaaS entitlement enforcement (docs/ROADMAP.md's backend entitlement-
+enforcement follow-up).** `create_resale_plan()` is this product's one
+integration point for two already-built, already-tested SaaS-OS
+mechanisms that no product code called before this: `core.billing
+.require_entitlement()` (a boolean capability gate) and `core.usage
+.consume_quota()` (an atomic, race-safe numeric quota gate). Neither is
+reimplemented here -- this module only decides WHERE they apply and WHICH
+key/metric names it uses, exactly the same "product decides the resource
+name, Core provides the mechanism" split `product/billing/permissions.py
+::require()` already establishes for `core.rbac.can()`.
+
+This is deliberately NOT the same question `_validate_entitlement_ceiling()`
+answers. That check asks "would the entitlements this reseller is about to
+GRANT its own clients exceed what the reseller itself currently has" --
+a resale-tier integrity rule, evaluated against the *proposed plan's own
+entitlements dict*. The checks below ask a different question: "is this
+reseller ITSELF currently allowed to create a resale plan AT ALL, and has
+it created too many recently" -- evaluated against the reseller's own
+`core.billing.get_entitlements(tenant_id)`/usage, never the proposed
+plan's contents. Both checks run; neither replaces the other.
+
+- **`RESELLER_ENABLED_ENTITLEMENT_KEY` ("reseller_enabled", boolean)** --
+  `core.billing.require_entitlement()`'s own documented semantics apply
+  unchanged: a tenant whose active plan's entitlements dict does not set
+  this key to the literal `True` (including a tenant with no active
+  subscription at all -- `get_entitlements()`'s own "no subscription ->
+  `{}`" default) is NOT entitled -- "absent means denied," never
+  accidentally allowed by a missing key. Raises `core.billing
+  .EntitlementDeniedError`, mapped to a `403` at the API layer (module
+  docstring below, and `product/billing/routes.py`) -- deliberately the
+  same non-enumerating shape an RBAC denial already returns, mirroring
+  `api.dependencies.require_entitlement_and_quota()`'s own established
+  convention (SaaS-OS's own reference implementation of this exact
+  Authentication -> RBAC -> Entitlement -> Quota chain -- not used
+  directly here, since every route in this product deliberately uses the
+  `get_current_actor`-only ingress pattern instead of `api.dependencies
+  .require_permission()`/`get_tenant_context()`, for the unrelated,
+  pre-existing `SUBTREE`-authorization reason `product/billing/routes.py`'s
+  own module docstring and `docs/ADR/0002-agency-cross-tenant-route
+  -authorization.md`'s Phase 4 addendum both already document -- but this
+  service-layer function reaches the identical Core functions that
+  dependency wraps, producing the identical enforcement decision and the
+  identical HTTP-error convention by a different, already-established
+  calling shape).
+- **`RESALE_PLAN_CREATION_QUOTA_METRIC` ("resale_plan_creations",
+  numeric)** -- `core.usage.consume_quota()`'s own documented semantics
+  apply unchanged: a *metered, monthly-windowed* rate limit on how many
+  new resale plans this reseller may create, atomically checked and
+  recorded (transaction-scoped advisory lock keyed on
+  `(tenant_id, metric)` -- `core/usage/service.py::_consume_quota_in_session()`'s
+  own docstring), so two concurrent creation requests can never both
+  slip through a check that has already gone stale (contrast this with
+  `_validate_entitlement_ceiling()`'s own unlocked read, discussed below).
+  A plan with NO configured limit for this metric (a missing key, exactly
+  like an entirely absent subscription) is treated as "no limit" --
+  `core.usage.service._numeric_limit()`'s own documented, deliberate
+  convention, the opposite default from the boolean gate above by design
+  (SaaS-OS's own module docstring: a capability flag's absence means "may
+  this happen at all" -> deny; a metered quota's absence means "how much
+  may happen" -> nothing configured -> unbounded on that one dimension).
+  This module does not, and must not, invent a third convention -- a
+  tenant that fails the boolean gate above never reaches this check at
+  all, so "unlimited creation rate" only ever applies to a tenant already
+  confirmed entitled to resell in the first place.
+
+**Ordering, and two known, accepted, narrow limitations (reported, not
+silently fixed -- this phase's own scope explicitly excludes distributed
+locking/global-transaction redesign):**
+
+1. The boolean gate runs FIRST, immediately after the existing RBAC
+   `require()` call and before any input-shape validation -- a cheap,
+   side-effect-free read that should reject an entirely unentitled
+   caller before this function does any other work.
+2. The quota gate runs LAST, immediately before `core.billing.create_plan()`
+   -- after every input-shape validation and the pre-existing ceiling
+   check have already passed -- to minimize (not eliminate) the window in
+   which a request that ultimately fails for an unrelated reason (a bad
+   `price_currency`, a duplicate `key`) has already consumed real,
+   billable quota. It does not eliminate that window: `consume_quota()`
+   commits its own `UsageEvent` in its own transaction, separate from the
+   `core.billing.create_plan()`/`ResalePlan` insert that follows -- if
+   either of those two subsequent steps fails, the quota unit already
+   consumed is not refunded. This mirrors, rather than introduces, this
+   function's own pre-existing "orphaned `Plan`" acceptance immediately
+   below for the identical class of non-atomic multi-step risk -- see
+   `create_resale_plan()`'s own inline comment.
+3. No idempotency key is threaded through this operation (unlike
+   `product/billing/subscriptions.py::create_platform_subscription()`/
+   `create_resale_subscription()`, which both require one): a client
+   retry after a dropped connection can therefore consume quota twice for
+   what the caller perceives as one logical request. `core.usage
+   .consume_quota_idempotent()` exists and would close this gap, but
+   `create_resale_plan()` itself has never accepted an idempotency key
+   (unlike the two subscription-creation functions above, for which
+   `docs/ADR/0012-...`'s own "Idempotency" section gives the explicit,
+   financially-motivated reason) -- adding one now, for this function
+   only, would be a scope-expanding API-contract change this phase does
+   not make.
 """
 
 from __future__ import annotations
@@ -41,10 +140,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from core.audit_log import ActorType, AuditOutcome, record
-from core.billing import create_plan, get_entitlements
+from core.billing import create_plan, get_entitlements, require_entitlement
 from core.tenancy import get_ancestor_chain
+from core.usage import consume_quota
 from infra.db import IntegrityError, select, tenant_session_scope
 
 from product.billing.errors import (
@@ -73,6 +174,16 @@ RESALE_PLAN_DEACTIVATED_EVENT_TYPE = "billing.resale_plan.deactivated"
 RESALE_PLAN_DEACTIVATED_EVENT_VERSION = 1
 
 _UNDERLYING_PLAN_KEY_PREFIX = "resale"
+
+#: SaaS entitlement enforcement (module docstring) -- the boolean capability
+#: gate `core.billing.require_entitlement()` checks against the reseller's
+#: OWN active plan before it may create any resale plan at all.
+RESELLER_ENABLED_ENTITLEMENT_KEY = "reseller_enabled"
+
+#: The `core.usage` metric key `consume_quota()` enforces: how many new
+#: resale plans this reseller has created within the current UTC calendar
+#: month (module docstring's own "numeric quota" section).
+RESALE_PLAN_CREATION_QUOTA_METRIC = "resale_plan_creations"
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +303,13 @@ def create_resale_plan(
     entitlements: dict[str, object] | None = None,
 ) -> ResalePlanView:
     require(actor_user_id, tenant_id, resource=RESALE_PLAN_RESOURCE, action="create")
+    # SaaS entitlement enforcement, boolean gate (module docstring): cheap,
+    # side-effect-free, run first -- an entirely unentitled reseller is
+    # rejected before any input-shape validation or quota consumption.
+    # Raises core.billing.EntitlementDeniedError, mapped to 403 at the API
+    # layer (product/billing/routes.py) -- never caught here.
+    require_entitlement(tenant_id, RESELLER_ENABLED_ENTITLEMENT_KEY)
+
     validated_key = _validate_key(key)
     validated_name = _validate_name(name)
     validated_description = _validate_description(description)
@@ -200,6 +318,17 @@ def create_resale_plan(
     validated_billing_interval = _validate_billing_interval(billing_interval)
     validated_entitlements = dict(entitlements or {})
     _validate_entitlement_ceiling(tenant_id, validated_entitlements)
+
+    # SaaS entitlement enforcement, numeric quota gate (module docstring):
+    # run last, immediately before the first external/mutating call, to
+    # minimize (not eliminate -- see module docstring) the window in which
+    # a request that fails for an unrelated reason has already consumed
+    # real quota. Raises core.usage.QuotaExceededError, mapped to 429 at
+    # the API layer -- never caught here. Atomic and race-safe by
+    # construction (core/usage/service.py::consume_quota()'s own
+    # transaction-scoped advisory lock) -- contrast the unlocked
+    # `_validate_entitlement_ceiling()` read above.
+    consume_quota(tenant_id, RESALE_PLAN_CREATION_QUOTA_METRIC, Decimal("1"))
 
     resale_plan_id = uuid.uuid4()
     underlying_plan_key = f"{_UNDERLYING_PLAN_KEY_PREFIX}:{resale_plan_id}"
@@ -451,7 +580,9 @@ def deactivate_resale_plan(
 
 __all__ = [
     "RESALE_PLAN_CREATED_EVENT_TYPE",
+    "RESALE_PLAN_CREATION_QUOTA_METRIC",
     "RESALE_PLAN_DEACTIVATED_EVENT_TYPE",
+    "RESELLER_ENABLED_ENTITLEMENT_KEY",
     "ResalePlanView",
     "create_resale_plan",
     "deactivate_resale_plan",

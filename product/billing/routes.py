@@ -1,8 +1,7 @@
 """The Billing/Resale API (docs/ROADMAP.md Phase 13), mounted under
-`/v1/billing` in `product/api/main.py` -- **not yet actually mounted**;
-see this module's own package docstring (`product/billing/__init__.py`)
-and this phase's implementation/audit report for why `product/api/main.py`
-is out of this phase's scope.
+`/v1/billing` in `product/api/main.py` (Phase 13 API exposure follow-up --
+see this module's own package docstring, `product/billing/__init__.py`,
+for the exact wiring).
 
 **One frontend, identity-agnostic routes**
 (docs/ADR/0012-resale-billing-ownership-model.md): every route below is
@@ -40,6 +39,31 @@ call -- the global plan catalog is not tenant-owned data (`docs/ADR
 /0012-...`'s own "Plan ownership" section; mirrors `core.feature_flags`'
 identical global-catalog posture), so any authenticated actor may read it.
 Plan *creation* is deliberately not exposed here at all (same section).
+
+**SaaS entitlement enforcement** (`product/billing/resale_plans.py
+::create_resale_plan()`'s own module docstring): `core.billing
+.EntitlementDeniedError` maps to `403` via `api.errors.forbidden()` --
+`api.dependencies.require_entitlement_and_quota()`'s own established
+status code for this exact error (SaaS-OS's own reference composition of
+this identical Entitlement check, not used directly by this router for
+the unrelated, pre-existing `SUBTREE`-authorization reason this module's
+own "Ingress dependency choice" section above already explains).
+Deliberately distinct from this router's own `BillingAccessDeniedError`
+(`404`, non-enumerating -- section above): that distinction carries no
+cross-tenant enumeration risk here, because an entitlement check only
+ever runs against the SAME `tenant_id` a `product.billing.permissions
+.require()` RBAC check has already authorized the caller for in this
+same request -- unlike a genuine 404 case (a foreign or nonexistent
+tenant), there is no "does this other tenant exist" question a `403` vs
+`404` distinction could leak; it only ever tells an already-authorized
+caller about their OWN tenant's own plan standing. `core.usage
+.QuotaExceededError` maps to `429` via `api.errors.quota_exceeded()` --
+the same status `api.dependencies`' own quota gate returns, with its own
+distinct, fixed `detail` string never conflated with an ordinary rate
+limit. Neither error's own `str()` (which names the entitlement key, or
+the quota metric plus the tenant's own used/limit figures) is echoed into
+the HTTP response -- both use a fixed, generic `detail`, mirroring this
+module's own existing `_conflict()` discipline.
 """
 
 from __future__ import annotations
@@ -47,10 +71,11 @@ from __future__ import annotations
 import uuid
 
 from api.dependencies import get_current_actor
-from api.errors import not_found, service_unavailable
+from api.errors import forbidden, not_found, quota_exceeded, service_unavailable
 from core.billing import (
     BillingProviderError,
     DuplicatePlanKeyError,
+    EntitlementDeniedError,
     InheritedBillingSubscriptionError,
     InvalidBillingHierarchyError,
     InvalidPlanKeyError,
@@ -58,6 +83,7 @@ from core.billing import (
     SubscriptionNotFoundError,
     list_plans,
 )
+from core.usage import QuotaExceededError
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -133,6 +159,16 @@ def _call(fn, *args, **kwargs):
         raise not_found("resource") from None
     except BillingProviderError:
         raise service_unavailable(5) from None
+    except EntitlementDeniedError:
+        # Fixed, generic detail (module docstring) -- never str(exc), which
+        # names the entitlement key. Same shape and same non-enumeration
+        # reasoning as an RBAC denial (api.dependencies
+        # .require_entitlement_and_quota()'s own established convention).
+        raise forbidden() from None
+    except QuotaExceededError:
+        # Fixed, generic detail -- never str(exc), which names the metric
+        # and the tenant's own used/limit figures.
+        raise quota_exceeded() from None
 
 
 # --- Request bodies ----------------------------------------------------------

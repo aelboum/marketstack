@@ -23,7 +23,11 @@ from product.billing.errors import (
     BillingReferenceNotFoundError,
     BillingValidationError,
 )
-from product.billing.resale_plans import create_resale_plan, deactivate_resale_plan
+from product.billing.resale_plans import (
+    RESELLER_ENABLED_ENTITLEMENT_KEY,
+    create_resale_plan,
+    deactivate_resale_plan,
+)
 from product.billing.subscriptions import (
     RESALE_SUBSCRIPTION_CREATED_EVENT_TYPE,
     cancel_subscription,
@@ -176,8 +180,15 @@ def test_suspended_tenant_denies_platform_subscription_creation() -> None:
 
 
 def _agency_with_resale_plan(owner_id, entitlements: dict, resale_entitlements: dict):
+    """`entitlements` always also grants `RESELLER_ENABLED_ENTITLEMENT_KEY`
+    -- every caller of this helper goes on to call `create_resale_plan()`,
+    which now requires it (SaaS entitlement enforcement,
+    `product/billing/resale_plans.py::create_resale_plan()`'s own module
+    docstring); `_platform_plan()` itself stays unchanged since plenty of
+    OTHER tests in this file use it for plain subscription tests that
+    never create a resale plan at all."""
     agency, client = _agency_and_client(owner_id)
-    platform_key = _platform_plan(entitlements)
+    platform_key = _platform_plan({**entitlements, RESELLER_ENABLED_ENTITLEMENT_KEY: True})
     create_platform_subscription(
         owner_id, agency.tenant_id, platform_key, _name("idem"), provider=FakeBillingProvider()
     )

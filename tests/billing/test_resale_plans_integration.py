@@ -25,6 +25,7 @@ from product.billing.errors import (
 )
 from product.billing.pagination import MAX_PAGE_SIZE
 from product.billing.resale_plans import (
+    RESELLER_ENABLED_ENTITLEMENT_KEY,
     create_resale_plan,
     deactivate_resale_plan,
     get_resale_plan,
@@ -63,9 +64,21 @@ def _add_member(owner_id, tenant_id, user_id) -> None:
 def _give_agency_a_platform_subscription(owner_id, agency_tenant_id, entitlements: dict) -> str:
     """Subscribes `agency_tenant_id` to a fresh, throwaway platform plan
     carrying `entitlements` -- the reseller's own ceiling for the resale-
-    tier ceiling check. Returns the plan key (for cleanup)."""
+    tier ceiling check. Returns the plan key (for cleanup).
+
+    Always also grants `RESELLER_ENABLED_ENTITLEMENT_KEY` (SaaS entitlement
+    enforcement, `product/billing/resale_plans.py::create_resale_plan()`'s
+    own module docstring) -- every test in this file exercises
+    `create_resale_plan()`, which now requires it as a precondition
+    distinct from, and checked before, the ceiling test each of these
+    tests actually cares about; merged in here, once, rather than added to
+    every individual test's own `entitlements` literal."""
     plan_key = _name("platform-plan")
-    create_plan(plan_key, "Throwaway Platform Plan", entitlements=entitlements)
+    create_plan(
+        plan_key,
+        "Throwaway Platform Plan",
+        entitlements={**entitlements, RESELLER_ENABLED_ENTITLEMENT_KEY: True},
+    )
     subscribe(agency_tenant_id, plan_key, provider=FakeBillingProvider(), actor_user_id=owner_id)
     return plan_key
 
@@ -157,12 +170,18 @@ def test_create_resale_plan_rejects_boolean_entitlement_the_reseller_lacks() -> 
 
 
 def test_create_resale_plan_rejects_entitlement_key_absent_from_ceiling() -> None:
-    """A reseller with NO active subscription has an empty entitlements
-    ceiling (`core.billing.get_entitlements()`'s own "no active
-    subscription -> {}" default) -- any truthy/positive resale value is
-    rejected."""
+    """A reseller whose active subscription's entitlements dict has no
+    `max_users` key at all has an empty ceiling for it
+    (`core.billing.get_entitlements()`'s own per-key "absent" default) --
+    any truthy/positive resale value for that key is rejected. The
+    reseller is otherwise entitled to resell at all (`reseller_enabled`,
+    via `_give_agency_a_platform_subscription()`) -- this test isolates
+    the ceiling check specifically, not the separate SaaS
+    entitlement-enforcement gate `create_resale_plan()`'s own module
+    docstring describes."""
     owner = make_user()
     agency, client = _agency_and_client(owner.id)
+    platform_key = _give_agency_a_platform_subscription(owner.id, agency.tenant_id, {})
     try:
         with pytest.raises(ResaleTierCeilingExceededError):
             create_resale_plan(
@@ -177,6 +196,7 @@ def test_create_resale_plan_rejects_entitlement_key_absent_from_ceiling() -> Non
     finally:
         cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
+        cleanup_global_plan_keys(platform_key)
 
 
 def test_create_resale_plan_allows_entitlement_within_ceiling() -> None:

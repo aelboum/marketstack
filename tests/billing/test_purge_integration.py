@@ -15,7 +15,11 @@ from infra.db import select, tenant_session_scope
 from product.agency.provisioning import provision_agency, provision_client
 from product.billing.models import ResalePlan
 from product.billing.purge import BillingDataPurgeParticipant
-from product.billing.resale_plans import ResalePlanView, create_resale_plan
+from product.billing.resale_plans import (
+    RESELLER_ENABLED_ENTITLEMENT_KEY,
+    ResalePlanView,
+    create_resale_plan,
+)
 from product.billing.subscriptions import create_platform_subscription
 
 from tests.billing._cleanup import (
@@ -40,7 +44,11 @@ def _agency_and_client(owner_id):
 
 def _seed_resale_plan(owner_id, agency_tenant_id) -> tuple[str, ResalePlanView]:
     platform_key = _name("platform-plan")
-    create_plan(platform_key, "Throwaway Platform Plan", entitlements={"max_users": 10})
+    create_plan(
+        platform_key,
+        "Throwaway Platform Plan",
+        entitlements={"max_users": 10, RESELLER_ENABLED_ENTITLEMENT_KEY: True},
+    )
     create_platform_subscription(
         owner_id, agency_tenant_id, platform_key, _name("idem"), provider=FakeBillingProvider()
     )

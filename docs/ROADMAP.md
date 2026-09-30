@@ -1749,9 +1749,10 @@ subphase content below are unchanged by that ADR.
   catalog read-only; plan *creation* remains an ops/seeding concern, not
   exposed via this product's API (`docs/ADR/0012-...`'s own "Plan
   ownership" section). `product/api/main.py` wiring (router mount, purge
-  registration, event-handler import) is deferred -- see
-  `product/billing/__init__.py`'s own module docstring for the exact
-  follow-up diff.
+  registration, event-handler import) was deferred at first implementation
+  time; closed by the 13.4 follow-up below (2026-09-30) -- see
+  `product/billing/__init__.py`'s own module docstring for the exact diff
+  applied.
 - **Checkpoint**: none — thin wrapper phase.
 
 ### 13.2 Agency-defined resale plans for clients
@@ -1813,6 +1814,170 @@ subphase content below are unchanged by that ADR.
   `product.billing` total: 23 unit tests, 31 integration tests
   (`tests/billing/`), all passing.
 - **Checkpoint**: none beyond the isolation test.
+
+### 13.4 API exposure (router wiring)
+
+*(Added 2026-09-30. Closes the one gap 13.1-13.3 left open: the billing
+implementation existed and was fully tested at the service layer, but its
+HTTP surface was never reachable through the running application.)*
+
+```text
+Phase 13 billing implementation (13.1-13.3, this phase)
+        ↓
+API router exposure (13.4, this entry)
+        ↓
+UI-14 (separate frontend phase, not started by this entry)
+```
+
+- **Objective**: mount `product/billing/routes.py::router` into
+  `product/api/main.py::create_app()`, so the already-implemented,
+  already-tested billing HTTP contract (`GET /v1/billing/plans` and the
+  resale-plan/subscription/entitlement routes) is actually reachable
+  through the running product API. Not a billing feature change.
+- **Dependencies**: 13.1-13.3 (this entry wires existing capability; it
+  adds none). Independent of Phase 31 (Platform Ownership Foundation) in
+  both directions — the platform tenant's own `SUBTREE` reach and this
+  router's `product.billing.permissions.require()` gate are two unrelated
+  authorization surfaces that happen to both sit on `core.rbac.can()`;
+  neither entry depends on the other.
+- **Scope**: `product/api/main.py` (router mount, `product/billing/purge.py`
+  purge-participant registration, `product/billing/event_handlers.py`
+  import for its `agency.role_provisioned` subscription — the exact,
+  pre-planned diff `product/billing/__init__.py`'s own module docstring
+  already documented before this entry closed it). `tests/billing
+  /test_routes_integration.py` (new, HTTP-level).
+- **Tests**: route availability (the router appears in the running app's
+  own OpenAPI schema); unauthenticated access rejected (401); an agency
+  owner can create/list its own resale plans over HTTP (proving the
+  permission layer is reached, not bypassed, and that the newly-wired
+  `event_handlers.py` import is what makes a freshly-provisioned owner
+  role hold `billing.resale_plan`/`billing.subscription` permissions at
+  all); cross-agency and unrelated-actor requests are rejected with the
+  existing non-enumerating 404; the pre-existing Agency → Client `SUBTREE`
+  reach is preserved through the HTTP layer for the read-only,
+  provider-free subscription/entitlement routes. Subscription *creation*
+  over HTTP is deliberately not exercised — `product/billing/routes.py`
+  never exposes a payment-provider override, so exercising it needs real
+  Stripe credentials, a pre-existing billing-implementation property, not
+  a router-wiring concern this entry's scope covers.
+- **Security considerations**: no new authorization surface — every route
+  still resolves the actor via the platform's own `get_current_actor`,
+  every mutation still calls `product.billing.permissions.require()` ->
+  `core.rbac.can()` first, fail-closed, exactly as before this entry.
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: revert the `product/api/main.py` diff; no migration, no
+  schema change.
+- **Outcome**: implemented. `product/api/main.py` now imports and mounts
+  `billing_router` at `/v1/billing`, imports `product.billing
+  .event_handlers` for its subscribe side effect, and registers
+  `BillingDataPurgeParticipant`. `tests/billing/test_routes_integration.py`:
+  9 new integration tests, all passing; the full pre-existing
+  `tests/billing/` suite (40 tests) re-run unmodified and unaffected;
+  `tests/agency`/`tests/platform`/`tests/accounting` (183 tests) re-run as
+  a regression check, all passing. `ruff check`/`ruff format --check`/
+  `pyright`/`lint-imports` all pass (22 import-linter contracts kept,
+  unchanged — `product.billing` remains a fully independent module).
+- **Checkpoint**: none — this entry closes a documented wiring gap with no
+  new behavior. UI-14 remains a separate, not-started frontend phase; this
+  entry does not implement, unblock beyond "the API now exists", or mark
+  ready any part of it.
+
+### 13.5 SaaS entitlement enforcement
+
+*(Added 2026-09-30. Closes a different, adjacent gap from 13.4's: the
+Billing HTTP surface was reachable, but nothing in this product yet
+enforced a tenant's actual plan capacity/capability against any real
+operation — `docs/ADR/0012-resale-billing-ownership-model.md`'s own
+"Entitlement recipient... product capabilities... gated by
+`get_entitlements()`" language named this, but no product code exercised
+it before this entry.)*
+
+```text
+Phase 13 — Billing API Exposure (13.1-13.4)
+        ↓
+SaaS Entitlement Enforcement (13.5, this entry)
+        ↓
+Phase 14 — Templates / Snapshots (unchanged, unrelated -- see that
+                                    phase's own entry below)
+```
+
+- **Objective**: enforce tenant SaaS entitlements and numeric quotas at
+  the appropriate Billing operation boundary, using the existing,
+  already-built, already-tested SaaS-OS primitives
+  (`core.billing.has_entitlement()`/`require_entitlement()` for boolean
+  capability gating; `core.usage.check_quota()`/`consume_quota()` for
+  atomic numeric quota gating) -- neither primitive was called from any
+  product code before this entry. Not a billing feature change, not a
+  new entitlement engine, not a redesign of either SaaS-OS mechanism.
+- **Dependencies**: Phase 13 (13.1-13.4, Billing API Exposure) plus the
+  existing SaaS-OS entitlement/quota primitives named above. Independent
+  of Phase 14 (Templates / Snapshots) in both directions -- this entry
+  neither depends on it nor is depended on by it; the two are unrelated
+  product surfaces that happen to sit adjacent in this roadmap's own
+  numbering.
+- **Scope**: `product/billing/resale_plans.py::create_resale_plan()` --
+  the one operation this entry integrates (this product's own
+  "smallest meaningful production integration," not a broad retrofit).
+  Two named entitlement keys gate it, checked strictly after the
+  pre-existing RBAC `require()` call: `RESELLER_ENABLED_ENTITLEMENT_KEY`
+  (boolean -- may this tenant resell at all) and
+  `RESALE_PLAN_CREATION_QUOTA_METRIC` (numeric -- how many resale plans
+  this tenant may create in the current UTC calendar month).
+  `product/billing/routes.py` maps `core.billing.EntitlementDeniedError`
+  to `403` and `core.usage.QuotaExceededError` to `429` -- SaaS-OS's own
+  established status codes for these exact errors
+  (`api.dependencies.require_entitlement_and_quota()`'s own reference
+  convention), both with fixed, generic `detail` strings.
+- **Tests**: `tests/billing/test_entitlement_enforcement_integration.py`
+  (new, 11 tests) -- allowed / not-entitled / missing-key for the
+  boolean gate; allowed / exceeded / missing-key for the numeric gate
+  (a deliberately OPPOSITE "missing means unlimited" default from the
+  boolean gate's own "missing means denied" -- both are SaaS-OS's own
+  pre-existing, documented conventions for their respective entitlement
+  type, neither invented by this entry); RBAC still enforced even when
+  the tenant itself is fully entitled; cross-tenant isolation for both
+  the entitlement and the quota check; HTTP-level 403/429 mapping with
+  no entitlement-key/quota-metric leakage into the response body.
+  Existing `tests/billing/` fixtures (`_give_agency_a_platform_subscription`/
+  `_agency_with_resale_plan`/`_seed_resale_plan`) updated to grant the
+  new `reseller_enabled` precondition -- no existing assertion weakened.
+- **Security considerations**: both checks are evaluated only against the
+  literal target `tenant_id` (never a caller-supplied alternate); RBAC
+  runs first, unchanged, and entitlement approval never substitutes for
+  or bypasses it; the numeric gate is atomic and race-safe by
+  `core.usage.consume_quota()`'s own pre-existing transaction-scoped
+  advisory lock (not newly built here).
+- **Acceptance criteria**: matches the tests above.
+- **Rollback**: revert the `product/billing/resale_plans.py`/
+  `product/billing/routes.py` diff; no migration, no schema change
+  (`core.usage_events`/`core.billing_subscriptions` are pre-existing
+  SaaS-OS tables).
+- **Outcome**: implemented. `create_resale_plan()` calls
+  `core.billing.require_entitlement()` immediately after RBAC, then,
+  after input validation and the pre-existing resale-tier ceiling check,
+  `core.usage.consume_quota()` immediately before creating the underlying
+  `core.billing.Plan`. 11 new integration tests, all passing; the full
+  pre-existing `tests/billing/` suite (40 tests) re-run with only
+  shared-fixture updates, all passing (51 total, 23 deselected);
+  `tests/agency`/`tests/platform`/`tests/accounting` (183 tests) re-run
+  as a regression check, all passing. `ruff check`/`ruff format --check`/
+  `pyright`/`lint-imports` all pass (22 import-linter contracts kept,
+  unchanged -- `product.billing` remains a fully independent module;
+  `core.usage` is a Core dependency, not a new product-module edge).
+- **Explicit non-goals**: no Stripe/payment-provider integration, no
+  checkout, no payment-method handling, no subscription-billing-provider
+  work of any kind -- that remains separate, future billing work (this
+  roadmap's own Phase 15, immediately below, is "Mini Accounting," an
+  unrelated tenant-own-customer-invoicing phase, never a Stripe phase --
+  Stripe/payment-provider work has no phase number yet in this document).
+  No frontend/UI implementation. No redesign of SaaS-OS's own
+  entitlement/quota infrastructure -- both primitives are used exactly as
+  SaaS-OS already built and documented them. No broad retrofit of every
+  product operation -- this entry integrates exactly the one operation
+  named above, deliberately, not "every route now checks entitlements."
+- **Checkpoint**: dedicated review of this entry before any future phase
+  extends entitlement/quota enforcement to a second operation or product
+  module.
 
 ---
 
