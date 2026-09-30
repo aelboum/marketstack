@@ -133,16 +133,28 @@ describe("Navigation (approved 11-item IA)", () => {
     expect(telephony).toHaveTextContent("Coming soon");
   });
 
-  it("collapses Boekhouding into one disabled Coming-soon entry -- Facturatie is not shown as its own separate primary item, and no disabled child renders under an already-disabled parent", () => {
+  it("renders Boekhouding as an organizational heading with Abonnement (UI-14) as its one real child link, not a collapsed Coming-soon entry", () => {
+    // UI-14 shipped `/t/[tenantId]/billing` -- Boekhouding's own parent
+    // route (Accounting, Phase 24/25) is still not started, so the
+    // parent itself stays a non-link heading exactly like Groei/Beheer,
+    // but it no longer collapses into a single disabled entry now that
+    // it has a real, available child. Labelled "Abonnement", not
+    // "Facturatie" -- dashboard-nav-audit finding: "Facturatie" is the
+    // Dutch term for customer invoicing, which this page (subscription/
+    // plan management) is not; that word is reserved for Accounting's
+    // own future invoicing UI instead.
     render(<Navigation tenantId="tenant-1" />);
 
+    expect(screen.queryByRole("link", { name: "Boekhouding" })).not.toBeInTheDocument();
     const accounting = screen.getByText("Boekhouding").closest("span");
-    expect(accounting).toHaveAttribute("aria-disabled", "true");
-    expect(accounting).toHaveTextContent("Coming soon");
+    expect(accounting).not.toHaveAttribute("aria-disabled");
+    expect(accounting).not.toHaveTextContent("Coming soon");
 
-    expect(screen.queryByRole("link", { name: "Facturatie" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Facturatie")).not.toBeInTheDocument();
-    expect(PRIMARY_LABELS).not.toContain("Facturatie");
+    expect(screen.getByRole("link", { name: "Abonnement" })).toHaveAttribute(
+      "href",
+      "/t/tenant-1/billing",
+    );
+    expect(PRIMARY_LABELS).not.toContain("Abonnement");
   });
 
   it("renders no raw backend/technical module name anywhere", () => {

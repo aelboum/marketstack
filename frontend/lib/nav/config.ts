@@ -23,7 +23,8 @@
 // every route below already existed before this pass:
 //   Goedkeuringen, Instellingen, Klantbedrijven -> under Beheer
 //   Marketing, Websites                          -> under Groei
-//   Facturatie                                    -> under Boekhouding
+//   Abonnement (billing; labelled "Facturatie" until the dashboard-nav
+//     audit, see below)                            -> under Boekhouding
 //   Telefonie                                     -> under Inbox
 //   Prospectie                                    -> under Groei (no
 //     existing route of its own either way; grouped with the other
@@ -103,13 +104,23 @@ export const NAV_ITEMS: NavItem[] = [
   },
   {
     // Accounting (Phase 24/25) has not started -- no route of its own,
-    // and its one existing related capability (Billing, Phase 13)
-    // shipped backend only. Both honestly "planned".
+    // so the parent stays honestly "planned". Billing (Phase 13, its own
+    // UI-14) is real as of this entry: `/t/[tenantId]/billing`.
+    //
+    // Labelled "Abonnement" (Subscription), not "Facturatie" (Invoicing)
+    // -- dashboard-nav-audit finding: "Facturatie" is the precise Dutch
+    // term for sending invoices to your own customers, which is what
+    // Accounting's own future invoicing UI will need this exact word
+    // for. This page has no customer invoices at all -- it's the
+    // tenant's own subscription/plan relationship with the platform, an
+    // unrelated concept correctly named "Abonnement" instead.
     key: "accounting",
     label: "Boekhouding",
     labelEn: "Accounting",
     status: "planned",
-    children: [{ key: "billing", label: "Facturatie", labelEn: "Billing", status: "planned" }],
+    children: [
+      { key: "billing", label: "Abonnement", labelEn: "Subscription", segment: "billing", status: "available" },
+    ],
   },
   { key: "reputation", label: "Reputatie", labelEn: "Reputation", segment: "reputation", status: "available" },
   // No standalone AI product page exists yet -- honestly "planned".
