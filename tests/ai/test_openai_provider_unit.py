@@ -19,7 +19,7 @@ import pytest
 from product.ai.errors import AIProviderError, AIProviderNotConfiguredError, AIValidationError
 from product.ai.openai_config import get_openai_config
 from product.ai.openai_provider import OpenAIProvider
-from product.ai.provider import MAX_OUTPUT_CHARS, MAX_USER_CONTENT_CHARS
+from product.ai.provider import MAX_OUTPUT_CHARS, MAX_USER_CONTENT_CHARS, LLMProvider
 
 _FAKE_REQUEST = httpx2.Request("POST", "https://api.openai.com/v1/responses")
 
@@ -90,6 +90,19 @@ def test_provider_name_is_openai(fake_client) -> None:
     fake_client.respond_with(lambda **_: _FakeResponse("ok"))
     provider = OpenAIProvider()
     assert provider.name == "openai"
+
+
+def test_openai_provider_satisfies_the_llm_provider_protocol(fake_client) -> None:
+    """The substitution-test gap a Phase 17.1 adapter-consistency audit
+    found -- `tests/ai/test_provider_unit.py` already carries this exact
+    assertion for `FakeLLMProvider`;
+    `product/telephony/adapters/twilio_provider.py`'s own
+    `test_implements_telephony_provider_protocol()` carries the equivalent
+    for the real Twilio adapter. This adapter (the other real, Fake-backed
+    adapter in the repository) did not have one."""
+    fake_client.respond_with(lambda **_: _FakeResponse("ok"))
+    provider = OpenAIProvider()
+    assert isinstance(provider, LLMProvider)
 
 
 def test_model_configuration_is_read_from_environment(fake_client) -> None:

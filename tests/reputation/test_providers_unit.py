@@ -4,7 +4,14 @@
 
 from __future__ import annotations
 
-from product.reputation.providers import FakeReviewProvider, resolve_provider
+from product.reputation.providers import FakeReviewProvider, ReviewProvider, resolve_provider
+
+
+def test_fake_review_provider_satisfies_the_protocol() -> None:
+    """The substitution-test gap a Phase 17.1 adapter-consistency audit
+    found -- every sibling interface-only Category D module already
+    carries this exact assertion for its own `Fake*` implementation."""
+    assert isinstance(FakeReviewProvider(), ReviewProvider)
 
 
 def test_resolve_provider_returns_none_for_every_provider_by_design() -> None:

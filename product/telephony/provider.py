@@ -30,6 +30,14 @@ here needs to change for that to happen.
 selected), no `infra.secrets` credential lookup for any specific vendor,
 no environment variable naming a vendor, no HTTP route (see
 `product/telephony/__init__.py`'s own module docstring for why).
+
+**Update (Phase 27.0)**: a real adapter now exists --
+`product/telephony/adapters/twilio_provider.py::TwilioTelephonyProvider`,
+implementing this exact `TelephonyProvider` Protocol with Twilio's own
+documented webhook-signature scheme. This file's own `TelephonyProvider`/
+`FakeTelephonyProvider` pair is unchanged by that addition -- exactly the
+"nothing here needs to change" outcome the paragraph above already
+anticipated.
 """
 
 from __future__ import annotations

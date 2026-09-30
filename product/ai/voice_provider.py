@@ -12,13 +12,21 @@ implementation -- transcription returns a fixed, visibly-synthetic
 marker string (never invented speech content), synthesis returns a fixed
 byte marker (never a real audio codec payload).
 
-**What is NOT built here**: no real STT/TTS adapter, no audio
-capture/streaming infrastructure (`docs/ROADMAP.md` Phase 8 itself never
-built call-audio streaming -- `product/telephony/`'s own tables track
-call *metadata*, never a live media stream), no live wiring into any
-inbound call. `product/ai/receptionist.py` is this Protocol's only
+**What is NOT built here**: no real STT/TTS adapter, no live wiring into
+any inbound call. `product/ai/receptionist.py` is this Protocol's only
 consumer, and only at the service layer -- see that module's own
 docstring.
+
+**Update (Phase 27.0)**: live audio-streaming *transport* now exists --
+`product/telephony/adapters/twilio_media_stream.py` decodes/forwards a
+real, live Twilio Media Stream (connected/start/media/stop events,
+barge-in) -- but it is a pure transport relay with zero import coupling
+to `product.ai` (structural typing only, per that module's own docstring)
+and does not itself implement or call `SpeechProvider`. The STT/TTS
+*vendor* decision this module's own Protocol exists to stay neutral about
+remains exactly as unresolved as before -- see
+`product/ai/voice_streaming.py` for the live-call-shaped Protocol variant
+this transport is meant to eventually drive.
 """
 
 from __future__ import annotations
