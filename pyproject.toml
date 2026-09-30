@@ -55,6 +55,14 @@ dependencies = [
     # hazard, the same reasoning that already leaves `httpx`/`cryptography`
     # unpinned here.
     "openai>=3.19.2",
+    # Floor, not a fix for code here: pulled in transitively via saas-os's
+    # own `pyjwt[crypto]` dependency (see `cryptography` above), and left
+    # unconstrained resolves to 2.14.0, which is affected by
+    # CVE-2026-101918 (fixed in 2.15.0) -- fails `pip-audit` in the
+    # security CI job. Declared explicitly here, the same reasoning as
+    # `httpx`/`cryptography` above, so this repository's own pyproject.toml
+    # forces the safe version regardless of what saas-os itself pins.
+    "pyjwt>=2.15.0",
 ]
 
 [project.optional-dependencies]
