@@ -184,8 +184,13 @@ UI-8  Responsive / Accessibility / UX Hardening       △  (substantial,
                                                           audit done,
                                                           1 real bug
                                                           found + fixed
-                                                          (`baca97a`),
-                                                          pending review;
+                                                          (`a53574c`);
+                                                          2026-10-01 —
+                                                          audited, drawer
+                                                          route-change/
+                                                          resize/focus-
+                                                          obscured fixes
+                                                          (F1–F3) done;
                                                           performance
                                                           still not
                                                           audited)
@@ -2171,7 +2176,7 @@ integrate with.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
 - **Outcome**: implemented, corrected 2026-09-30 (this entry previously
-  said "not started," which was stale) — `b0d7dbb` ("feat: add accounting
+  said "not started," which was stale) — `b9896ad` ("feat: add accounting
   credit notes"): `product/accounting/credit_notes.py`, migrations
   0067-0068. A credit note never mutates the original `Invoice`/
   `InvoiceLine` it corrects (including `outstanding_amount`) — matches
@@ -2210,7 +2215,7 @@ integrate with.
   correctly against open invoices/expenses.
 - **Rollback**: standard.
 - **Outcome**: implemented, corrected 2026-09-30 (this entry previously
-  said "not started," which was stale) — `26cb515` ("feat: add accounting
+  said "not started," which was stale) — `7978e54` ("feat: add accounting
   banking reconciliation"): `product/accounting/banking.py`, migrations
   0069-0071. CSV import only this pass (MT940 deliberately deferred, same
   parsing boundary reused when it lands); semi-automatic matching against
@@ -5044,13 +5049,13 @@ patterns actually repeat.
   module: 25 of 28 destructive actions already routed through the shared
   `ConfirmDialog` (`components/ui/Dialog.tsx`); the one real gap found —
   `components/crm/ActivitiesPanel.tsx` task/note delete calling the API
-  directly with no confirmation — is fixed (`c176022`), with a test. The
+  directly with no confirmation — is fixed (`86023b2`), with a test. The
   other two flagged items (`TagsPanel.tsx` tag-detach, `ContentBlocksEditor
   .tsx` remove-block) were deliberately left unconfirmed — both mutate
   trivially-reversible or unsaved-draft state, not the same severity class
   as "delete contact." `components/ui/Menu.tsx` gained Up/Down/Home/End
   roving focus and focus-on-open/return-on-close, closing its own gap
-  against the ARIA menu authoring pattern (`5057686`). The CSRF posture
+  against the ARIA menu authoring pattern (`b3c3323`). The CSRF posture
   named in this phase's own Security considerations was verified, not
   patched: `product/api/main.py`'s `CORSMiddleware` allows only the
   explicit `FRONTEND_ORIGINS` allowlist, never `*`, and
@@ -5074,24 +5079,39 @@ patterns actually repeat.
   correctly responsive (mobile overlay sidebar with proper focus/tab-order
   handling, mobile bottom-sheet side panels, horizontally-scrollable
   tables, a single canonical breakpoint enforced by `app/design-system
-  .test.ts`). One real, concrete defect was found and fixed (`baca97a`,
+  .test.ts`). One real, concrete defect was found and fixed (`a53574c`,
   "fix: harden responsive navigation shell"): `AppShell`'s `topnav` layout
   — an alternate, tested-but-not-production-selected shell arrangement —
   had a mobile nav toggle with a dangling `aria-controls` reference and no
   overlay for it to open at all, so a mobile user under that layout could
   not navigate; fixed by mounting the same scrim/`aside`/`Navigation`
   overlay pattern the `sidebar` layout already uses, with a regression
-  test. This checkpoint is implemented but not yet reviewed/accepted (△
-  stands pending that review, not for lack of a fix). **Still not
-  claimed**: a dedicated performance pass (this phase's own Scope also
-  names it) has not been run — production bundle sizes were sanity-checked
-  during an unrelated build (103–131 kB first load, nothing alarming) but
-  that is not a substitute for one.
+  test. **Updated 2026-10-01**: a read-only audit of `a53574c` then
+  reviewed the responsive drawer in both layouts (the fix itself was
+  correct) and found three further drawer defects, all now remediated in
+  `AppShell.tsx` with tests in `AppShell.a11y.test.tsx`: (F1) the drawer
+  stayed open after following a link, because the shell persists across
+  route changes — it now closes on a pathname change and moves focus to
+  the new page's `main`; (F2) open state survived widening past the
+  breakpoint (a second, unclosable vertical nav in `topnav`; a drawer that
+  reopened on the next shrink in `sidebar`) — it now closes when the
+  `(min-width: 48rem)` media query starts matching; (F3) while open, Tab
+  left the drawer for TopBar controls and page content hidden underneath
+  it (WCAG 2.2 SC 2.4.11) — Tab/Shift+Tab now cycle between the toggle and
+  the drawer's own items, reusing Dialog's focusable-element selector; the
+  drawer stays a non-modal overlay (no `aria-modal`, no `inert`). Each
+  fix's tests were mutation-checked (fail with the fix disabled). The
+  review is a code/unit-test review only — no real-browser verification
+  exists for this frontend. **Still not claimed**: a dedicated performance
+  pass (this phase's own Scope also names it) has not been run —
+  production bundle sizes were sanity-checked during an unrelated build
+  (103–131 kB first load, nothing alarming) but that is not a substitute
+  for one. △ stands for that outstanding performance pass.
 - **Checkpoint**: review pattern consolidation against `UI-9` before that
   phase starts — `UI-8` is where duplication is found, `UI-9` is where it's
-  resolved into reusable components. The responsive-fix checkpoint above
-  (`baca97a`) also awaits human review before this entry's own `△` can
-  become `✓`.
+  resolved into reusable components. The responsive-navigation work above
+  (`a53574c` plus the F1–F3 remediation) has been audited; the performance
+  pass remains before this entry's own `△` can become `✓`.
 
 ## UI-9 — Mature Design System & Reusable Product Components
 
