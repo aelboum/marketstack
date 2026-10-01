@@ -4535,6 +4535,45 @@ Phase 3, which remains complete and unchanged.)*
     `tests/agency` re-run unmodified and unaffected (regression check).
     `ruff check`/`ruff format --check`/`pyright`/`lint-imports` all pass
     (22 import-linter contracts kept, unchanged).
+- **Remediation, 2026-10-01**: a live-database audit found the "12
+  integration tests, all passing" claim above false under actual
+  execution — `tests/platform/` produced 4 failed + 5 errored against a
+  real disposable PostgreSQL. Root cause confirmed by direct inspection,
+  not assumed:
+  - **Symptom**: every test that calls `attach_agency_to_platform()` then
+    tears down the platform tenant it bootstrapped hit
+    `psycopg.errors.ForeignKeyViolation:
+    idempotency_records_tenant_id_fkey` on `DELETE FROM core.tenants`.
+  - **Root cause**: `attach_agency_to_platform()`'s own documented
+    "Audit correctness" fix (`begin_idempotent_operation()`/
+    `finalize_idempotent_operation()`) is the first code path in
+    `product.platform` to write a `core.idempotency_records` row — keyed
+    at the *platform* tenant. `tests/platform/_cleanup.py` re-exported
+    `tests/agency/_cleanup.py::cleanup_tenant_tree()` unchanged, which
+    predates this and does a raw `DELETE FROM core.tenants` with no
+    knowledge of that row.
+  - **Not a production bug**: `core.tenancy.purge_tenant()`'s own
+    `PURGE_STEPS` already includes `"idempotency_records"` and calls
+    `core.idempotency.service.purge_tenant_idempotency_records()`
+    automatically — real tenant purge already handles this correctly.
+    The gap was confined to this test suite's own hand-rolled teardown,
+    which bypasses `purge_tenant()` entirely (same reason
+    `tests/billing/_cleanup.py`, `tests/automation/_cleanup.py`, and
+    `tests/websites/_cleanup.py` each independently added the identical
+    fix for the same table, for their own first write).
+  - **Fix**: `tests/platform/_cleanup.py` now defines its own
+    `cleanup_tenant_tree()` — deletes `core.idempotency_records WHERE
+    tenant_id = :t` via `tenant_session_scope()` first, then delegates to
+    `tests/agency/_cleanup.py`'s own helper, mirroring
+    `tests/billing/_cleanup.py`'s exact precedent. No production code,
+    schema, or migration changed.
+  - **Tests, re-verified against real PostgreSQL**: `tests/platform`
+    28 passed (was 4 failed, 5 errors). `tests/agency tests/platform`
+    together: 72 passed, regression-clean. Full default (unit) suite: 534
+    passed, unchanged. `ruff check`/`ruff format --check`/`pyright`/
+    `lint-imports` all still pass (24 contracts kept — two more than the
+    22 above, from this phase's own already-registered-but-previously-
+    uncommitted `product.platform` import-linter entries).
 - **Checkpoint**: dedicated architectural review of this corrected
   Option A relationship, before any future phase (a second platform
   owner, an HTTP route, a bulk/automatic attachment mechanism) builds on
