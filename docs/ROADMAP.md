@@ -169,7 +169,8 @@ UI-4  Conversations                                  ✓
 UI-5  Marketing                                      ✓
 UI-6  Appointments                                   ✓
 UI-7  Settings / Branding / Tenant Configuration     ✓
-UI-8  Responsive / Accessibility / UX Hardening       △  (substantial,
+UI-8  Responsive / Accessibility / UX Hardening       ✓  (completed
+                                                          2026-10-01;
                                                           2026-09-29 —
                                                           confirmation
                                                           audit + fix,
@@ -192,8 +193,10 @@ UI-8  Responsive / Accessibility / UX Hardening       △  (substantial,
                                                           obscured fixes
                                                           (F1–F3) done;
                                                           performance
-                                                          still not
-                                                          audited)
+                                                          audit: no
+                                                          justified work,
+                                                          build/source
+                                                          analysis only)
 UI-9  Mature Design System & Reusable Components      ✓  (also shipped,
                                                           ahead of this
                                                           plan and now
@@ -5042,8 +5045,9 @@ patterns actually repeat.
   surface is introduced at this phase.
 - **Acceptance criteria**: matches the tests above.
 - **Rollback**: standard.
-- **Outcome**: substantially implemented, corrected 2026-09-29 (this entry
-  previously said "partially implemented... no dedicated completion
+- **Outcome**: implemented, completed 2026-10-01 (performance audit
+  below; previously "substantially implemented", corrected 2026-09-29 —
+  this entry before that said "partially implemented... no dedicated completion
   artifact... do not mark this 'implemented'"; the missing artifact now
   exists). A destructive-action-confirmation audit was run across every
   module: 25 of 28 destructive actions already routed through the shared
@@ -5101,17 +5105,35 @@ patterns actually repeat.
   the drawer's own items, reusing Dialog's focusable-element selector; the
   drawer stays a non-modal overlay (no `aria-modal`, no `inert`). Each
   fix's tests were mutation-checked (fail with the fix disabled). The
-  review is a code/unit-test review only — no real-browser verification
-  exists for this frontend. **Still not claimed**: a dedicated performance
-  pass (this phase's own Scope also names it) has not been run —
-  production bundle sizes were sanity-checked during an unrelated build
-  (103–131 kB first load, nothing alarming) but that is not a substitute
-  for one. △ stands for that outstanding performance pass.
+  responsive behavior was verified through code review and unit tests
+  only — no real-browser verification exists for this frontend. Frontend
+  suite 755/755 passing; ESLint and `tsc --noEmit` clean.
+  **Performance audit (2026-10-01)**: the dedicated performance pass this
+  phase's own Scope names has now been run — an audit only, no source
+  change. A production `next build` reports ~102 kB compressed first-load
+  JS shared by every route (almost entirely the Next.js/React framework
+  chunks), ~124 kB for the tenant dashboard, and ~130 kB for the largest
+  route (`/t/[tenantId]/appointments`, whose calendar code is already in
+  its own route-only chunk). Next.js route-level code splitting is already
+  appropriate: no Accounting, Telephony, or AI feature code (beyond
+  navigation labels and the dashboard's overdue-invoices line) is in the
+  initial bundle, and the frontend has only three runtime dependencies
+  (`next`, `react`, `react-dom`) — no charting, editor, icon, SDK, or date
+  library to defer or replace. Source inspection of `AppShell`,
+  `Navigation`, `TopBar`, and the locale/session/tenant providers found no
+  render path requiring optimization (drawer toggling does not re-render
+  the page subtree; provider values are memoized; the F1–F3 listeners
+  register once per open/mount and the media-query listener fires only on
+  breakpoint crossings). The performance audit found no justified
+  implementation work based on production build analysis and source
+  inspection. No real-browser performance profiling was performed, so this
+  conclusion rests on build output and code, not on runtime LCP/INP/TTI
+  measurements.
 - **Checkpoint**: review pattern consolidation against `UI-9` before that
   phase starts — `UI-8` is where duplication is found, `UI-9` is where it's
   resolved into reusable components. The responsive-navigation work above
-  (`a53574c` plus the F1–F3 remediation) has been audited; the performance
-  pass remains before this entry's own `△` can become `✓`.
+  (`a53574c` plus the F1–F3 remediation) and the performance pass are both
+  complete; this entry is now `✓`.
 
 ## UI-9 — Mature Design System & Reusable Product Components
 
