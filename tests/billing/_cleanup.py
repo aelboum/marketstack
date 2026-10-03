@@ -31,6 +31,29 @@ responsibility for the same reason, in two passes (function docstring
 below): any tenant in a `test_commercial_parties_integration.py` case may
 own a merchant, a billing account at another tenant's merchant, or both.
 
+`core.billing_provider_refs` (B2B2C Sponsored Subscriptions, Step 3 --
+`core/billing/commercial.py::create_subscription()`, the first product
+code path to ever write one) is this test suite's responsibility for the
+identical reason `core.idempotency_records` already is: its `tenant_id`
+foreign key (always the *service* tenant, never the payer -- read
+directly against the frozen SHA) is NOT NULL and has no
+`ON DELETE CASCADE`, so left uncleaned it blocks
+`tests/agency/_cleanup.py::cleanup_tenant_tree()`'s own
+`DELETE FROM core.tenants` exactly like an unclean idempotency record
+would. Deliberately NOT RLS-scoped (its own model docstring, "GLOBAL-BY-
+DESIGN"), but still reachable and deletable through a tenant-scoped
+session, since no RLS policy restricts it.
+
+`core.outbox_events`/`core.outbox_consumptions` (SaaS-OS-owned, RLS-scoped
+Reliability & Events substrate) are, for the identical reason, this test
+suite's responsibility starting with Step 3 -- `core.billing.commercial
+.create_subscription()`'s own `_insert_pending()` appends one payer/seller-
+projection `OutboxEvent` in the same transaction as the subscription row
+(confirmed directly against the frozen SHA); no earlier product code path
+ever wrote one against a real tenant, so no existing `tests/*/_cleanup.py`
+knows about either table, and both carry a NOT NULL `tenant_id` foreign
+key with no `ON DELETE CASCADE`.
+
 Underscore-prefixed filename -- not itself a test module, mirrors every
 other `tests/*/_cleanup.py`'s own convention.
 """
@@ -95,11 +118,23 @@ def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
                 {"t": str(tenant_id)},
             )
             session.execute(
+                text("DELETE FROM core.billing_provider_refs WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            session.execute(
                 text("DELETE FROM core.idempotency_records WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
             session.execute(
                 text("DELETE FROM core.usage_events WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            session.execute(
+                text("DELETE FROM core.outbox_consumptions WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            session.execute(
+                text("DELETE FROM core.outbox_events WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
     # Second pass, after every tenant_id's own core.billing_accounts rows

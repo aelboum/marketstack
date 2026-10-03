@@ -14,7 +14,25 @@ the *recipient* tenant, `docs/ADR/0012-...`'s own "Three identities" --
 these are deliberately never the same resource, since a client that may
 read/create its own subscription must not thereby gain any authority over
 its parent agency's resale catalog).
-"""
+
+**`SUBSCRIPTION_RESOURCE = "billing.subscription"` is, byte for byte, the
+same string as the frozen SaaS-OS commercial contract's own
+`core.billing.authorization.BILLING_SUBSCRIPTION`** (verified directly
+against the frozen SHA) -- not a coincidence this module relies on by
+accident, but the exact mechanism B2B2C Sponsored Subscriptions (Step 3,
+`product/billing/commercial_subscriptions.py`) depends on: `core.rbac`'s
+permission catalog is global, keyed only on `(resource, action)`, with no
+notion of which module registered a row, so a grant already made here
+under this name is the identical row `core.billing.commercial
+.create_subscription()`'s own internal `authorize_billing()` check reads.
+`BILLING_ACCOUNT_RESOURCE = "billing.account"` is added for Step 3 for the
+identical reason -- the frozen contract's own `BILLING_ACCOUNT` constant,
+reused deliberately, not reinvented, so that granting it here (`billing
+.account:charge`, `product/billing/event_handlers.py`) is the one and
+only grant the payer side of `create_subscription()`'s dual authorization
+needs; see that module's own docstring for exactly which roles receive
+it ("which roles receive them is a consumer's decision," `core/billing
+/authorization.py`'s own words, verified directly)."""
 
 from __future__ import annotations
 
@@ -27,6 +45,9 @@ from product.billing.errors import BillingAccessDeniedError
 
 RESALE_PLAN_RESOURCE = "billing.resale_plan"
 SUBSCRIPTION_RESOURCE = "billing.subscription"
+#: Step 3 (B2B2C Sponsored Subscriptions) -- see module docstring. Byte
+#: for byte `core.billing.authorization.BILLING_ACCOUNT`.
+BILLING_ACCOUNT_RESOURCE = "billing.account"
 
 
 def grant_to_role(
@@ -60,4 +81,10 @@ def require(actor_user_id: uuid.UUID, tenant_id: uuid.UUID, *, resource: str, ac
         raise BillingAccessDeniedError(actor_user_id, tenant_id, resource=resource, action=action)
 
 
-__all__ = ["RESALE_PLAN_RESOURCE", "SUBSCRIPTION_RESOURCE", "grant_to_role", "require"]
+__all__ = [
+    "BILLING_ACCOUNT_RESOURCE",
+    "RESALE_PLAN_RESOURCE",
+    "SUBSCRIPTION_RESOURCE",
+    "grant_to_role",
+    "require",
+]

@@ -25,6 +25,25 @@ revenue-critical decision reserved for `owner`, mirroring
 precedent) plus `create`/`read`/`update` on subscriptions, never
 `cancel`.
 
+**`billing.account:charge` (B2B2C Sponsored Subscriptions, Step 3)** is
+granted to both `owner` and `member` at their own tenant, for the
+identical reason `billing.subscription:create` already is: it is the
+*payer*-side half of `core.billing.commercial.create_subscription()`'s
+own dual authorization (`product/billing/permissions.py`'s own module
+docstring; `core/billing/authorization.py`'s own vocabulary table, read
+directly against the frozen SHA). Granted here, scoped to the grantee's
+own tenant exactly like every other grant in this file, it reaches a
+descendant only through that tenant's own pre-existing `SUBTREE` role
+reach (`product/agency/provisioning.py::provision_agency()`'s own grant)
+-- never through any new hierarchy-walk logic added here. This is what
+lets an agency's own owner use the agency's own `BillingAccount` as payer
+for a sponsored client subscription, and a client's own member use the
+client's own `BillingAccount` for its own self-pay -- and nothing more:
+neither can ever reach an unrelated tenant's `BillingAccount`, since
+`can()`'s own `SUBTREE` semantics never cross from one tenant's subtree
+into an unrelated one (`product/billing/commercial_subscriptions.py`'s
+own module docstring covers the full authorization model).
+
 **Agency merchant provisioning is deliberately NOT wired here, unlike
 the platform's.** `product/billing/parties.py::_ensure_agency_merchant_account()`
 exists as an internal, idempotent provisioning primitive (Phase 2D) --
@@ -54,7 +73,12 @@ import uuid
 from core.rbac import get_role
 
 from product.billing.parties import _ensure_platform_merchant_account
-from product.billing.permissions import RESALE_PLAN_RESOURCE, SUBSCRIPTION_RESOURCE, grant_to_role
+from product.billing.permissions import (
+    BILLING_ACCOUNT_RESOURCE,
+    RESALE_PLAN_RESOURCE,
+    SUBSCRIPTION_RESOURCE,
+    grant_to_role,
+)
 from product.foundation.events import Event, subscribe
 
 _OWNER_ROLE_NAME = "owner"
@@ -64,10 +88,12 @@ _PLATFORM_OWNER_ROLE_NAME = "platform_owner"
 _OWNER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (RESALE_PLAN_RESOURCE, ("create", "read", "update", "deactivate")),
     (SUBSCRIPTION_RESOURCE, ("create", "read", "update", "cancel")),
+    (BILLING_ACCOUNT_RESOURCE, ("charge",)),
 )
 _MEMBER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (RESALE_PLAN_RESOURCE, ("read",)),
     (SUBSCRIPTION_RESOURCE, ("create", "read", "update")),
+    (BILLING_ACCOUNT_RESOURCE, ("charge",)),
 )
 
 
