@@ -70,6 +70,24 @@ class ResaleTierCeilingExceededError(ValueError):
         super().__init__(f"entitlement {key!r} would exceed this tenant's own current plan.")
 
 
+class PlatformMerchantNotProvisionedError(Exception):
+    """Raised by `product/billing/parties.py
+    ::_get_or_create_platform_billing_account()` when the platform tenant
+    has no `MerchantAccount` yet -- expected to be unreachable in a
+    correctly bootstrapped deployment, since `product/billing
+    /event_handlers.py` provisions it reactively the moment
+    `product/platform/provisioning.py::bootstrap_platform_tenant()`
+    publishes `platform.role_provisioned`; surfaces only for a deployment
+    bootstrapped before this phase existed, or where that event handler
+    was never imported."""
+
+    def __init__(self, platform_tenant_id: uuid.UUID) -> None:
+        self.platform_tenant_id = platform_tenant_id
+        super().__init__(
+            f"platform tenant {platform_tenant_id} has no MerchantAccount provisioned yet."
+        )
+
+
 class BillingConflictError(Exception):
     """Raised for a genuine state conflict this module's own logic
     detects (e.g. a duplicate resale-plan `key` within the same reseller
@@ -88,5 +106,6 @@ __all__ = [
     "BillingConflictError",
     "BillingReferenceNotFoundError",
     "BillingValidationError",
+    "PlatformMerchantNotProvisionedError",
     "ResaleTierCeilingExceededError",
 ]

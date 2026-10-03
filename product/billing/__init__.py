@@ -39,4 +39,27 @@ previously described as pending:
 gap for its own router/purge/event-handler wiring -- unrelated to and
 unchanged by this follow-up, which touches `product.billing`'s own
 wiring only.
+
+**B2B2C Billing Foundation, Step 2** (docs/ROADMAP.md Phase 14):
+`product/billing/parties.py` adds `MerchantAccount`/`BillingAccount`
+provisioning over `core.billing.parties`, the frozen SaaS-OS commercial-
+parties primitives -- commercial identity only, no sponsored
+subscription, no Catalog v2 migration (see that module's own docstring
+for the full boundary). A new `platform.role_provisioned` subscription in
+`product/billing/event_handlers.py` provisions the platform tenant's own
+`MerchantAccount` reactively, published once by `product/platform
+/provisioning.py::bootstrap_platform_tenant()` -- not a new wiring concern
+for `product/api/main.py`, since it lives in the same already-imported
+`event_handlers` module. `_ensure_agency_merchant_account()` is
+deliberately NOT wired to `agency.role_provisioned` -- see `product/billing
+/event_handlers.py`'s own module docstring for why (every other test
+suite's unrelated tenant-teardown helper would need extending too); it
+remains an internal, directly-callable provisioning primitive only --
+underscore-prefixed and absent from `product/billing/parties.py`'s own
+`__all__`, the same as `_ensure_platform_merchant_account()`/
+`_get_or_create_platform_billing_account()`, because all three hardcode
+`SystemCaller(BILLING_OPERATIONS)` with no actor parameter (independent
+audit remediation; see that module's own "Trust boundary" docstring
+section for why this matters and what a future caller must do before
+exposing equivalent behavior more broadly).
 """

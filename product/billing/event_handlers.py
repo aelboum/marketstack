@@ -1,18 +1,20 @@
 """Reacts to `agency.role_provisioned` (published by `product/agency
 /roles.py`) to grant this module's own `billing.resale_plan`/
-`billing.subscription` permissions to the newly provisioned role -- the
-"module needing another module's capability reacts via the event
-dispatcher" path `docs/ARCHITECTURE.md` section 2.2 prescribes for
-permission-granting specifically. `product.billing` never imports
-`product.agency` directly, the same rule every other module's own
-`event_handlers.py` already follows.
+`billing.subscription` permissions to the newly provisioned role, and to
+`platform.role_provisioned` (B2B2C Billing Foundation, Step 2) to
+provision the platform tenant's own commercial `MerchantAccount`
+(`product/billing/parties.py`) -- the "module needing another module's
+capability reacts via the event dispatcher" path `docs/ARCHITECTURE.md`
+section 2.2 prescribes for exactly this case. `product.billing` never
+imports `product.agency` or `product.platform` directly, the same rule
+every other module's own `event_handlers.py` already follows.
 
 **Role name is generic on purpose**: `product/agency/roles.py` provisions
 `"owner"`/`"member"` for every tenant this product creates (agencies and
 their clients alike, `docs/ADR/0012-...`'s own "Direct Platform Client and
-Agency are the same structural case" reasoning) -- so this handler grants
-identically to both an agency's own root role and a client's own role,
-with no special-casing.
+Agency are the same structural case" reasoning) -- so the permission
+grants below apply identically to both an agency's own root role and a
+client's own role, with no special-casing.
 
 `owner`: full control over its own tenant's resale catalog (`create`,
 `read`, `update`, `deactivate`) plus full subscription lifecycle
@@ -22,7 +24,28 @@ revenue-critical decision reserved for `owner`, mirroring
 `product/reputation/event_handlers.py`'s own "cancel is owner-only"
 precedent) plus `create`/`read`/`update` on subscriptions, never
 `cancel`.
-"""
+
+**Agency merchant provisioning is deliberately NOT wired here, unlike
+the platform's.** `product/billing/parties.py::_ensure_agency_merchant_account()`
+exists as an internal, idempotent provisioning primitive (Phase 2D) --
+it is NOT subscribed to `agency.role_provisioned`. `provision_agency()`
+is called by essentially every integration test in this repository, in
+every `tests/*/_cleanup.py` module's own tenant-teardown path (not only
+`tests/agency/`/`tests/billing/`'s own, already extended for this exact
+table) -- reactively creating a `core.billing_merchant_accounts` row on
+every single one would require extending every one of those unrelated
+cleanup helpers too, far outside this phase's own scope (confirmed
+empirically: wiring it this way broke `tests/agency/*` and
+`tests/platform/*`'s own pre-existing, unrelated cleanup with a foreign-key
+violation on tenant deletion). `bootstrap_platform_tenant()`, by contrast,
+has exactly one call shape in the whole repository (the `platform`
+fixture in `tests/platform/test_*_integration.py` and this module's own
+`tests/billing/test_commercial_parties_integration.py`) -- both already
+extended for this table -- so the platform case stays reactively wired
+(Phase 2C's own "prefer extending an existing... provisioning mechanism"
+instruction), while the agency case stays callable-only, never automatic
+(Phase 2D asks for "an explicit provisioning function," not automatic
+wiring)."""
 
 from __future__ import annotations
 
@@ -30,11 +53,13 @@ import uuid
 
 from core.rbac import get_role
 
+from product.billing.parties import _ensure_platform_merchant_account
 from product.billing.permissions import RESALE_PLAN_RESOURCE, SUBSCRIPTION_RESOURCE, grant_to_role
 from product.foundation.events import Event, subscribe
 
 _OWNER_ROLE_NAME = "owner"
 _MEMBER_ROLE_NAME = "member"
+_PLATFORM_OWNER_ROLE_NAME = "platform_owner"
 
 _OWNER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (RESALE_PLAN_RESOURCE, ("create", "read", "update", "deactivate")),
@@ -58,4 +83,16 @@ def _handle_agency_role_provisioned(event: Event) -> None:
         grant_to_role(tenant_id, role, resource=resource, actions=actions)
 
 
+def _handle_platform_role_provisioned(event: Event) -> None:
+    """This is the one authorized internal provisioning flow
+    `_ensure_platform_merchant_account()` exists for (that function's own
+    docstring, "Trust boundary") -- `event.tenant_id` is never
+    caller-controlled input, it is the tenant `bootstrap_platform_tenant()`
+    itself just created."""
+    if event.payload.get("role_name") != _PLATFORM_OWNER_ROLE_NAME:
+        return
+    _ensure_platform_merchant_account(uuid.UUID(event.tenant_id))
+
+
 subscribe("agency.role_provisioned", _handle_agency_role_provisioned)
+subscribe("platform.role_provisioned", _handle_platform_role_provisioned)

@@ -21,6 +21,23 @@ No CRM dependency (mirrors `tests/websites/_cleanup.py`'s/
 `tests/billing/_cleanup.py`'s own identical precedent) -- this extends
 `tests/agency/_cleanup.py` directly.
 
+`core.billing_merchant_accounts`/`core.billing_accounts` (B2B2C Billing
+Foundation, Step 2 -- `product/billing/parties.py`) join this file's own
+table list for the identical reason: `bootstrap_platform_tenant()`
+reactively provisions the platform tenant's own `MerchantAccount` on
+every call (`product/billing/event_handlers.py`'s `platform
+.role_provisioned` subscription) -- `tests/platform/test_*_integration.py`'s
+own `platform` fixture is one of only two call shapes for that function
+in the whole repository (the other, `tests/billing/
+test_commercial_parties_integration.py`, uses `tests/billing/_cleanup.py`'s
+own already-extended version), so this is the one other place that needs
+it. Mirrors `tests/billing/_cleanup.py`'s own two-pass ordering (billing
+accounts, which may reference another tenant's merchant, deleted before
+any merchant account in the same batch) -- a harmless no-op here today
+(no `tests/platform/` test creates a `BillingAccount`), kept for the
+identical defensive reason the `idempotency_records` delete already is:
+a harmless no-op for any tenant id that never created one.
+
 Underscore-prefixed filename -- not itself a test module, mirrors every
 other `tests/*/_cleanup.py`'s own convention.
 """
@@ -48,6 +65,16 @@ def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
         with tenant_session_scope(tenant_id) as session:
             session.execute(
                 text("DELETE FROM core.idempotency_records WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            session.execute(
+                text("DELETE FROM core.billing_accounts WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+    for tenant_id in tenant_ids_leaf_to_root:
+        with tenant_session_scope(tenant_id) as session:
+            session.execute(
+                text("DELETE FROM core.billing_merchant_accounts WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
     _cleanup_agency_tenant_tree(*tenant_ids_leaf_to_root)

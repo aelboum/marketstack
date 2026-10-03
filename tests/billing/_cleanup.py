@@ -25,6 +25,12 @@ foreign key (`core/usage/models.py::UsageEvent`, no `ON DELETE CASCADE`)
 blocks `tests/agency/_cleanup.py::cleanup_tenant_tree()`'s own
 `DELETE FROM core.tenants` exactly like an unclean idempotency record would.
 
+`core.billing_accounts`/`core.billing_merchant_accounts` (B2B2C Billing
+Foundation, Step 2 -- `product/billing/parties.py`) are this test suite's
+responsibility for the same reason, in two passes (function docstring
+below): any tenant in a `test_commercial_parties_integration.py` case may
+own a merchant, a billing account at another tenant's merchant, or both.
+
 Underscore-prefixed filename -- not itself a test module, mirrors every
 other `tests/*/_cleanup.py`'s own convention.
 """
@@ -76,12 +82,36 @@ def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
                 text("DELETE FROM core.billing_subscriptions WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
+            # B2B2C Billing Foundation, Step 2 (product/billing/parties.py):
+            # core.billing_accounts (payer-owned) is deleted before
+            # core.billing_merchant_accounts (payee-owned) to respect
+            # fk_billing_accounts_merchant_account's own direction -- a
+            # billing account can reference a merchant owned by a
+            # *different* tenant than its own payer, so this must run as
+            # its own pass per tenant_id before any of this call's other
+            # tenant_ids' merchant rows are removed.
+            session.execute(
+                text("DELETE FROM core.billing_accounts WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
             session.execute(
                 text("DELETE FROM core.idempotency_records WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
             session.execute(
                 text("DELETE FROM core.usage_events WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+    # Second pass, after every tenant_id's own core.billing_accounts rows
+    # are gone: a billing account owned by one of these tenants may have
+    # referenced a merchant owned by *another* of these tenants (e.g. a
+    # test tenant's own self-pay billing account at the platform
+    # merchant), so no core.billing_merchant_accounts row in this batch
+    # can be deleted until every billing account in the batch is gone.
+    for tenant_id in tenant_ids_leaf_to_root:
+        with tenant_session_scope(tenant_id) as session:
+            session.execute(
+                text("DELETE FROM core.billing_merchant_accounts WHERE tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
     _cleanup_agency_tenant_tree(*tenant_ids_leaf_to_root)
