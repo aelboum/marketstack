@@ -74,7 +74,7 @@ from core.email import EmailMessage, get_email_config, send_email
 from core.email.errors import EmailConfigurationError, EmailProviderError, InvalidEmailAddressError
 from core.email.provider import EmailProvider
 from infra.db import select, tenant_session_scope
-from infra.jobs import TenantJobPayload, enqueue_job, register_job
+from infra.jobs import TenantJobContext, TenantJobPayload, enqueue_job, register_tenant_job
 
 from product.crm.contacts import get_contact
 from product.crm.errors import CrmAccessDeniedError, CrmReferenceNotFoundError
@@ -310,16 +310,21 @@ def _send_sms_to_contact(to_phone: str, body: str, provider: SmsProvider | None)
 
 
 async def _run_campaign_send_job(
-    payload: TenantJobPayload | None,
+    context: TenantJobContext,
+    payload: TenantJobPayload,
     *,
     email_provider: EmailProvider | None = None,
     sms_provider: SmsProvider | None = None,
 ) -> None:
     """The registered arq job handler. See module docstring for the
     cancellation/idempotency/provider-injection design -- all three are
-    load-bearing, not incidental."""
-    if payload is None:
-        raise ValueError("_run_campaign_send_job requires a TenantJobPayload, got None.")
+    load-bearing, not incidental.
+
+    Frozen SaaS-OS contract compatibility repair: `infra.jobs
+    .register_job()` no longer exists, split into `register_tenant_job()`/
+    `register_system_job()`; the one producer below always builds a real
+    `TenantJobPayload`, so this was always a tenant job in practice."""
+    del context  # unused -- mirrors _dispatch_notification_job's own shape
     tenant_id = uuid.UUID(payload.tenant_id)
     campaign_id = uuid.UUID(str(payload.data["campaign_id"]))
     actor_user_id = uuid.UUID(str(payload.data["actor_user_id"]))
@@ -403,4 +408,4 @@ async def _run_campaign_send_job(
     )
 
 
-CAMPAIGN_SEND_JOB_FUNCTIONS = [register_job(_run_campaign_send_job)]
+CAMPAIGN_SEND_JOB_FUNCTIONS = [register_tenant_job(_run_campaign_send_job)]

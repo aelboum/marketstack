@@ -36,6 +36,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from core.identity import (
     InvitationInvalidError,
     accept_invitation,
@@ -257,14 +258,17 @@ def test_accept_expired_token_fails_closed() -> None:
 
         expires_at = datetime.now(UTC) + timedelta(hours=1)
         _invitation, raw_token = create_invitation(
-            client.tenant_id, owner.id, "new-member@example.com", expires_at=expires_at
+            client.tenant_id,
+            "new-member@example.com",
+            caller=UserCaller(owner.id),
+            expires_at=expires_at,
         )
 
         with pytest.raises(InvitationInvalidError):
             accept_invitation(
                 raw_token,
-                accepting_user.id,
                 client.tenant_id,
+                caller=UserCaller(accepting_user.id),
                 now=expires_at + timedelta(minutes=1),
             )
         assert get_membership(client.tenant_id, accepting_user.id) is None
@@ -272,8 +276,8 @@ def test_accept_expired_token_fails_closed() -> None:
         # Control: inside the window, the identical inputs are accepted.
         membership = accept_invitation(
             raw_token,
-            accepting_user.id,
             client.tenant_id,
+            caller=UserCaller(accepting_user.id),
             now=expires_at - timedelta(minutes=1),
         )
         assert membership.status == MembershipStatus.ACTIVE.value
@@ -289,7 +293,7 @@ def test_accept_revoked_token_fails_closed() -> None:
     accepting_user = make_user()
     try:
         sent = invite_client_member(owner.id, client.tenant_id, "new-member@example.com")
-        revoke_invitation(client.tenant_id, sent.invitation_id, actor_user_id=owner.id)
+        revoke_invitation(client.tenant_id, sent.invitation_id, caller=UserCaller(owner.id))
 
         with pytest.raises(InvitationInvalidError):
             accept_client_invitation(sent.raw_token, accepting_user.id, client.tenant_id)
@@ -452,7 +456,9 @@ def test_assign_starting_client_role_proven_independently_of_a_real_acceptance()
     client = provision_client(owner.id, agency.tenant_id, _name("client"))
     new_member = make_user()
     try:
-        membership = add_tenant_membership(client.tenant_id, new_member.id)
+        membership = add_tenant_membership(
+            client.tenant_id, new_member.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         membership_role = assign_starting_client_role(owner.id, client.tenant_id, membership.id)
         assert membership_role.membership_id == membership.id
 
@@ -474,8 +480,12 @@ def test_assign_starting_client_role_is_idempotent_role_creation() -> None:
     member_one = make_user()
     member_two = make_user()
     try:
-        membership_one = add_tenant_membership(client.tenant_id, member_one.id)
-        membership_two = add_tenant_membership(client.tenant_id, member_two.id)
+        membership_one = add_tenant_membership(
+            client.tenant_id, member_one.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
+        membership_two = add_tenant_membership(
+            client.tenant_id, member_two.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         role_one = assign_starting_client_role(owner.id, client.tenant_id, membership_one.id)
         role_two = assign_starting_client_role(owner.id, client.tenant_id, membership_two.id)
         assert role_one.role_id == role_two.role_id

@@ -51,7 +51,7 @@ from datetime import UTC, datetime
 
 from core.audit_log import ActorType, AuditOutcome, record
 from infra.db import select, tenant_session_scope
-from infra.jobs import TenantJobPayload, enqueue_job, register_job
+from infra.jobs import TenantJobContext, TenantJobPayload, enqueue_job, register_tenant_job
 
 from product.crm.companies import create_company
 from product.crm.contacts import create_contact
@@ -168,15 +168,18 @@ def _process_row(
         return {"row": row_number, "error": str(exc)}
 
 
-async def _run_import_job(payload: TenantJobPayload | None) -> None:
+async def _run_import_job(context: TenantJobContext, payload: TenantJobPayload) -> None:
     """The registered arq job handler (mirrors
     `product.foundation.events._dispatch_durable_event_job`'s own
-    registration shape). Parses the CSV row by row, creates each contact
-    via `product.crm.contacts.create_contact()` (never a separate
+    registration shape -- frozen SaaS-OS contract compatibility repair:
+    `infra.jobs.register_job()` no longer exists, split into
+    `register_tenant_job()`/`register_system_job()`; `enqueue_contact_import()`
+    below always builds a real `TenantJobPayload`, so this was always a
+    tenant job in practice). Parses the CSV row by row, creates each
+    contact via `product.crm.contacts.create_contact()` (never a separate
     unaudited bulk path), and updates the `crm.import_jobs` row as it
     goes."""
-    if payload is None:
-        raise ValueError("_run_import_job requires a TenantJobPayload, got None.")
+    del context  # unused -- mirrors _dispatch_notification_job's own shape
     tenant_id = uuid.UUID(payload.tenant_id)
     job_id = uuid.UUID(str(payload.data["import_job_id"]))
     actor_user_id = uuid.UUID(str(payload.data["actor_user_id"]))
@@ -229,7 +232,7 @@ async def _run_import_job(payload: TenantJobPayload | None) -> None:
     )
 
 
-IMPORT_JOB_FUNCTIONS = [register_job(_run_import_job)]
+IMPORT_JOB_FUNCTIONS = [register_tenant_job(_run_import_job)]
 
 
 async def enqueue_contact_import(

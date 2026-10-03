@@ -43,7 +43,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from infra.jobs import TenantJobPayload, enqueue_job, register_job
+from infra.jobs import TenantJobContext, TenantJobPayload, enqueue_job, register_tenant_job
 
 EventHandler = Callable[["Event"], None]
 
@@ -109,19 +109,23 @@ def subscribe_durable(event_type: str, handler: EventHandler) -> None:
     DURABLE_SUBSCRIBERS.setdefault(event_type, []).append(handler)
 
 
-async def _dispatch_durable_event_job(payload: TenantJobPayload | None) -> None:
+async def _dispatch_durable_event_job(context: TenantJobContext, payload: TenantJobPayload) -> None:
     """The registered arq job handler (mirrors
     `core.notifications.service._dispatch_notification_job`'s own shape
-    exactly). Reconstructs the `Event` from the job payload and calls
-    every handler currently registered in `DURABLE_SUBSCRIBERS` for its
-    `type`, in whatever process this worker is running in -- which is
-    the entire point: that registry is populated by ordinary module
-    imports, not by anything carried over from the publishing process's
-    memory.
+    exactly -- frozen SaaS-OS contract compatibility repair: `infra.jobs
+    .register_job()` no longer exists, split into `register_tenant_job()`/
+    `register_system_job()`, each requiring its own fixed handler shape;
+    `publish_durable()` below always builds a real `TenantJobPayload` from
+    `event.tenant_id` -- `Event.tenant_id` is a required field -- so this
+    was always a tenant job in practice, never the `payload=None` system
+    case the old unified signature also allowed for.) Reconstructs the
+    `Event` from the job payload and calls every handler currently
+    registered in `DURABLE_SUBSCRIBERS` for its `type`, in whatever
+    process this worker is running in -- which is the entire point: that
+    registry is populated by ordinary module imports, not by anything
+    carried over from the publishing process's memory.
     """
-    if payload is None:
-        raise ValueError("_dispatch_durable_event_job requires a TenantJobPayload, got None.")
-
+    del context  # unused -- mirrors _dispatch_notification_job's own shape
     data = payload.data
     event = Event(
         type=str(data["type"]),
@@ -140,7 +144,7 @@ async def _dispatch_durable_event_job(payload: TenantJobPayload | None) -> None:
 # this list exists so that later phase's worker has something real to
 # import, and so this phase's own durability test can build a worker
 # without inventing a second registration mechanism).
-DURABLE_EVENT_JOB_FUNCTIONS = [register_job(_dispatch_durable_event_job)]
+DURABLE_EVENT_JOB_FUNCTIONS = [register_tenant_job(_dispatch_durable_event_job)]
 
 
 async def publish_durable(event: Event, *, queue_name: str | None = None) -> str:

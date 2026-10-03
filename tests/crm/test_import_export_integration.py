@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from arq import create_pool
 from arq.connections import RedisSettings
-from infra.jobs import TenantJobPayload
+from infra.jobs import TenantJobContext, TenantJobPayload
 from product.agency.provisioning import provision_agency, provision_client
 from product.crm.contacts import create_contact
 from product.crm.errors import CrmAccessDeniedError
@@ -64,7 +64,7 @@ async def _run_job_inline(
             "actor_user_id": str(actor_id),
         },
     )
-    await _run_import_job(payload)
+    await _run_import_job(TenantJobContext(tenant_id=tenant_id), payload)
 
 
 async def test_export_then_reimport_round_trips() -> None:

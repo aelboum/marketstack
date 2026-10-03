@@ -67,6 +67,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from core.identity import MembershipStatus, add_tenant_membership, create_user, list_tenant_members
 from core.rbac import Role, RoleScope, assign_role, create_role, list_membership_roles, list_roles
 
@@ -92,7 +93,9 @@ def _get_or_create_receptionist_role(tenant_id: uuid.UUID) -> Role:
     for role in list_roles(tenant_id):
         if role.name == RECEPTIONIST_ROLE_NAME:
             return role
-    return create_role(tenant_id, RECEPTIONIST_ROLE_NAME)
+    return create_role(
+        tenant_id, RECEPTIONIST_ROLE_NAME, caller=SystemCaller(SystemAuthority.PROVISIONING)
+    )
 
 
 def _find_existing_receptionist(
@@ -144,13 +147,15 @@ def ensure_ai_receptionist_actor(
         return existing
 
     user = create_user()
-    membership = add_tenant_membership(tenant_id, user.id)
+    membership = add_tenant_membership(
+        tenant_id, user.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+    )
     assign_role(
         tenant_id,
         membership.id,
         role.id,
         scope=RoleScope.SELF,
-        actor_user_id=actor_user_id,
+        caller=UserCaller(actor_user_id),
     )
     return AiReceptionistActor(
         tenant_id=tenant_id,

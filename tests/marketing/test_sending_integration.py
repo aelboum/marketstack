@@ -12,7 +12,7 @@ import uuid
 import pytest
 from core.audit_log import list as list_audit_log
 from core.email.provider import FakeEmailProvider
-from infra.jobs import TenantJobPayload
+from infra.jobs import TenantJobContext, TenantJobPayload
 from product.agency.provisioning import provision_agency, provision_client
 from product.crm.contacts import create_contact
 from product.crm.custom_fields import define_field, set_field_value
@@ -70,7 +70,12 @@ async def _run_job_inline(
         tenant_id=str(tenant_id),
         data={"campaign_id": str(campaign_id), "actor_user_id": str(actor_id)},
     )
-    await _run_campaign_send_job(payload, email_provider=email_provider, sms_provider=sms_provider)
+    await _run_campaign_send_job(
+        TenantJobContext(tenant_id=tenant_id),
+        payload,
+        email_provider=email_provider,
+        sms_provider=sms_provider,
+    )
 
 
 async def test_segmentation_by_tag_sends_only_to_matching_contacts() -> None:

@@ -138,6 +138,7 @@ from dataclasses import dataclass
 
 from core.audit_log import ActorType, AuditOutcome
 from core.audit_log import record as record_audit_event
+from core.authority import SystemAuthority, SystemCaller
 from core.idempotency import (
     IdempotencyInProgressError,
     IdempotencyStatus,
@@ -231,12 +232,20 @@ def bootstrap_platform_tenant(actor_user_id: uuid.UUID) -> PlatformTenant:
     transition_tenant_status(tenant.id, TenantStatus.ACTIVE)
 
     role = ensure_platform_owner_role(tenant.id)
-    membership = add_tenant_membership(tenant.id, actor_user_id)
+    membership = add_tenant_membership(
+        tenant.id, actor_user_id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+    )
     # First role in a brand-new tenant -- identical reasoning to
     # provision_agency()'s own use of this same narrow trust boundary: no
     # actor could hold assign_role()'s anti-amplification authority yet,
     # since nothing has been granted in this tenant before this line.
-    assign_first_role_for_new_tenant(tenant.id, membership.id, role.id, scope=RoleScope.SUBTREE)
+    assign_first_role_for_new_tenant(
+        tenant.id,
+        membership.id,
+        role.id,
+        scope=RoleScope.SUBTREE,
+        caller=SystemCaller(SystemAuthority.PROVISIONING),
+    )
 
     return PlatformTenant(
         tenant_id=tenant.id,

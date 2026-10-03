@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from core.authority import UserCaller
 from core.rbac import (
     RoleScope,
     SupportAccessRequest,
@@ -32,7 +33,7 @@ def request_client_support_access(
     requested_starts_at: datetime | None = None,
 ) -> SupportAccessRequest:
     return create_support_access_request(
-        requester_user_id=requester_user_id,
+        caller=UserCaller(requester_user_id),
         tenant_id=tenant_id,
         reason=reason,
         requested_expires_at=requested_expires_at,
@@ -45,7 +46,7 @@ def approve_client_support_access(
     *, approver_user_id: uuid.UUID, tenant_id: uuid.UUID, request_id: uuid.UUID
 ) -> SupportAccessRequest:
     return approve_support_access(
-        approver_user_id=approver_user_id, tenant_id=tenant_id, request_id=request_id
+        caller=UserCaller(approver_user_id), tenant_id=tenant_id, request_id=request_id
     )
 
 
@@ -53,7 +54,7 @@ def deny_client_support_access(
     *, approver_user_id: uuid.UUID, tenant_id: uuid.UUID, request_id: uuid.UUID
 ) -> SupportAccessRequest:
     return deny_support_access(
-        approver_user_id=approver_user_id, tenant_id=tenant_id, request_id=request_id
+        caller=UserCaller(approver_user_id), tenant_id=tenant_id, request_id=request_id
     )
 
 
@@ -61,5 +62,5 @@ def revoke_client_support_access(
     *, revoker_user_id: uuid.UUID, tenant_id: uuid.UUID, request_id: uuid.UUID
 ) -> SupportAccessRequest:
     return revoke_support_access(
-        revoker_user_id=revoker_user_id, tenant_id=tenant_id, request_id=request_id
+        caller=UserCaller(revoker_user_id), tenant_id=tenant_id, request_id=request_id
     )

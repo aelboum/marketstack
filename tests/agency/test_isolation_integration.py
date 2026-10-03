@@ -106,9 +106,14 @@ def test_client_cannot_access_unrelated_client_data() -> None:
     client_b = provision_client(owner_b.id, agency_b.tenant_id, _name("client-b"))
     client_a_member = make_user()
     try:
+        from core.authority import SystemAuthority, SystemCaller
         from core.identity import add_tenant_membership
 
-        add_tenant_membership(client_a.tenant_id, client_a_member.id)
+        add_tenant_membership(
+            client_a.tenant_id,
+            client_a_member.id,
+            caller=SystemCaller(SystemAuthority.PROVISIONING),
+        )
         assert not can(
             actor_id=client_a_member.id,
             tenant_id=client_b.tenant_id,

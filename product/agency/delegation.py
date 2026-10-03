@@ -20,6 +20,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from core.authority import UserCaller
 from core.rbac import (
     DelegationGrant,
     DenyGrant,
@@ -55,7 +56,7 @@ def create_client_delegation(
 ) -> DelegationGrant:
     permission_id = _resolve_permission_id(resource, action)
     return create_delegation(
-        delegator_user_id=delegator_user_id,
+        caller=UserCaller(delegator_user_id),
         delegate_user_id=delegate_user_id,
         tenant_id=tenant_id,
         scope_mode=scope_mode,
@@ -70,7 +71,7 @@ def revoke_client_delegation(
     *, revoker_user_id: uuid.UUID, tenant_id: uuid.UUID, delegation_grant_id: uuid.UUID
 ) -> DelegationGrant:
     return revoke_delegation(
-        revoker_user_id=revoker_user_id,
+        caller=UserCaller(revoker_user_id),
         tenant_id=tenant_id,
         delegation_grant_id=delegation_grant_id,
     )
@@ -87,7 +88,7 @@ def create_client_deny(
 ) -> DenyGrant:
     permission_id = _resolve_permission_id(resource, action)
     return create_deny(
-        grantor_user_id=grantor_user_id,
+        caller=UserCaller(grantor_user_id),
         principal_user_id=principal_user_id,
         tenant_id=tenant_id,
         scope_mode=scope_mode,
@@ -99,5 +100,5 @@ def revoke_client_deny(
     *, revoker_user_id: uuid.UUID, tenant_id: uuid.UUID, deny_grant_id: uuid.UUID
 ) -> DenyGrant:
     return revoke_deny(
-        revoker_user_id=revoker_user_id, tenant_id=tenant_id, deny_grant_id=deny_grant_id
+        caller=UserCaller(revoker_user_id), tenant_id=tenant_id, deny_grant_id=deny_grant_id
     )

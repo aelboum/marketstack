@@ -22,6 +22,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from core.billing import EntitlementDeniedError, create_plan, subscribe
 from core.billing.provider import FakeBillingProvider
 from core.identity import add_tenant_membership
@@ -221,14 +222,16 @@ def test_rbac_denial_is_enforced_even_when_the_tenant_is_fully_entitled() -> Non
     owner = make_user()
     agency, client = _agency_and_client(owner.id)
     member = make_user()
-    membership = add_tenant_membership(agency.tenant_id, member.id)
+    membership = add_tenant_membership(
+        agency.tenant_id, member.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+    )
     member_role = ensure_client_member_role(agency.tenant_id)
     assign_role(
         agency.tenant_id,
         membership.id,
         member_role.id,
         scope=RoleScope.SELF,
-        actor_user_id=owner.id,
+        caller=UserCaller(owner.id),
     )
     platform_key = _subscribe_agency(
         owner.id,

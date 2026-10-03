@@ -49,6 +49,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from core.authority import SystemAuthority, SystemCaller
 from core.identity import add_tenant_membership
 from core.rbac import RoleScope, assign_first_role_for_new_tenant, can
 from core.tenancy import (
@@ -124,13 +125,21 @@ def provision_agency(actor_user_id: uuid.UUID, name: str) -> Agency:
     transition_tenant_status(tenant.id, TenantStatus.ACTIVE)
 
     role = ensure_agency_owner_role(tenant.id)
-    membership = add_tenant_membership(tenant.id, actor_user_id)
+    membership = add_tenant_membership(
+        tenant.id, actor_user_id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+    )
     # First role in a brand-new tenant -- no actor could hold the
     # anti-amplification authority assign_role() would otherwise demand,
     # since nothing has been granted in this tenant yet. Mirrors
     # reference-consumer's own identical use of this same explicit,
     # narrow trust boundary.
-    assign_first_role_for_new_tenant(tenant.id, membership.id, role.id, scope=RoleScope.SUBTREE)
+    assign_first_role_for_new_tenant(
+        tenant.id,
+        membership.id,
+        role.id,
+        scope=RoleScope.SUBTREE,
+        caller=SystemCaller(SystemAuthority.PROVISIONING),
+    )
 
     return Agency(
         tenant_id=tenant.id,

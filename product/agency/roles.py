@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import uuid
 
+from core.authority import SystemAuthority, SystemCaller
 from core.rbac import (
     Role,
     create_role,
@@ -115,7 +116,7 @@ def _get_or_create_role(tenant_id: uuid.UUID, name: str) -> Role:
     for role in list_roles(tenant_id):
         if role.name == name:
             return role
-    return create_role(tenant_id, name)
+    return create_role(tenant_id, name, caller=SystemCaller(SystemAuthority.PROVISIONING))
 
 
 def ensure_agency_owner_role(tenant_id: uuid.UUID) -> Role:
@@ -134,7 +135,12 @@ def ensure_agency_owner_role(tenant_id: uuid.UUID) -> Role:
         # check-then-grant via get_role_permission() rather than
         # grant-and-catch.
         if get_role_permission(tenant_id, role.id, permission.id) is None:
-            grant_permission(tenant_id, role.id, permission.id)
+            grant_permission(
+                tenant_id,
+                role.id,
+                permission.id,
+                caller=SystemCaller(SystemAuthority.PROVISIONING),
+            )
     _publish_role_provisioned(tenant_id, role, AGENCY_OWNER_ROLE_NAME)
     return role
 

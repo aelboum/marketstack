@@ -241,6 +241,21 @@ def _subscription_dict(view: SubscriptionView) -> dict[str, object]:
 def list_platform_plans_route(
     actor_id: uuid.UUID = Depends(get_current_actor),
 ) -> list[dict[str, object]]:
+    # NOT repaired for the frozen SaaS-OS contract -- left calling the
+    # pre-upgrade `list_plans()` signature deliberately, as a visible
+    # failure rather than a silent one. The frozen `core.billing.list_plans
+    # (caller, *, service_tenant_id)` (Catalog v2) has no tenant-agnostic
+    # form any more (core/billing/catalog.py: "there is no unrestricted
+    # plan enumeration"), and this route -- unlike every other route in
+    # this file -- has no `{tenant_id}` in its path to supply one from.
+    # Supplying a fabricated tenant_id would violate this repair's own
+    # "no fake tenant" constraint and would change nothing observable
+    # anyway: every plan this product creates is still an unowned legacy
+    # plan (`product/billing/resale_plans.py::create_resale_plan()`), so
+    # Catalog v2's `list_plans()` returns `[]` for every tenant until
+    # plans are adopted -- a B2B2C/Catalog-v2 decision explicitly out of
+    # scope for this compatibility step. See the compatibility-repair
+    # report's "Additional Compatibility Findings" section.
     del actor_id  # authentication only -- see module docstring
     return [
         {"key": plan.key, "name": plan.name, "entitlements": plan.entitlements}

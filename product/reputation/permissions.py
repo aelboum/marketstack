@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 
+from core.authority import SystemAuthority, SystemCaller
 from core.rbac import Role, can, get_role_permission, grant_permission, register_permission
 
 from product.reputation.errors import ReputationAccessDeniedError
@@ -36,7 +37,12 @@ def grant_to_role(
     for action in actions:
         permission = register_permission(resource, action)
         if get_role_permission(tenant_id, role.id, permission.id) is None:
-            grant_permission(tenant_id, role.id, permission.id)
+            grant_permission(
+                tenant_id,
+                role.id,
+                permission.id,
+                caller=SystemCaller(SystemAuthority.PROVISIONING),
+            )
 
 
 def require(actor_user_id: uuid.UUID, tenant_id: uuid.UUID, *, resource: str, action: str) -> None:

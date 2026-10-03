@@ -62,6 +62,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
+from core.authority import UserCaller
 from core.identity import (
     Invitation,
     TenantMembership,
@@ -90,7 +91,9 @@ def invite_client_member(
     against `(resource="invitation", action="create")`, which the
     inviting agency's owner role holds (via its `SUBTREE` reach into this
     client, or via a client's own direct member holding it locally)."""
-    invitation, raw_token = create_invitation(client_tenant_id, actor_user_id, invited_email)
+    invitation, raw_token = create_invitation(
+        client_tenant_id, invited_email, caller=UserCaller(actor_user_id)
+    )
     return InvitationSent(
         invitation_id=invitation.id, tenant_id=client_tenant_id, raw_token=raw_token
     )
@@ -163,7 +166,7 @@ def accept_client_invitation(
     behavior means a second accepted invitation for an existing member
     can reach here with a membership that was already given its starting
     role the first time)."""
-    membership = accept_invitation(raw_token, accepting_user_id, tenant_id)
+    membership = accept_invitation(raw_token, tenant_id, caller=UserCaller(accepting_user_id))
 
     inviter_user_id = _resolve_inviter_user_id(tenant_id, accepting_user_id)
     # `accept_invitation()` above just set `accepted_by_user_id` on the
@@ -238,5 +241,5 @@ def assign_starting_client_role(
         membership_id,
         role.id,
         scope=RoleScope.SELF,
-        actor_user_id=actor_user_id,
+        caller=UserCaller(actor_user_id),
     )

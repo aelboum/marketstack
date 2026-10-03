@@ -33,7 +33,7 @@ license = { text = "UNLICENSED" }
 # install on this repository's `python:3.13-slim` image or this Windows
 # dev machine).
 dependencies = [
-    "saas-os @ git+https://github.com/aelboum/saas-os@78f03b33cab90d0b5d0a06606288f861c5cf46f7",
+    "saas-os @ git+https://github.com/aelboum/saas-os@4fccc9370f3acf82cbc03fedd5c3adbade223d97",
     "temporalio==1.33.0",
     # scripts/configure_zitadel_login_v2.py's own direct ZITADEL Management
     # API client (docs/ADR/0017-product-owned-zitadel-login-service.md).
@@ -105,6 +105,7 @@ packages = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -191,6 +192,7 @@ modules = [
     "product.reporting",
     "product.white_label",
     "product.integrations",
+    "product.platform",
 ]
 
 # Phase 6: product.marketing is deliberately NOT in the independence list
@@ -229,6 +231,7 @@ forbidden_modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -281,6 +284,7 @@ forbidden_modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -334,6 +338,7 @@ forbidden_modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -374,6 +379,7 @@ forbidden_modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -404,6 +410,7 @@ forbidden_modules = [
     "product.reporting",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -462,6 +469,7 @@ forbidden_modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -502,6 +510,7 @@ forbidden_modules = [
     "product.reporting",
     "product.white_label",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -549,6 +558,7 @@ forbidden_modules = [
     "product.reporting",
     "product.white_label",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -588,6 +598,7 @@ forbidden_modules = [
     "product.reporting",
     "product.white_label",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 
@@ -629,6 +640,7 @@ forbidden_modules = [
     "product.white_label",
     "product.templates",
     "product.integrations",
+    "product.platform",
     "product.api",
 ]
 

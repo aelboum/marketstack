@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from core.audit_log import ActorType, AuditOutcome, record
+from core.authority import UserCaller
 from core.billing import (
     BillingProvider,
     Subscription,
@@ -83,15 +84,27 @@ class SubscriptionView:
     updated_at: datetime
 
 
-def _resolve_plan_key(plan_id: uuid.UUID) -> str | None:
+def _resolve_plan_key(
+    plan_id: uuid.UUID, actor_user_id: uuid.UUID, tenant_id: uuid.UUID
+) -> str | None:
     """`core.billing` exposes no `get_plan_by_id()` -- `Subscription`
     stores only `plan_id` (module docstring: SaaS-OS's own `Plan` schema).
-    `list_plans()` is the one published function that can resolve it;
-    the global catalog is expected to stay small (platform pricing tiers
-    plus one auto-created row per `ResalePlan`), so this linear scan is
-    the correct, minimal approach -- never a second, product-maintained
-    id->key index."""
-    for plan in list_plans():
+    `list_plans(caller, *, service_tenant_id)` (frozen SaaS-OS contract,
+    Catalog v2) is the one published function that can resolve it; this
+    linear scan over it is unchanged from the pre-upgrade approach --
+    never a second, product-maintained id->key index.
+
+    KNOWN REGRESSION (SaaS-OS compatibility repair, not a B2B2C change):
+    Catalog v2's `list_plans()` enumerates only *adopted* plans
+    (`Plan.owner_tenant_id IS NOT NULL`). Every plan this product creates
+    -- the global platform catalog and every `ResalePlan`'s underlying
+    `Plan` -- still goes through the legacy, unowned `core.billing
+    .create_plan()` (`product/billing/resale_plans.py::create_resale_plan()`),
+    so none is ever adopted and this scan now always returns `None` here.
+    Adopting plans into Catalog v2 is explicitly out of scope for this
+    compatibility step; see the audit report for the deferred follow-up."""
+    caller = UserCaller(actor_user_id)
+    for plan in list_plans(caller, service_tenant_id=tenant_id):
         if plan.id == plan_id:
             return plan.key
     return None
@@ -106,8 +119,8 @@ def _resale_plan_id_from_key(plan_key: str | None) -> uuid.UUID | None:
         return None
 
 
-def _to_view(row: Subscription) -> SubscriptionView:
-    plan_key = _resolve_plan_key(row.plan_id)
+def _to_view(row: Subscription, actor_user_id: uuid.UUID, tenant_id: uuid.UUID) -> SubscriptionView:
+    plan_key = _resolve_plan_key(row.plan_id, actor_user_id, tenant_id)
     return SubscriptionView(
         id=row.id,
         tenant_id=row.tenant_id,
@@ -138,7 +151,7 @@ def create_platform_subscription(
         actor_user_id=actor_user_id,
     )
     subscription = billing_get_subscription(tenant_id, result.subscription_id)
-    return _to_view(subscription)
+    return _to_view(subscription, actor_user_id, tenant_id)
 
 
 def create_resale_subscription(
@@ -187,7 +200,7 @@ def create_resale_subscription(
         )
     )
     subscription = billing_get_subscription(tenant_id, result.subscription_id)
-    return _to_view(subscription)
+    return _to_view(subscription, actor_user_id, tenant_id)
 
 
 def get_subscription(
@@ -195,12 +208,14 @@ def get_subscription(
 ) -> SubscriptionView:
     require(actor_user_id, tenant_id, resource=SUBSCRIPTION_RESOURCE, action="read")
     subscription = billing_get_subscription(tenant_id, subscription_id)
-    return _to_view(subscription)
+    return _to_view(subscription, actor_user_id, tenant_id)
 
 
 def list_subscriptions(actor_user_id: uuid.UUID, tenant_id: uuid.UUID) -> list[SubscriptionView]:
     require(actor_user_id, tenant_id, resource=SUBSCRIPTION_RESOURCE, action="read")
-    return [_to_view(row) for row in billing_list_subscriptions(tenant_id)]
+    return [
+        _to_view(row, actor_user_id, tenant_id) for row in billing_list_subscriptions(tenant_id)
+    ]
 
 
 def change_subscription_plan(
@@ -237,7 +252,7 @@ def change_subscription_plan(
         provider=provider,
         actor_user_id=actor_user_id,
     )
-    return _to_view(subscription)
+    return _to_view(subscription, actor_user_id, tenant_id)
 
 
 def cancel_subscription(
@@ -251,7 +266,7 @@ def cancel_subscription(
     subscription = billing_cancel_subscription(
         tenant_id, subscription_id, provider=provider, actor_user_id=actor_user_id
     )
-    return _to_view(subscription)
+    return _to_view(subscription, actor_user_id, tenant_id)
 
 
 def get_effective_entitlements(actor_user_id: uuid.UUID, tenant_id: uuid.UUID) -> dict[str, object]:
