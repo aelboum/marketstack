@@ -59,6 +59,7 @@ from core.billing import get_subscription as billing_get_subscription
 from core.billing import list_subscriptions as billing_list_subscriptions
 from core.billing import upgrade_subscription as billing_upgrade_subscription
 
+from product.billing.catalog import ensure_legacy_plan_adopted
 from product.billing.errors import BillingValidationError
 from product.billing.models import RESALE_PLAN_STATUS_ENABLED
 from product.billing.permissions import SUBSCRIPTION_RESOURCE, require
@@ -94,15 +95,17 @@ def _resolve_plan_key(
     linear scan over it is unchanged from the pre-upgrade approach --
     never a second, product-maintained id->key index.
 
-    KNOWN REGRESSION (SaaS-OS compatibility repair, not a B2B2C change):
-    Catalog v2's `list_plans()` enumerates only *adopted* plans
-    (`Plan.owner_tenant_id IS NOT NULL`). Every plan this product creates
-    -- the global platform catalog and every `ResalePlan`'s underlying
-    `Plan` -- still goes through the legacy, unowned `core.billing
-    .create_plan()` (`product/billing/resale_plans.py::create_resale_plan()`),
-    so none is ever adopted and this scan now always returns `None` here.
-    Adopting plans into Catalog v2 is explicitly out of scope for this
-    compatibility step; see the audit report for the deferred follow-up."""
+    Resolves correctly as long as `plan_id`'s own plan has been adopted
+    into Catalog v2 (`Plan.owner_tenant_id IS NOT NULL`) by an *eligible*
+    owner (`core.billing.evaluate_plan_eligibility()`: an `active`
+    merchant, `public` visibility) -- `create_platform_subscription()`/
+    `change_subscription_plan()` and `product/billing/resale_plans.py
+    ::create_resale_plan()` all now call `product/billing/catalog.py
+    ::ensure_legacy_plan_adopted()` for exactly this reason (Catalog v2
+    legacy-plan resolution fix, docs/ROADMAP.md Phase 16 Step 4) --
+    returns `None` only for a plan this function's own caller was never
+    actually subscribed through those paths (should not happen in
+    practice)."""
     caller = UserCaller(actor_user_id)
     for plan in list_plans(caller, service_tenant_id=tenant_id):
         if plan.id == plan_id:
@@ -143,6 +146,14 @@ def create_platform_subscription(
     provider: BillingProvider | None = None,
 ) -> SubscriptionView:
     require(actor_user_id, tenant_id, resource=SUBSCRIPTION_RESOURCE, action="create")
+    # Catalog v2 legacy-plan resolution fix (docs/ROADMAP.md Phase 16, Step
+    # 4): adopts `platform_plan_key`'s plan into `tenant_id`'s own catalog
+    # if no tenant has adopted it yet -- a one-time, idempotent ownership
+    # assignment (`product/billing/catalog.py::ensure_legacy_plan_adopted()`'s
+    # own docstring), never a second plan creation. Does not change which
+    # subscription is created below; only makes `_resolve_plan_key()` able
+    # to resolve this subscription's `plan_key` afterward.
+    ensure_legacy_plan_adopted(platform_plan_key, tenant_id)
     _is_replay, result = subscribe_idempotent(
         tenant_id,
         platform_plan_key,
@@ -240,9 +251,14 @@ def change_subscription_plan(
         resale_plan = get_resale_plan_for_recipient(tenant_id, resale_plan_id)
         if resale_plan.status != RESALE_PLAN_STATUS_ENABLED:
             raise BillingValidationError("that resale plan is not currently available.")
+        # Already adopted at create_resale_plan() time -- its own
+        # underlying_plan_key is never shared with another ResalePlan.
         new_plan_key = resale_plan.underlying_plan_key
     else:
         assert platform_plan_key is not None
+        # Catalog v2 legacy-plan resolution fix -- see
+        # create_platform_subscription()'s own identical comment.
+        ensure_legacy_plan_adopted(platform_plan_key, tenant_id)
         new_plan_key = platform_plan_key
 
     subscription = billing_upgrade_subscription(

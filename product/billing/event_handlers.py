@@ -18,12 +18,26 @@ client's own role, with no special-casing.
 
 `owner`: full control over its own tenant's resale catalog (`create`,
 `read`, `update`, `deactivate`) plus full subscription lifecycle
-(`create`, `read`, `update`, `cancel`). `member`: `read`-only on the
-resale catalog (viewing tiers, never defining pricing -- a
-revenue-critical decision reserved for `owner`, mirroring
-`product/reputation/event_handlers.py`'s own "cancel is owner-only"
-precedent) plus `create`/`read`/`update` on subscriptions, never
+(`create`, `read`, `update`, `cancel`) plus `billing.catalog:manage`
+(Step 4 below). `member`: `read`-only on the resale catalog (viewing
+tiers, never defining pricing -- a revenue-critical decision reserved for
+`owner`, mirroring `product/reputation/event_handlers.py`'s own "cancel
+is owner-only" precedent, now also the reason `billing.catalog:manage` is
+`owner`-only) plus `create`/`read`/`update` on subscriptions, never
 `cancel`.
+
+**`billing.catalog:read`/`:manage` (Catalog v2 Owned Plans & Offers, Step
+4)** is the frozen contract's own `billing.catalog` resource (`core
+/billing/authorization.py`'s own vocabulary table) -- `manage` is what
+`core.billing.catalog.create_owned_plan()`/`create_plan_offer()`/
+`set_plan_visibility()`/`withdraw_plan()`/`revoke_plan_offer()` all
+authorize against on the owner tenant internally; `read` is what
+`core.billing.evaluate_plan_eligibility()`'s own `private`-visibility
+rule consults (`can(caller, owner, billing.catalog:read)`) -- without it
+an owner could create a `private` plan and never see it eligible even for
+its own tenant. Both granted to `owner` only, for the identical "defining
+commercial terms is revenue-critical" reason `RESALE_PLAN_RESOURCE`'s own
+`create`/`update`/`deactivate` actions already are.
 
 **`billing.account:charge` (B2B2C Sponsored Subscriptions, Step 3)** is
 granted to both `owner` and `member` at their own tenant, for the
@@ -75,6 +89,7 @@ from core.rbac import get_role
 from product.billing.parties import _ensure_platform_merchant_account
 from product.billing.permissions import (
     BILLING_ACCOUNT_RESOURCE,
+    BILLING_CATALOG_RESOURCE,
     RESALE_PLAN_RESOURCE,
     SUBSCRIPTION_RESOURCE,
     grant_to_role,
@@ -89,6 +104,7 @@ _OWNER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (RESALE_PLAN_RESOURCE, ("create", "read", "update", "deactivate")),
     (SUBSCRIPTION_RESOURCE, ("create", "read", "update", "cancel")),
     (BILLING_ACCOUNT_RESOURCE, ("charge",)),
+    (BILLING_CATALOG_RESOURCE, ("read", "manage")),
 )
 _MEMBER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (RESALE_PLAN_RESOURCE, ("read",)),

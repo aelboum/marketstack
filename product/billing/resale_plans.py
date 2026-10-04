@@ -1,4 +1,7 @@
-"""Resale-plan catalog management (docs/ROADMAP.md Phase 13.2).
+"""Resale-plan catalog management (docs/ROADMAP.md Phase 13.2; Catalog v2
+legacy-plan resolution fix, Phase 16 Step 4 -- see `create_resale_plan()`'s
+own `ensure_legacy_plan_adopted()` call, and `product/billing/catalog.py`'s
+own module docstring point 2 for the full reasoning).
 
 Every mutating/read function authorizes via
 `product.billing.permissions.require()` first, then the actual database
@@ -148,6 +151,7 @@ from core.tenancy import get_ancestor_chain
 from core.usage import consume_quota
 from infra.db import IntegrityError, select, tenant_session_scope
 
+from product.billing.catalog import ensure_legacy_plan_adopted
 from product.billing.errors import (
     BillingConflictError,
     BillingReferenceNotFoundError,
@@ -345,6 +349,15 @@ def create_resale_plan(
         entitlements=validated_entitlements,
         provider_price_id=None,
     )
+    # Catalog v2 legacy-plan resolution fix (docs/ROADMAP.md Phase 16, Step
+    # 4) -- adopts the plan just created, under this reseller's own
+    # catalog, so `product/billing/subscriptions.py::_resolve_plan_key()`
+    # can resolve it back to `underlying_plan_key` for every future
+    # `create_resale_subscription()`/`change_subscription_plan()` call
+    # against it. `underlying_plan_key` is freshly minted above (a new
+    # UUID, module docstring) -- never shared with another `ResalePlan`
+    # -- so this is always a first adoption, never a race.
+    ensure_legacy_plan_adopted(underlying_plan_key, tenant_id)
 
     try:
         with tenant_session_scope(tenant_id) as session:

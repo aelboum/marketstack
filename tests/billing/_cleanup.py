@@ -54,6 +54,27 @@ ever wrote one against a real tenant, so no existing `tests/*/_cleanup.py`
 knows about either table, and both carry a NOT NULL `tenant_id` foreign
 key with no `ON DELETE CASCADE`.
 
+`core.billing_plan_offers`/`core.billing_plans` (Catalog v2 Owned Plans &
+Offers, Step 4 -- `product/billing/catalog.py`) are this test suite's
+responsibility starting now: `ensure_legacy_plan_adopted()` (called by
+`create_platform_subscription()`/`change_subscription_plan()`/
+`create_resale_plan()`) sets a legacy plan's `owner_tenant_id`/
+`merchant_account_id` to a real tenant for the first time, and
+`create_owned_plan()`/`create_plan_offer()` (`tests/billing
+/test_catalog_integration.py`) create genuinely owner-tenant-scoped rows
+outright. `core.billing_plans` is deliberately NOT RLS-scoped (`core
+/billing/catalog.py`'s own module docstring, "Storage and isolation") but
+is still reachable and deletable through a tenant-scoped session, exactly
+like `core.billing_provider_refs` above; `fk_billing_plans_owner_merchant`
+(a plan's merchant) and `fk_billing_plan_offers_plan_owner` (an offer's
+plan) both mean offers must be deleted before plans, and plans before
+`core.billing_merchant_accounts` -- both run in this function's own first
+per-tenant pass, ahead of the second, merchant-only pass below. Deleting
+by `owner_tenant_id` here (not `tenant_id`, which `Plan` does not have)
+is correct and sufficient: every plan this test suite ever adopts or
+creates is owned by one of the tenants it itself provisions, never by an
+unrelated one.
+
 Underscore-prefixed filename -- not itself a test module, mirrors every
 other `tests/*/_cleanup.py`'s own convention.
 """
@@ -119,6 +140,17 @@ def cleanup_tenant_tree(*tenant_ids_leaf_to_root: uuid.UUID) -> None:
             )
             session.execute(
                 text("DELETE FROM core.billing_provider_refs WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            # Catalog v2 (Step 4): offers before plans, plans before
+            # core.billing_merchant_accounts (second pass below) --
+            # module docstring.
+            session.execute(
+                text("DELETE FROM core.billing_plan_offers WHERE tenant_id = :t"),
+                {"t": str(tenant_id)},
+            )
+            session.execute(
+                text("DELETE FROM core.billing_plans WHERE owner_tenant_id = :t"),
                 {"t": str(tenant_id)},
             )
             session.execute(

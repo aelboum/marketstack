@@ -32,7 +32,22 @@ reused deliberately, not reinvented, so that granting it here (`billing
 only grant the payer side of `create_subscription()`'s dual authorization
 needs; see that module's own docstring for exactly which roles receive
 it ("which roles receive them is a consumer's decision," `core/billing
-/authorization.py`'s own words, verified directly)."""
+/authorization.py`'s own words, verified directly).
+
+`BILLING_CATALOG_RESOURCE = "billing.catalog"` is added for Step 4
+(Catalog v2 Owned Plans & Offers, `product/billing/catalog.py`) for the
+identical reason -- the frozen contract's own `BILLING_CATALOG` constant.
+`core.billing.catalog.create_owned_plan()`/`create_plan_offer()`/
+`set_plan_visibility()`/`withdraw_plan()`/`revoke_plan_offer()` all
+authorize `manage` on the owner tenant internally; granting it here (to
+`owner` only, `product/billing/event_handlers.py` -- catalog/pricing
+management is as revenue-critical as resale-plan management, which is
+already `owner`-only) is this product's one grant for that action.
+`read` is also granted to `owner` -- `core.billing
+.evaluate_plan_eligibility()`'s own `private`-visibility rule consults
+`can(caller, owner, billing.catalog:read)`, so without it an owner could
+create a `private` plan and then never see it listed as eligible even
+for its own tenant as the service tenant."""
 
 from __future__ import annotations
 
@@ -48,6 +63,9 @@ SUBSCRIPTION_RESOURCE = "billing.subscription"
 #: Step 3 (B2B2C Sponsored Subscriptions) -- see module docstring. Byte
 #: for byte `core.billing.authorization.BILLING_ACCOUNT`.
 BILLING_ACCOUNT_RESOURCE = "billing.account"
+#: Step 4 (Catalog v2 Owned Plans & Offers) -- see module docstring. Byte
+#: for byte `core.billing.authorization.BILLING_CATALOG`.
+BILLING_CATALOG_RESOURCE = "billing.catalog"
 
 
 def grant_to_role(
@@ -83,6 +101,7 @@ def require(actor_user_id: uuid.UUID, tenant_id: uuid.UUID, *, resource: str, ac
 
 __all__ = [
     "BILLING_ACCOUNT_RESOURCE",
+    "BILLING_CATALOG_RESOURCE",
     "RESALE_PLAN_RESOURCE",
     "SUBSCRIPTION_RESOURCE",
     "grant_to_role",

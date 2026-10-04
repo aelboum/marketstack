@@ -33,12 +33,31 @@ provider rejected the operation) maps to the same `503` shape
 for its own backend-unavailable case -- a transient, retryable failure,
 never a `400`/`500`.
 
-**Global platform-plan catalog read**: `GET /plans` calls `core.billing
-.list_plans()` directly, with no `product.billing.permissions.require()`
-call -- the global plan catalog is not tenant-owned data (`docs/ADR
-/0012-...`'s own "Plan ownership" section; mirrors `core.feature_flags`'
-identical global-catalog posture), so any authenticated actor may read it.
-Plan *creation* is deliberately not exposed here at all (same section).
+**Global platform-plan catalog read** (Catalog v2 fix, docs/ROADMAP.md
+Phase 16 Step 4): `GET /plans` now calls the frozen `core.billing
+.list_plans(caller, *, service_tenant_id)` (Catalog v2) with a
+`SystemCaller(BILLING_OPERATIONS)` (bypasses `core.rbac.can()` entirely --
+the deliberate, pre-existing "any authenticated actor may read it"
+contract, with no `product.billing.permissions.require()` call, unchanged)
+and `service_tenant_id=core.tenancy.get_platform_tenant_id()`: the plans
+this route now returns are exactly the platform tenant's own adopted
+catalog -- every `platform_plan_key`/`ResalePlan.underlying_plan_key` this
+product creates is adopted there by `product/billing/catalog.py
+::ensure_legacy_plan_adopted()` the first time it is used, `public`
+visibility. Returns `[]`, never a `500`, when no platform tenant is
+configured at all (`core.tenancy.PlatformTenantNotConfiguredError`) --
+a deployment that has not designated one simply has no global catalog yet.
+
+**A genuine, confirmed frozen-contract gap, not fixed here**: the
+pre-Catalog-v2 contract this route originally had -- enumerate literally
+every legacy plan in the deployment, adopted or not, regardless of any
+tenant -- has no Catalog v2 equivalent at all (`core/billing/catalog.py`'s
+own module docstring: "there is no unrestricted plan enumeration"; `core
+.billing` exposes no function that lists unowned/unadopted plans). A plan
+created directly via `core.billing.create_plan()` and never subscribed to
+through `product/billing/subscriptions.py`/`resale_plans.py` (so never
+adopted) is, correctly, no longer returned here. Plan *creation* is
+deliberately not exposed here at all (unchanged).
 
 **SaaS entitlement enforcement** (`product/billing/resale_plans.py
 ::create_resale_plan()`'s own module docstring): `core.billing
@@ -72,6 +91,7 @@ import uuid
 
 from api.dependencies import get_current_actor
 from api.errors import forbidden, not_found, quota_exceeded, service_unavailable
+from core.authority import SystemAuthority, SystemCaller
 from core.billing import (
     BillingProviderError,
     DuplicatePlanKeyError,
@@ -83,6 +103,7 @@ from core.billing import (
     SubscriptionNotFoundError,
     list_plans,
 )
+from core.tenancy import PlatformTenantNotConfiguredError, get_platform_tenant_id
 from core.usage import QuotaExceededError
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -241,25 +262,20 @@ def _subscription_dict(view: SubscriptionView) -> dict[str, object]:
 def list_platform_plans_route(
     actor_id: uuid.UUID = Depends(get_current_actor),
 ) -> list[dict[str, object]]:
-    # NOT repaired for the frozen SaaS-OS contract -- left calling the
-    # pre-upgrade `list_plans()` signature deliberately, as a visible
-    # failure rather than a silent one. The frozen `core.billing.list_plans
-    # (caller, *, service_tenant_id)` (Catalog v2) has no tenant-agnostic
-    # form any more (core/billing/catalog.py: "there is no unrestricted
-    # plan enumeration"), and this route -- unlike every other route in
-    # this file -- has no `{tenant_id}` in its path to supply one from.
-    # Supplying a fabricated tenant_id would violate this repair's own
-    # "no fake tenant" constraint and would change nothing observable
-    # anyway: every plan this product creates is still an unowned legacy
-    # plan (`product/billing/resale_plans.py::create_resale_plan()`), so
-    # Catalog v2's `list_plans()` returns `[]` for every tenant until
-    # plans are adopted -- a B2B2C/Catalog-v2 decision explicitly out of
-    # scope for this compatibility step. See the compatibility-repair
-    # report's "Additional Compatibility Findings" section.
-    del actor_id  # authentication only -- see module docstring
+    # Catalog v2 fix (module docstring, "Global platform-plan catalog
+    # read") -- authentication only, no RBAC: the frozen contract's own
+    # SystemCaller(BILLING_OPERATIONS) escape hatch is used deliberately,
+    # mirroring this route's own pre-existing "any authenticated actor may
+    # read it" contract.
+    del actor_id
+    try:
+        platform_tenant_id = get_platform_tenant_id()
+    except PlatformTenantNotConfiguredError:
+        return []
+    caller = SystemCaller(SystemAuthority.BILLING_OPERATIONS)
     return [
         {"key": plan.key, "name": plan.name, "entitlements": plan.entitlements}
-        for plan in list_plans()
+        for plan in list_plans(caller, service_tenant_id=platform_tenant_id)
     ]
 
 
