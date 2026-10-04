@@ -7,9 +7,10 @@ regression.
 **Two independent things live in this module.**
 
 1. `create_owned_plan()`/`create_plan_offer()`/`get_owned_plan()`/
-   `set_plan_visibility()`: thin, authorized wrappers over `core.billing
-   .catalog.create_owned_plan()`/`create_plan_offer()`/`list_plans()`/
-   `set_plan_visibility()` -- the forward-looking, correctly
+   `set_plan_visibility()`/`list_eligible_plans()`: thin, authorized
+   wrappers over `core.billing.catalog.create_owned_plan()`/
+   `create_plan_offer()`/`list_plans()`/`set_plan_visibility()` -- the
+   forward-looking, correctly
    modelled path (ADR-0029's own ownership invariant: a plan's owner and
    its merchant are always the SAME tenant, enforced by the frozen
    `fk_billing_plans_owner_merchant` composite foreign key). A tenant
@@ -92,7 +93,7 @@ from core.billing import set_plan_visibility as _set_plan_visibility
 from core.billing.errors import LegacyPlanAdoptionError
 from core.billing.models import MerchantAccount, PlanOffer
 
-from product.billing.permissions import BILLING_CATALOG_RESOURCE, require
+from product.billing.permissions import BILLING_CATALOG_RESOURCE, SUBSCRIPTION_RESOURCE, require
 
 #: The frozen contract's own bridge accepts only this one system purpose
 #: (`core/billing/catalog.py::adopt_legacy_plan()`'s own docstring).
@@ -256,6 +257,36 @@ def get_owned_plan(
     return None
 
 
+def list_eligible_plans(
+    actor_user_id: uuid.UUID, service_tenant_id: uuid.UUID
+) -> list[OwnedPlanView]:
+    """The Catalog v2 plans `actor_user_id` may subscribe
+    `service_tenant_id` to -- B2B2C API Contract Expansion (Step 5)'s
+    replacement for the old, pre-Catalog-v2 `GET /plans` contract
+    (`product/billing/routes.py`'s own module docstring): that route
+    tried an unrestricted, tenant-agnostic enumeration Catalog v2
+    deliberately does not support (`core/billing/catalog.py`'s own module
+    docstring: "there is no unrestricted plan enumeration"). This
+    function is explicitly tenant-scoped instead.
+
+    Authorizes `billing.subscription:read` on `service_tenant_id` first
+    (the same resource/action `get_effective_entitlements()` already
+    uses for "may this caller see what this tenant may do") -- an actor
+    with no role at `service_tenant_id` at all is denied outright, a
+    clean 404 at the route layer, never a silently empty list a caller
+    could mistake for "this tenant has no eligible plans." A caller that
+    *is* authorized then sees exactly what `list_plans()` itself would
+    return: every adopted, active, eligible plan -- platform-wide
+    `public` plans and this tenant's own ancestors' `descendants`/
+    `unlisted` (offered) plans alike, never a plan belonging to an
+    unrelated tenant it has no reach into."""
+    require(actor_user_id, service_tenant_id, resource=SUBSCRIPTION_RESOURCE, action="read")
+    return [
+        _plan_view(plan)
+        for plan in list_plans(UserCaller(actor_user_id), service_tenant_id=service_tenant_id)
+    ]
+
+
 def _find_legacy_catalog_merchant(owner_tenant_id: uuid.UUID) -> MerchantAccount | None:
     ref = _legacy_catalog_provider_account_ref(owner_tenant_id)
     for existing in list_merchant_accounts(owner_tenant_id):
@@ -343,5 +374,6 @@ __all__ = [
     "create_plan_offer",
     "ensure_legacy_plan_adopted",
     "get_owned_plan",
+    "list_eligible_plans",
     "set_plan_visibility",
 ]

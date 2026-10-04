@@ -159,6 +159,7 @@ from core.billing import get_or_create_billing_account as _core_get_or_create_bi
 from core.tenancy import get_platform_tenant_id
 
 from product.billing.errors import PlatformMerchantNotProvisionedError
+from product.billing.permissions import BILLING_ACCOUNT_RESOURCE, require
 
 _PROVIDER = "stripe"
 _PLATFORM_REF_PREFIX = "platform"
@@ -409,10 +410,24 @@ def _get_or_create_platform_billing_account(
     )
 
 
-def list_tenant_billing_accounts(payer_tenant_id: uuid.UUID) -> list[BillingAccountView]:
-    """`payer_tenant_id`'s own `BillingAccount`s, RLS-scoped -- there is
-    no way to name a different tenant's billing accounts through this
-    function."""
+def list_tenant_billing_accounts(
+    actor_user_id: uuid.UUID, payer_tenant_id: uuid.UUID
+) -> list[BillingAccountView]:
+    """`payer_tenant_id`'s own `BillingAccount`s. Authorizes `billing
+    .account:read` on `payer_tenant_id` first (B2B2C API Contract
+    Expansion, Step 5) -- this function's own previous signature took no
+    `actor_user_id` and no authorization at all; safe while its only
+    callers were this module's own tests, but not once
+    `product/billing/routes.py` exposes it over HTTP (an unauthenticated
+    `payer_tenant_id` RLS-scopes to exactly that tenant's own rows, so
+    nothing here ever returns a *different* tenant's accounts, but
+    nothing previously stopped a caller from simply naming an arbitrary
+    `payer_tenant_id` it has no relationship to and reading that
+    tenant's own billing accounts). No existing caller in this repository
+    called this function before Step 5 (confirmed by reading every
+    caller directly), so this is not a breaking change to any real
+    integration."""
+    require(actor_user_id, payer_tenant_id, resource=BILLING_ACCOUNT_RESOURCE, action="read")
     return [_billing_account_view(row) for row in list_billing_accounts(payer_tenant_id)]
 
 

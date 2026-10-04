@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 from product.agency.provisioning import provision_agency, provision_client
 from product.api.main import create_app
 from product.billing.resale_plans import RESELLER_ENABLED_ENTITLEMENT_KEY
+from product.billing.subscriptions import create_platform_subscription
 
 from tests.billing._cleanup import (
     cleanup_global_plan_keys,
@@ -96,40 +97,92 @@ def test_billing_router_is_mounted() -> None:
     """`product/api/main.py::create_app()` actually includes
     `product/billing/routes.py::router` -- proven by asking the running
     application itself (its own OpenAPI schema), not by re-reading the
-    source."""
+    source. `GET /v1/billing/plans` (no tenant context) is gone (B2B2C
+    API Contract Expansion, Step 5) -- replaced by the explicit, tenant-
+    scoped `GET /tenants/{tenant_id}/plans` below, mirroring
+    `tests/accounting/test_api_routes_integration.py`'s own
+    (method, path) set-membership style."""
     schema = create_app().openapi()
-    assert "/v1/billing/plans" in schema["paths"]
-    assert "get" in schema["paths"]["/v1/billing/plans"]
-    assert "/v1/billing/tenants/{tenant_id}/resale-plans" in schema["paths"]
-    assert "/v1/billing/tenants/{tenant_id}/subscriptions" in schema["paths"]
+    paths = schema["paths"]
+    assert "/v1/billing/plans" not in paths
+    expected = {
+        ("get", "/v1/billing/tenants/{tenant_id}/plans"),
+        ("get", "/v1/billing/tenants/{tenant_id}/billing-accounts"),
+        ("post", "/v1/billing/tenants/{tenant_id}/commercial-subscriptions"),
+        ("get", "/v1/billing/tenants/{tenant_id}/commercial-subscriptions/{subscription_id}"),
+        ("get", "/v1/billing/tenants/{tenant_id}/resale-plans"),
+        ("get", "/v1/billing/tenants/{tenant_id}/subscriptions"),
+    }
+    for method, path in expected:
+        assert path in paths, path
+        assert method in paths[path], (method, path)
 
 
-# --- GET /v1/billing/plans (global platform-plan catalog) -----------------------------
+# --- GET /v1/billing/tenants/{tenant_id}/plans (explicit catalog context, Step 5) -----
 
 
 def test_unauthenticated_plans_request_is_401() -> None:
     api = TestClient(create_app())
-    response = api.get("/v1/billing/plans")
+    response = api.get(f"/v1/billing/tenants/{uuid.uuid4()}/plans")
     assert response.status_code == 401
 
 
-def test_list_platform_plans_route_returns_the_existing_contract() -> None:
+def test_authorized_tenant_lists_its_own_eligible_catalog_over_http() -> None:
+    """Replaces `test_list_platform_plans_route_returns_the_existing
+    _contract` (B2B2C API Contract Expansion, Step 5) -- same underlying
+    behavioral guarantee ("an authenticated caller can see the plans it
+    may self-serve"), now through the real, explicit, tenant-scoped
+    contract instead of the old unrestricted, tenant-agnostic one Catalog
+    v2 does not support. Adoption happens at the service layer
+    (`create_platform_subscription()`), never over HTTP -- module
+    docstring's own "subscription creation needs a real Stripe provider"
+    reasoning applies identically here."""
     owner = make_user()
+    agency, client = _agency_and_client(owner.id)
     plan_key = _name("plan")
     create_plan(plan_key, "Test Plan", entitlements={"max_users": 5})
     try:
+        create_platform_subscription(
+            owner.id, agency.tenant_id, plan_key, _name("idem"), provider=FakeBillingProvider()
+        )
         api = TestClient(create_app())
-        response = api.get("/v1/billing/plans", headers=_auth_headers(owner.id))
+        response = api.get(
+            f"/v1/billing/tenants/{agency.tenant_id}/plans", headers=_auth_headers(owner.id)
+        )
         assert response.status_code == 200
         body = response.json()
         assert isinstance(body, list)
         matching = [row for row in body if row["key"] == plan_key]
-        assert matching == [
-            {"key": plan_key, "name": "Test Plan", "entitlements": {"max_users": 5}}
-        ]
+        assert len(matching) == 1
+        plan = matching[0]
+        assert plan["name"] == "Test Plan"
+        assert plan["entitlements"] == {"max_users": 5}
+        assert plan["owner_tenant_id"] == str(agency.tenant_id)
+        assert plan["visibility"] == "public"
+        assert plan["status"] == "active"
     finally:
-        cleanup_global_plan_keys(plan_key)
+        cleanup_tenant_tree(client.tenant_id, agency.tenant_id)
         cleanup_users(owner.id)
+        cleanup_global_plan_keys(plan_key)
+
+
+def test_unrelated_actor_cannot_list_an_unrelated_tenants_catalog_over_http() -> None:
+    """Attack 4 (catalog enumeration): supplying an arbitrary tenant id
+    the caller has no role at all is denied, never a silently empty
+    `[]` -- a non-enumerating `404`, the same shape every other
+    cross-tenant denial in this router already has."""
+    owner_a = make_user()
+    stranger = make_user()
+    agency_a, client_a = _agency_and_client(owner_a.id)
+    try:
+        api = TestClient(create_app())
+        response = api.get(
+            f"/v1/billing/tenants/{agency_a.tenant_id}/plans", headers=_auth_headers(stranger.id)
+        )
+        assert response.status_code == 404
+    finally:
+        cleanup_tenant_tree(client_a.tenant_id, agency_a.tenant_id)
+        cleanup_users(owner_a.id, stranger.id)
 
 
 # --- Resale plans: authentication, permission enforcement, tenant isolation -----------

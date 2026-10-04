@@ -33,30 +33,33 @@ provider rejected the operation) maps to the same `503` shape
 for its own backend-unavailable case -- a transient, retryable failure,
 never a `400`/`500`.
 
-**Global platform-plan catalog read** (Catalog v2 fix, docs/ROADMAP.md
-Phase 16 Step 4): `GET /plans` now calls the frozen `core.billing
-.list_plans(caller, *, service_tenant_id)` (Catalog v2) with a
-`SystemCaller(BILLING_OPERATIONS)` (bypasses `core.rbac.can()` entirely --
-the deliberate, pre-existing "any authenticated actor may read it"
-contract, with no `product.billing.permissions.require()` call, unchanged)
-and `service_tenant_id=core.tenancy.get_platform_tenant_id()`: the plans
-this route now returns are exactly the platform tenant's own adopted
-catalog -- every `platform_plan_key`/`ResalePlan.underlying_plan_key` this
-product creates is adopted there by `product/billing/catalog.py
-::ensure_legacy_plan_adopted()` the first time it is used, `public`
-visibility. Returns `[]`, never a `500`, when no platform tenant is
-configured at all (`core.tenancy.PlatformTenantNotConfiguredError`) --
-a deployment that has not designated one simply has no global catalog yet.
+**Explicit tenant-scoped catalog read** (B2B2C API Contract Expansion,
+Step 5 -- replaces the Step 4 interim fix). `GET /tenants/{tenant_id}/plans`
+calls `product/billing/catalog.py::list_eligible_plans(actor_id,
+tenant_id)`, which authorizes `billing.subscription:read` on `tenant_id`
+itself before calling the frozen `core.billing.list_plans(caller, *,
+service_tenant_id)` (Catalog v2) as a real `UserCaller` -- never a
+`SystemCaller` bypass. This permanently replaces the old, un-scoped
+`GET /plans` (Step 4's own interim fix hardcoded the platform tenant as
+`service_tenant_id`, which answered "what can the platform tenant see,"
+not "what can the calling tenant see" -- a real caller for any OTHER
+tenant got the platform's own catalog, never their own). The path now
+matches this router's own, universal `{tenant_id}` convention, used by
+every other route in this file -- no query parameter was invented. An
+unrelated tenant cannot use this to enumerate another tenant's private
+catalog: eligibility is evaluated for the path's own `tenant_id`, under
+the caller's own real authority there, exactly as `core.billing
+.evaluate_plan_eligibility()` already enforces for every other Catalog v2
+consumer.
 
-**A genuine, confirmed frozen-contract gap, not fixed here**: the
-pre-Catalog-v2 contract this route originally had -- enumerate literally
-every legacy plan in the deployment, adopted or not, regardless of any
-tenant -- has no Catalog v2 equivalent at all (`core/billing/catalog.py`'s
-own module docstring: "there is no unrestricted plan enumeration"; `core
-.billing` exposes no function that lists unowned/unadopted plans). A plan
-created directly via `core.billing.create_plan()` and never subscribed to
-through `product/billing/subscriptions.py`/`resale_plans.py` (so never
-adopted) is, correctly, no longer returned here. Plan *creation* is
+**A genuine, confirmed frozen-contract gap, deliberately not restored**:
+the pre-Catalog-v2 contract the *original* `GET /plans` had -- enumerate
+literally every legacy plan in the deployment, adopted or not, regardless
+of any tenant -- has no Catalog v2 equivalent at all (`core/billing
+/catalog.py`'s own module docstring: "there is no unrestricted plan
+enumeration"; `core.billing` exposes no function that lists unowned/
+unadopted plans). That capability is gone, permanently, by the frozen
+contract's own design, not by an oversight here. Plan *creation* is
 deliberately not exposed here at all (unchanged).
 
 **SaaS entitlement enforcement** (`product/billing/resale_plans.py
@@ -83,6 +86,66 @@ limit. Neither error's own `str()` (which names the entitlement key, or
 the quota metric plus the tenant's own used/limit figures) is echoed into
 the HTTP response -- both use a fixed, generic `detail`, mirroring this
 module's own existing `_conflict()` discipline.
+
+**B2B2C commercial subscriptions and billing accounts** (Step 5). Three
+new routes expose Step 2/3's own services, unchanged, over HTTP for the
+first time:
+
+- `GET /tenants/{tenant_id}/billing-accounts` -- `product/billing
+  /parties.py::list_tenant_billing_accounts(actor_id, tenant_id)`
+  (payer's own `BillingAccount`s; now authorized -- see that function's
+  own docstring for why Step 5 added a check it previously lacked).
+- `POST /tenants/{tenant_id}/commercial-subscriptions` -- `product
+  /billing/commercial_subscriptions.py::create_commercial_subscription()`,
+  unchanged: `payer_tenant_id`/`billing_account_id`/`plan_id` are explicit
+  request-body fields, never inferred from `tenant_id` (the path's own
+  `tenant_id` is always `service_tenant_id` -- the one and only role this
+  router's own `{tenant_id}` already plays for every subscription-shaped
+  route, `create_platform_subscription()`/`create_resale_subscription()`
+  included). Self-pay is `payer_tenant_id == tenant_id`; sponsored is
+  `payer_tenant_id != tenant_id` -- both are the identical request shape,
+  and nothing here special-cases either. No `provider` override is
+  accepted over HTTP (mirrors the existing `/subscriptions` route's own
+  "a caller cannot choose their own payment provider" rule). Dual
+  authorization (payer charge + service create) is enforced entirely by
+  `create_commercial_subscription()` itself -- this route performs no
+  authorization of its own, by design (module docstring, "Ingress
+  dependency choice").
+- `GET /tenants/{tenant_id}/commercial-subscriptions/{subscription_id}`
+  -- `get_commercial_subscription()`, authorized against `tenant_id`
+  (the service tenant) only, unchanged.
+
+The pre-existing `/subscriptions` routes (self-pay/resale only, via
+`core.billing.subscribe_idempotent()`) are completely unchanged and
+untouched -- this is an additive, parallel path, never a replacement; see
+`product/billing/commercial_subscriptions.py`'s own module docstring for
+why the two paths coexist. No "list commercial subscriptions" route
+exists (Step 3 built no `list_commercial_subscriptions()` to expose, and
+the existing `GET /tenants/{tenant_id}/subscriptions` already lists every
+row in `core.billing_subscriptions` for `tenant_id`, commercial rows
+included -- just without `payer_tenant_id`/`billing_account_id`
+/`merchant_account_id`, which `SubscriptionView` has never carried; a
+richer unified listing is explicitly deferred, not silently dropped).
+
+**New error mappings** (Step 5): `BillingAccountNotFoundError`/`core
+.billing.errors.PlanNotEligibleError` (an invalid payer-owned billing
+account, or a plan/offer that does not exist, is withdrawn, is owned by
+an unrelated tenant, or has no matching offer -- SaaS-OS deliberately
+collapses every one of those into the identical, non-enumerating
+`PlanNotEligibleError`, so this router maps it the same way it already
+maps every other not-found-or-forbidden case) join `_NOT_FOUND_ERRORS`
+(`404`). `CommercialPartyNotActiveError`/`LiveSubscriptionExistsError`
+(an inactive merchant, or a second live subscription at the same
+merchant) join `_CONFLICT_ERRORS` (`409`, via this module's own
+`_conflict()`). `core.idempotency.IdempotencyKeyReusedError`/
+`IdempotencyInProgressError` map to `api.errors.idempotency_key_reused()`
+/`idempotency_in_progress()` -- the frozen SaaS-OS reference API error
+shapes for exactly these two cases, `409` with their own distinct, fixed
+`detail` strings, never this module's generic `_conflict()`.
+`BillingProviderMismatchError`/`BillingProviderContractError` join the
+existing `BillingProviderError` bucket (`503`) -- all three are "the
+configured provider adapter cannot serve this merchant," never a caller
+input error.
 """
 
 from __future__ import annotations
@@ -90,24 +153,41 @@ from __future__ import annotations
 import uuid
 
 from api.dependencies import get_current_actor
-from api.errors import forbidden, not_found, quota_exceeded, service_unavailable
-from core.authority import SystemAuthority, SystemCaller
+from api.errors import (
+    forbidden,
+    idempotency_in_progress,
+    idempotency_key_reused,
+    not_found,
+    quota_exceeded,
+    service_unavailable,
+)
 from core.billing import (
+    BillingAccountNotFoundError,
+    BillingProviderContractError,
     BillingProviderError,
+    BillingProviderMismatchError,
+    CommercialPartyNotActiveError,
     DuplicatePlanKeyError,
     EntitlementDeniedError,
     InheritedBillingSubscriptionError,
     InvalidBillingHierarchyError,
     InvalidPlanKeyError,
+    LiveSubscriptionExistsError,
     PlanNotFoundError,
     SubscriptionNotFoundError,
-    list_plans,
 )
-from core.tenancy import PlatformTenantNotConfiguredError, get_platform_tenant_id
+from core.billing.errors import PlanNotEligibleError
+from core.idempotency import IdempotencyInProgressError, IdempotencyKeyReusedError
 from core.usage import QuotaExceededError
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from product.billing.catalog import OwnedPlanView, list_eligible_plans
+from product.billing.commercial_subscriptions import (
+    CommercialSubscriptionView,
+    create_commercial_subscription,
+    get_commercial_subscription,
+)
 from product.billing.errors import (
     BillingAccessDeniedError,
     BillingConflictError,
@@ -122,6 +202,7 @@ from product.billing.models import (
     MAX_KEY_LENGTH,
     MAX_NAME_LENGTH,
 )
+from product.billing.parties import BillingAccountView, list_tenant_billing_accounts
 from product.billing.resale_plans import (
     ResalePlanView,
     create_resale_plan,
@@ -154,12 +235,21 @@ _NOT_FOUND_ERRORS: tuple[type[Exception], ...] = (
     BillingReferenceNotFoundError,
     SubscriptionNotFoundError,
     PlanNotFoundError,
+    BillingAccountNotFoundError,
+    PlanNotEligibleError,
 )
 _CONFLICT_ERRORS: tuple[type[Exception], ...] = (
     BillingConflictError,
     DuplicatePlanKeyError,
     InheritedBillingSubscriptionError,
     InvalidBillingHierarchyError,
+    CommercialPartyNotActiveError,
+    LiveSubscriptionExistsError,
+)
+_PROVIDER_ERRORS: tuple[type[Exception], ...] = (
+    BillingProviderError,
+    BillingProviderMismatchError,
+    BillingProviderContractError,
 )
 
 
@@ -172,13 +262,17 @@ def _call(fn, *args, **kwargs):
         return fn(*args, **kwargs)
     except _VALIDATION_ERRORS as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    except IdempotencyKeyReusedError:
+        raise idempotency_key_reused() from None
+    except IdempotencyInProgressError:
+        raise idempotency_in_progress() from None
     except _CONFLICT_ERRORS:
         raise _conflict(
             "That billing operation conflicts with the tenant's current state."
         ) from None
     except _NOT_FOUND_ERRORS:
         raise not_found("resource") from None
-    except BillingProviderError:
+    except _PROVIDER_ERRORS:
         raise service_unavailable(5) from None
     except EntitlementDeniedError:
         # Fixed, generic detail (module docstring) -- never str(exc), which
@@ -222,6 +316,22 @@ class ChangeSubscriptionPlanRequest(BaseModel):
     resale_plan_id: uuid.UUID | None = None
 
 
+class CreateCommercialSubscriptionRequest(BaseModel):
+    """The B2B2C commercial subscription request (Step 5) -- `payer
+    _tenant_id`/`billing_account_id`/`plan_id` are always explicit,
+    independent fields; never inferred from the path's own `tenant_id`
+    (`service_tenant_id`), never from each other, and never from tenant
+    hierarchy (module docstring). Self-pay is `payer_tenant_id` equal to
+    the path's own `tenant_id`; sponsored is `payer_tenant_id` different
+    -- the identical request shape, no separate "self-pay" flag or
+    endpoint exists because none is needed."""
+
+    payer_tenant_id: uuid.UUID
+    billing_account_id: uuid.UUID
+    plan_id: uuid.UUID
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
 # --- Serialization -------------------------------------------------------------
 
 
@@ -255,28 +365,100 @@ def _subscription_dict(view: SubscriptionView) -> dict[str, object]:
     }
 
 
-# --- Global platform plan catalog (read-only) ------------------------------------
+def _plan_dict(view: OwnedPlanView) -> dict[str, object]:
+    return {
+        "id": str(view.id),
+        "owner_tenant_id": str(view.owner_tenant_id),
+        "merchant_account_id": str(view.merchant_account_id),
+        "key": view.key,
+        "name": view.name,
+        "entitlements": view.entitlements,
+        "visibility": view.visibility,
+        "status": view.status,
+        "created_at": view.created_at.isoformat(),
+        "updated_at": view.updated_at.isoformat(),
+    }
 
 
-@router.get("/plans")
-def list_platform_plans_route(
-    actor_id: uuid.UUID = Depends(get_current_actor),
+def _billing_account_dict(view: BillingAccountView) -> dict[str, object]:
+    return {
+        "id": str(view.id),
+        "tenant_id": str(view.tenant_id),
+        "merchant_tenant_id": str(view.merchant_tenant_id),
+        "merchant_account_id": str(view.merchant_account_id),
+        "status": view.status,
+        "created_at": view.created_at.isoformat(),
+        "updated_at": view.updated_at.isoformat(),
+    }
+
+
+def _commercial_subscription_dict(view: CommercialSubscriptionView) -> dict[str, object]:
+    return {
+        "id": str(view.id),
+        "service_tenant_id": str(view.service_tenant_id),
+        "payer_tenant_id": str(view.payer_tenant_id),
+        "billing_account_id": str(view.billing_account_id),
+        "merchant_account_id": str(view.merchant_account_id),
+        "plan_id": str(view.plan_id),
+        "status": view.status,
+        "created_at": view.created_at.isoformat(),
+        "updated_at": view.updated_at.isoformat(),
+    }
+
+
+# --- Catalog v2: eligible plans (explicit tenant context, Step 5) ---------------
+
+
+@router.get("/tenants/{tenant_id}/plans")
+def list_eligible_plans_route(
+    tenant_id: uuid.UUID, actor_id: uuid.UUID = Depends(get_current_actor)
 ) -> list[dict[str, object]]:
-    # Catalog v2 fix (module docstring, "Global platform-plan catalog
-    # read") -- authentication only, no RBAC: the frozen contract's own
-    # SystemCaller(BILLING_OPERATIONS) escape hatch is used deliberately,
-    # mirroring this route's own pre-existing "any authenticated actor may
-    # read it" contract.
-    del actor_id
-    try:
-        platform_tenant_id = get_platform_tenant_id()
-    except PlatformTenantNotConfiguredError:
-        return []
-    caller = SystemCaller(SystemAuthority.BILLING_OPERATIONS)
+    return [_plan_dict(v) for v in _call(list_eligible_plans, actor_id, tenant_id)]
+
+
+# --- BillingAccount (payer's own, Step 5) ---------------------------------------
+
+
+@router.get("/tenants/{tenant_id}/billing-accounts")
+def list_billing_accounts_route(
+    tenant_id: uuid.UUID, actor_id: uuid.UUID = Depends(get_current_actor)
+) -> list[dict[str, object]]:
     return [
-        {"key": plan.key, "name": plan.name, "entitlements": plan.entitlements}
-        for plan in list_plans(caller, service_tenant_id=platform_tenant_id)
+        _billing_account_dict(v) for v in _call(list_tenant_billing_accounts, actor_id, tenant_id)
     ]
+
+
+# --- Commercial subscriptions (self-pay and sponsored, Step 5) -----------------
+
+
+@router.post("/tenants/{tenant_id}/commercial-subscriptions", status_code=status.HTTP_201_CREATED)
+def create_commercial_subscription_route(
+    tenant_id: uuid.UUID,
+    body: CreateCommercialSubscriptionRequest,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> dict[str, object]:
+    return _commercial_subscription_dict(
+        _call(
+            create_commercial_subscription,
+            actor_id,
+            payer_tenant_id=body.payer_tenant_id,
+            service_tenant_id=tenant_id,
+            billing_account_id=body.billing_account_id,
+            plan_id=body.plan_id,
+            idempotency_key=body.idempotency_key,
+        )
+    )
+
+
+@router.get("/tenants/{tenant_id}/commercial-subscriptions/{subscription_id}")
+def get_commercial_subscription_route(
+    tenant_id: uuid.UUID,
+    subscription_id: uuid.UUID,
+    actor_id: uuid.UUID = Depends(get_current_actor),
+) -> dict[str, object]:
+    return _commercial_subscription_dict(
+        _call(get_commercial_subscription, actor_id, tenant_id, subscription_id)
+    )
 
 
 # --- Resale plans (reseller's own catalog) ---------------------------------------

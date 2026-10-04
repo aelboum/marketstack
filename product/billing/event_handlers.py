@@ -39,9 +39,14 @@ its own tenant. Both granted to `owner` only, for the identical "defining
 commercial terms is revenue-critical" reason `RESALE_PLAN_RESOURCE`'s own
 `create`/`update`/`deactivate` actions already are.
 
-**`billing.account:charge` (B2B2C Sponsored Subscriptions, Step 3)** is
-granted to both `owner` and `member` at their own tenant, for the
-identical reason `billing.subscription:create` already is: it is the
+**`billing.account:read`/`:charge` (B2B2C Sponsored Subscriptions, Step 3;
+`:read` added for the B2B2C API Contract Expansion, Step 5)** is granted
+to both `owner` and `member` at their own tenant. `:read` is what
+`product/billing/parties.py::list_tenant_billing_accounts()` now
+authorizes against (Step 5's own `GET .../billing-accounts` route) --
+a tenant's own members may see which `BillingAccount`s their own tenant
+has, the read-side mirror of `:charge`'s own reach, never wider.
+`:charge` is the
 *payer*-side half of `core.billing.commercial.create_subscription()`'s
 own dual authorization (`product/billing/permissions.py`'s own module
 docstring; `core/billing/authorization.py`'s own vocabulary table, read
@@ -103,13 +108,13 @@ _PLATFORM_OWNER_ROLE_NAME = "platform_owner"
 _OWNER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (RESALE_PLAN_RESOURCE, ("create", "read", "update", "deactivate")),
     (SUBSCRIPTION_RESOURCE, ("create", "read", "update", "cancel")),
-    (BILLING_ACCOUNT_RESOURCE, ("charge",)),
+    (BILLING_ACCOUNT_RESOURCE, ("read", "charge")),
     (BILLING_CATALOG_RESOURCE, ("read", "manage")),
 )
 _MEMBER_GRANTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (RESALE_PLAN_RESOURCE, ("read",)),
     (SUBSCRIPTION_RESOURCE, ("create", "read", "update")),
-    (BILLING_ACCOUNT_RESOURCE, ("charge",)),
+    (BILLING_ACCOUNT_RESOURCE, ("read", "charge")),
 )
 
 

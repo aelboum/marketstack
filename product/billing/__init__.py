@@ -62,4 +62,17 @@ underscore-prefixed and absent from `product/billing/parties.py`'s own
 audit remediation; see that module's own "Trust boundary" docstring
 section for why this matters and what a future caller must do before
 exposing equivalent behavior more broadly).
+
+**B2B2C API Contract Expansion, Step 5** (docs/ROADMAP.md Phase 17):
+`product/billing/routes.py` gains `GET /tenants/{tenant_id}/plans`
+(replacing the old, unrestricted `GET /plans` -- see that module's own
+docstring for the frozen-contract reason it could not simply be
+repaired), `GET /tenants/{tenant_id}/billing-accounts`, and `POST`/
+`GET /tenants/{tenant_id}/commercial-subscriptions[/{subscription_id}]`
+-- the first HTTP exposure of Step 2's `BillingAccount` listing and
+Step 3's sponsored-subscription path. No new wiring: all three already
+lived on the same, already-mounted `router`. `product/billing/parties.py
+::list_tenant_billing_accounts()` gained its first-ever authorization
+check (that module's own docstring explains why it had none before and
+why adding one now is not a breaking change to any real caller).
 """
