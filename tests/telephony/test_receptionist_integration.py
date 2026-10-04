@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from core.authority import SystemAuthority, SystemCaller
 from core.identity import get_user
 from core.rbac import can
 from infra.db import session_scope
@@ -160,7 +161,12 @@ def test_role_can_be_granted_permissions_later_by_a_future_phase() -> None:
         assert role.name == RECEPTIONIST_ROLE_NAME
 
         permission = register_permission("crm.contact", "read")
-        grant_permission(client.tenant_id, actor.role_id, permission.id)
+        grant_permission(
+            client.tenant_id,
+            actor.role_id,
+            permission.id,
+            caller=SystemCaller(SystemAuthority.PROVISIONING),
+        )
         assert can(
             actor_id=actor.user_id,
             tenant_id=client.tenant_id,

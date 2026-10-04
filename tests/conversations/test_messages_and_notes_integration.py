@@ -10,6 +10,7 @@ import uuid
 
 import pytest
 from core.audit_log import list as list_audit_log
+from core.authority import SystemAuthority, SystemCaller
 from core.identity import add_tenant_membership
 from product.agency.provisioning import provision_agency, provision_client
 from product.conversations.errors import (
@@ -205,7 +206,9 @@ def test_assign_thread_to_real_member_succeeds() -> None:
     member = make_user()
     agency, client, thread = _agency_client_and_thread(owner.id)
     try:
-        add_tenant_membership(client.tenant_id, member.id)
+        add_tenant_membership(
+            client.tenant_id, member.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         updated = assign_thread(owner.id, client.tenant_id, thread.id, member.id)
         assert updated.assigned_to_user_id == member.id
     finally:

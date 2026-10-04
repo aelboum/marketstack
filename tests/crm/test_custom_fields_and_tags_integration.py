@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from infra.db import IntegrityError
 from product.agency.provisioning import provision_agency, provision_client
 from product.crm.contacts import create_contact
@@ -127,9 +128,15 @@ def test_client_member_without_definition_authority_is_denied() -> None:
         from product.agency.roles import ensure_client_member_role
 
         role = ensure_client_member_role(client.tenant_id)
-        membership = add_tenant_membership(client.tenant_id, member.id)
+        membership = add_tenant_membership(
+            client.tenant_id, member.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         assign_role(
-            client.tenant_id, membership.id, role.id, scope=RoleScope.SELF, actor_user_id=owner.id
+            client.tenant_id,
+            membership.id,
+            role.id,
+            scope=RoleScope.SELF,
+            caller=UserCaller(owner.id),
         )
 
         with pytest.raises(CrmAccessDeniedError):

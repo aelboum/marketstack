@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from core.identity import add_tenant_membership
 from core.identity.sessions import issue_session
 from core.rbac import RoleScope, assign_role
@@ -165,14 +166,16 @@ def test_assigned_filters_only_expose_real_assignment_data() -> None:
     agency, client = _agency_and_client(owner.id)
     try:
         contact = _contact(owner.id, client.tenant_id)
-        membership = add_tenant_membership(client.tenant_id, member.id)
+        membership = add_tenant_membership(
+            client.tenant_id, member.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         member_role = ensure_client_member_role(client.tenant_id)
         assign_role(
             client.tenant_id,
             membership.id,
             member_role.id,
             scope=RoleScope.SELF,
-            actor_user_id=owner.id,
+            caller=UserCaller(owner.id),
         )
 
         mine = create_thread(owner.id, client.tenant_id, contact_id=contact.id, channel="email")

@@ -18,6 +18,7 @@ from control_plane.approvals import (
     propose_action,
 )
 from control_plane.orchestration import ToolDefinition, ToolRegistry
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from core.identity.sessions import issue_session
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -105,14 +106,16 @@ def _grant_owner_role(tenant_id, granting_owner_id, user_id) -> None:
     from core.rbac import RoleScope, assign_role
     from product.agency.roles import ensure_agency_owner_role
 
-    membership = add_tenant_membership(tenant_id, user_id)
+    membership = add_tenant_membership(
+        tenant_id, user_id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+    )
     owner_role = ensure_agency_owner_role(tenant_id)
     assign_role(
         tenant_id,
         membership.id,
         owner_role.id,
         scope=RoleScope.SELF,
-        actor_user_id=granting_owner_id,
+        caller=UserCaller(granting_owner_id),
     )
 
 
@@ -527,14 +530,16 @@ def test_http_unauthorized_member_cannot_decide_but_can_read() -> None:
     proposer = make_user()
     agency, client = _agency_and_client(owner.id)
     try:
-        membership = add_tenant_membership(client.tenant_id, member_user.id)
+        membership = add_tenant_membership(
+            client.tenant_id, member_user.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         member_role = ensure_client_member_role(client.tenant_id)
         assign_role(
             client.tenant_id,
             membership.id,
             member_role.id,
             scope=RoleScope.SELF,
-            actor_user_id=owner.id,
+            caller=UserCaller(owner.id),
         )
         created = _propose(client.tenant_id, proposer.id)
 

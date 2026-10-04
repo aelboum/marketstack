@@ -14,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from core.identity import add_tenant_membership
 from core.rbac import RoleScope, assign_role
 from infra.db import select, tenant_session_scope
@@ -60,10 +61,12 @@ def _agency_and_client(owner_id):
 
 
 def _add_member(owner_id, tenant_id, user_id) -> None:
-    membership = add_tenant_membership(tenant_id, user_id)
+    membership = add_tenant_membership(
+        tenant_id, user_id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+    )
     member_role = ensure_client_member_role(tenant_id)
     assign_role(
-        tenant_id, membership.id, member_role.id, scope=RoleScope.SELF, actor_user_id=owner_id
+        tenant_id, membership.id, member_role.id, scope=RoleScope.SELF, caller=UserCaller(owner_id)
     )
 
 

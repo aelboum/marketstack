@@ -21,6 +21,7 @@ import uuid
 
 import pytest
 from core.audit_log import list as list_audit_log
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from product.agency.delegation import create_client_deny
 from product.agency.provisioning import provision_agency, provision_client
 from product.appointments import event_handlers as _appointments_event_handlers  # noqa: F401
@@ -423,14 +424,16 @@ def test_assign_opportunity_action_end_to_end() -> None:
         from core.rbac import RoleScope, assign_role
         from product.agency.roles import ensure_client_member_role
 
-        membership = add_tenant_membership(client.tenant_id, member.id)
+        membership = add_tenant_membership(
+            client.tenant_id, member.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         member_role = ensure_client_member_role(client.tenant_id)
         assign_role(
             client.tenant_id,
             membership.id,
             member_role.id,
             scope=RoleScope.SELF,
-            actor_user_id=owner.id,
+            caller=UserCaller(owner.id),
         )
 
         pipeline = create_pipeline(owner.id, client.tenant_id, name="Sales")

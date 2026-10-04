@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from core.authority import SystemAuthority, SystemCaller, UserCaller
 from infra.db import IntegrityError, tenant_session_scope
 from product.agency.provisioning import provision_agency, provision_client
 from product.crm.companies import (
@@ -218,7 +219,9 @@ def test_client_member_with_read_only_cannot_delete() -> None:
     agency, client = _agency_and_client(owner.id)
     try:
         member_role = ensure_client_member_role(client.tenant_id)
-        membership = add_tenant_membership(client.tenant_id, member_user.id)
+        membership = add_tenant_membership(
+            client.tenant_id, member_user.id, caller=SystemCaller(SystemAuthority.PROVISIONING)
+        )
         owner_membership = get_membership(client.tenant_id, owner.id)
         assert owner_membership is None  # owner has no direct membership at the client
         assign_role(
@@ -226,7 +229,7 @@ def test_client_member_with_read_only_cannot_delete() -> None:
             membership.id,
             member_role.id,
             scope=RoleScope.SELF,
-            actor_user_id=owner.id,
+            caller=UserCaller(owner.id),
         )
 
         contact = create_contact(
