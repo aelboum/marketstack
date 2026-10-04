@@ -30,6 +30,7 @@ import uuid
 
 from api.dependencies import get_current_actor
 from api.errors import not_found, rate_limited, service_unavailable
+from api.route_policy import public_route
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from infra.ratelimit import (
@@ -514,7 +515,11 @@ async def _enforce_public_rate_limit(key: str) -> None:
         raise service_unavailable(5) from None
 
 
-@router.post("/forms/{form_token}/submit", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/forms/{form_token}/submit",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(public_route("public form submit; token resolves tenant, rate-limited"))],
+)
 async def submit_form_route(form_token: str, body: SubmitFormRequest) -> dict[str, object]:
     """The one deliberately-unauthenticated write path in this product
     (docs/ROADMAP.md Phase 6.3) -- no `get_current_actor` dependency, no
@@ -618,7 +623,10 @@ def clone_template_route(
 # --- Tracking (public, unauthenticated) -----------------------------------------
 
 
-@router.get("/track/open/{tracking_token}")
+@router.get(
+    "/track/open/{tracking_token}",
+    dependencies=[Depends(public_route("email open pixel, fetched by mail clients"))],
+)
 def track_open_route(tracking_token: str) -> Response:
     """Never a 404, regardless of whether `tracking_token` resolves --
     see `product/marketing/tracking.py`'s own module docstring for why a
@@ -633,7 +641,10 @@ def track_open_route(tracking_token: str) -> Response:
     return Response(content=TRANSPARENT_GIF_BYTES, media_type="image/gif")
 
 
-@router.get("/track/click/{tracking_token}")
+@router.get(
+    "/track/click/{tracking_token}",
+    dependencies=[Depends(public_route("email click redirect, followed by recipients"))],
+)
 def track_click_route(tracking_token: str) -> RedirectResponse:
     """Redirects to the resolved campaign's own server-stored
     `click_target_url` -- and ONLY that; this handler accepts no query

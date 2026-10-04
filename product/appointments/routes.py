@@ -40,6 +40,7 @@ from datetime import date, datetime
 
 from api.dependencies import get_current_actor
 from api.errors import not_found, rate_limited, service_unavailable
+from api.route_policy import public_route
 from fastapi import APIRouter, Depends, HTTPException, status
 from infra.ratelimit import (
     RateLimitBackendError,
@@ -637,7 +638,13 @@ def sweep_reminders_route(
 # --- Public, unauthenticated booking/manage -------------------------------------
 
 
-@router.post("/book/{link_token}", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/book/{link_token}",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(public_route("public booking; link token resolves calendar, rate-limited"))
+    ],
+)
 async def public_book_appointment_route(
     link_token: str, body: PublicBookAppointmentRequest
 ) -> dict[str, object]:
@@ -661,7 +668,10 @@ async def public_book_appointment_route(
     )
 
 
-@router.get("/manage/{manage_token}")
+@router.get(
+    "/manage/{manage_token}",
+    dependencies=[Depends(public_route("invitee self-service; manage token is the credential"))],
+)
 async def public_get_appointment_route(manage_token: str) -> dict[str, object]:
     await _enforce_public_rate_limit(f"appointments_manage:{manage_token}")
     view = resolve_manage_token(manage_token)
@@ -670,13 +680,19 @@ async def public_get_appointment_route(manage_token: str) -> dict[str, object]:
     return _appointment_dict(view)
 
 
-@router.post("/manage/{manage_token}/cancel")
+@router.post(
+    "/manage/{manage_token}/cancel",
+    dependencies=[Depends(public_route("invitee self-service; manage token is the credential"))],
+)
 async def public_cancel_appointment_route(manage_token: str) -> dict[str, object]:
     await _enforce_public_rate_limit(f"appointments_manage:{manage_token}")
     return _appointment_dict(_call(public_cancel_appointment, manage_token))
 
 
-@router.post("/manage/{manage_token}/reschedule")
+@router.post(
+    "/manage/{manage_token}/reschedule",
+    dependencies=[Depends(public_route("invitee self-service; manage token is the credential"))],
+)
 async def public_reschedule_appointment_route(
     manage_token: str, body: RescheduleAppointmentRequest
 ) -> dict[str, object]:

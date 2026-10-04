@@ -61,7 +61,8 @@ from __future__ import annotations
 import uuid
 from urllib.parse import parse_qsl
 
-from fastapi import APIRouter, Request, Response
+from api.route_policy import public_route
+from fastapi import APIRouter, Depends, Request, Response
 
 from product.telephony.adapters.twilio_provider import TwilioTelephonyProvider
 from product.telephony.calls import (
@@ -121,7 +122,10 @@ def _request_path(request: Request) -> str:
     return request.url.path
 
 
-@router.post("/inbound-call")
+@router.post(
+    "/inbound-call",
+    dependencies=[Depends(public_route("Twilio webhook; authenticated by request signature"))],
+)
 async def inbound_call_webhook(request: Request) -> Response:
     body = await request.body()
     path = _request_path(request)
@@ -165,7 +169,10 @@ async def inbound_call_webhook(request: Request) -> Response:
     return Response(content=_EMPTY_TWIML_RESPONSE, media_type="application/xml")
 
 
-@router.post("/transfer-events/{tenant_id}/{original_provider_call_id}/{attempt_id}")
+@router.post(
+    "/transfer-events/{tenant_id}/{original_provider_call_id}/{attempt_id}",
+    dependencies=[Depends(public_route("Twilio webhook; authenticated by request signature"))],
+)
 async def transfer_events_webhook(
     tenant_id: str, original_provider_call_id: str, attempt_id: str, request: Request
 ) -> Response:

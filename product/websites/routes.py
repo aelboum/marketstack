@@ -47,6 +47,7 @@ import uuid
 
 from api.dependencies import get_current_actor
 from api.errors import not_found, rate_limited, service_unavailable
+from api.route_policy import public_route
 from core.idempotency import IdempotencyKeyInvalidError
 from fastapi import APIRouter, Depends, HTTPException, status
 from infra.ratelimit import (
@@ -425,7 +426,10 @@ def list_lead_submissions_route(
 # --- Public, unauthenticated page render -----------------------------------------
 
 
-@router.get("/public/{website_slug}/{page_slug}")
+@router.get(
+    "/public/{website_slug}/{page_slug}",
+    dependencies=[Depends(public_route("published website page for anonymous visitors"))],
+)
 async def public_get_page_route(website_slug: str, page_slug: str) -> dict[str, object]:
     """The public page-render endpoint (docs/ROADMAP.md Phase 11.1) -- no
     `get_current_actor` dependency, no `tenant_id` in the path
@@ -466,7 +470,11 @@ async def public_get_page_route(website_slug: str, page_slug: str) -> dict[str, 
     }
 
 
-@router.post("/public/{website_slug}/{page_slug}/leads", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/public/{website_slug}/{page_slug}/leads",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(public_route("website lead capture by anonymous visitors"))],
+)
 async def public_capture_lead_route(
     website_slug: str, page_slug: str, body: CaptureLeadRequest
 ) -> dict[str, object]:
